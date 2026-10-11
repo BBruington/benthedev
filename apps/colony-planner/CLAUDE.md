@@ -4,7 +4,8 @@ A private website for colony campaigns (several DMs, each with about six players
 the first) plus Beny Bot, its one shared Discord bot. One Go binary serves a huma JSON API, the embedded
 React SPA, live updates over SSE and the bot, on Postgres. The design is `docs/SPEC.md`, and M1.5's
 multi-campaign design is `docs/design/multi-campaign.md`: read the sections your task touches before
-changing behavior.
+changing behavior. Starting a new session? Read `docs/HANDOFF.md` first: the author's decisions and
+working preferences, current status, pending items, and how to test without touching the author's setup.
 
 ## Commands
 
@@ -188,8 +189,9 @@ reaches 0 or morale is low. An undecided rule is data or an open question (`docs
 ## Process
 
 - Work one milestone at a time (`docs/SPEC.md` §10) and stop after each for the author's check-in.
-- The author makes every commit. Agents never commit or push (git or jj). The author's messages use
-  conventional prefixes: feat:, fix:, chore:, refactor:, docs:, test:.
+- The author makes commits. Agents commit or push (git or jj) only when the author asks for a PR: then
+  on a claude/<name> branch, never main, and the author merges. Messages use conventional prefixes:
+  feat:, fix:, chore:, refactor:, docs:, test:.
 - Pin exact dependency versions, choosing the newest release that is at least two weeks old.
 
 ## Conventions

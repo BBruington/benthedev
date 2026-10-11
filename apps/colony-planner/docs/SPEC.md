@@ -1578,7 +1578,7 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 
 **Before M1**
 
-5. **What players see.** Should players see exact stockpile numbers, as today? Should they see each visible patron's exact favor? That would be new, since players have never seen patrons or favor. *Default: yes to both; they need favor to make requests.*
+5. **What players see.** **Resolved in part (2026-10-10):** players see exact stockpile numbers. A role hierarchy (say, only a treasurer sees gold) is a "maybe, probably not": don't build it, don't rule it out. Still open: should players see each visible patron's exact favor? That would be new, since players have never seen patrons or favor. *Default: yes; they need favor to make requests.*
 6. **Population import.** **Resolved (F2):** there is no import, so there is nothing to reconcile. Named NPC colonists count on top of each role's unnamed headcount (§5.5).
 7. **Shipment cargo.** Should shipments stay "countdown + Record cargo when it lands", or have a standing manifest applied on each arrival (e.g. +20 food, +2 colonists, landing in Unassigned)? Could a patron change it? *Default: Record cargo.*
 
