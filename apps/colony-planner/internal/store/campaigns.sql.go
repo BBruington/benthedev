@@ -157,8 +157,9 @@ const createSettings = `-- name: CreateSettings :exec
 INSERT INTO settings (campaign_id) VALUES ($1)
 `
 
-// A new campaign's rows: the column defaults (The Colony, Day 0, UTC, no channels), and exactly the
-// resources and roles 0001 and 0002 used to insert. They are data, not rules.
+// A new campaign's rows: the column defaults (The Colony, Day 0, UTC, no channels), and the resources
+// and roles in CreateDefaultResources and CreateDefaultRoles, the ones M1's migrations inserted. They
+// are data, not rules.
 func (q *Queries) CreateSettings(ctx context.Context, campaignID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, createSettings, campaignID)
 	return err

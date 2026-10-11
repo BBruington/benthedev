@@ -12,7 +12,8 @@ import (
 
 // Link codes join a Discord server to a campaign (docs/design/multi-campaign.md §6.2). They live in
 // memory, not in a table (single replica, Invariant 8): a restart forgets them and the DM gets a new
-// one. One live code per campaign; a new one replaces it; each is used once.
+// one. One live code per campaign; a new one replaces it; each is used once, by the /link that
+// succeeds.
 
 // linkCodeAlphabet leaves out 0, 1, I, L and O, which read alike. Ten characters of it are about
 // 49 bits.
@@ -62,20 +63,31 @@ func (codes *linkCodeStore) issue(campaignID uuid.UUID) (string, time.Time, erro
 	return code, expiresAt, nil
 }
 
-// take uses a code up: it answers the campaign and true once, while the code is live.
-func (codes *linkCodeStore) take(typed string) (uuid.UUID, bool) {
+// lookup answers the campaign of a live code without using it up: /link checks everything else first,
+// so a refused /link leaves the code working.
+func (codes *linkCodeStore) lookup(typed string) (uuid.UUID, bool) {
 	code := normalizeLinkCode(typed)
 	codes.mutex.Lock()
 	defer codes.mutex.Unlock()
 	entry, found := codes.byCode[code]
-	if !found {
-		return uuid.Nil, false
-	}
-	codes.dropLocked(entry.campaignID)
-	if !codes.now().UTC().Before(entry.expiresAt) {
+	if !found || !codes.now().UTC().Before(entry.expiresAt) {
 		return uuid.Nil, false
 	}
 	return entry.campaignID, true
+}
+
+// claim uses a live code of the campaign up, once. It answers false when the code has expired, was
+// replaced or dropped, or another /link claimed it first.
+func (codes *linkCodeStore) claim(typed string, campaignID uuid.UUID) bool {
+	code := normalizeLinkCode(typed)
+	codes.mutex.Lock()
+	defer codes.mutex.Unlock()
+	entry, found := codes.byCode[code]
+	if !found || entry.campaignID != campaignID {
+		return false
+	}
+	codes.dropLocked(campaignID)
+	return codes.now().UTC().Before(entry.expiresAt)
 }
 
 // drop forgets a campaign's live code: suspension and deletion.

@@ -53,8 +53,9 @@ JOIN campaign_member AS dm_member ON dm_member.campaign_id = campaign.id AND dm_
 JOIN account AS dm_account ON dm_account.id = dm_member.account_id
 ORDER BY campaign.created_at, campaign.id;
 
--- A new campaign's rows: the column defaults (The Colony, Day 0, UTC, no channels), and exactly the
--- resources and roles 0001 and 0002 used to insert. They are data, not rules.
+-- A new campaign's rows: the column defaults (The Colony, Day 0, UTC, no channels), and the resources
+-- and roles in CreateDefaultResources and CreateDefaultRoles, the ones M1's migrations inserted. They
+-- are data, not rules.
 -- name: CreateSettings :exec
 INSERT INTO settings (campaign_id) VALUES (@campaign_id);
 

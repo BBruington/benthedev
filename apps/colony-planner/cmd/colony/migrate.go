@@ -30,6 +30,10 @@ func migrate(commandContext context.Context, arguments []string) error {
 	}
 	database := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = database.Close() }()
+	// Status lists only the embedded migrations, so it would show a refused database as up to date.
+	if err := db.CheckMigrationHistory(commandContext, database); err != nil {
+		return err
+	}
 	provider, err := db.MigrationProvider(database, true)
 	if err != nil {
 		return err

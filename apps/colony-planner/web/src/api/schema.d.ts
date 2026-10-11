@@ -1161,7 +1161,8 @@ export interface components {
             isDm: boolean;
             /** Format: date-time */
             lastSeenAt: string | null;
-            leftOnOwn: boolean;
+            /** @description null unless status is REMOVED */
+            removalKind: components["schemas"]["RemovalKind"] | null;
             status: components["schemas"]["MemberStatus"];
         };
         MemberGroups: {
@@ -1206,6 +1207,8 @@ export interface components {
             /** @description Newest first, at most 10 */
             entries: components["schemas"]["TimelineEntry"][];
         };
+        /** @enum {string} */
+        RemovalKind: "LEFT" | "DENIED" | "REMOVED";
         ResourceChangePreview: {
             /** Format: int64 */
             after: number;

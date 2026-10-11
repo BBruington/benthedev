@@ -202,11 +202,13 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 }
 
 // checkChannels accepts a channel only from the linked server's text channels, so a DM can never make
-// Beny Bot post into someone else's server. With Beny Bot off the list is unknown, so only the stored
-// channels are accepted unchanged.
+// Beny Bot post into someone else's server. When that list is unknown (Beny Bot is off, or Discord's
+// list can't be read right now), the stored channels are accepted unchanged, so the DM can still save
+// the rest of Settings, and only a change is refused.
 func (service *Service) checkChannels(requestContext context.Context, link *store.DiscordGuildLink, channels map[string]*string, stored map[string]*string) []FieldError {
 	var fieldErrors []FieldError
 	var allowed map[string]bool
+	listUnreadable := false
 	for _, field := range slices.Sorted(maps.Keys(channels)) {
 		channelID := channels[field]
 		if channelID == nil {
@@ -216,22 +218,29 @@ func (service *Service) checkChannels(requestContext context.Context, link *stor
 			fieldErrors = append(fieldErrors, FieldError{Field: field, Message: "Link a Discord server first."})
 			continue
 		}
-		if previous := stored[field]; previous != nil && *previous == *channelID && service.directory == nil {
-			continue
-		}
+		unchanged := stored[field] != nil && *stored[field] == *channelID
 		if service.directory == nil {
-			fieldErrors = append(fieldErrors, FieldError{Field: field, Message: "Beny Bot is off, so channels can't be checked. Try again when it is on."})
+			if !unchanged {
+				fieldErrors = append(fieldErrors, FieldError{Field: field, Message: "Beny Bot is off, so channels can't be checked. Try again when it is on."})
+			}
 			continue
 		}
 		if allowed == nil {
 			allowed = map[string]bool{}
 			textChannels, err := service.directory.TextChannels(requestContext, link.GuildID)
 			if err != nil {
+				listUnreadable = true
 				service.logger.WarnContext(requestContext, "could not list a linked server's channels", slog.String("guildId", link.GuildID), slog.Any("error", err))
 			}
 			for _, channel := range textChannels {
 				allowed[channel.ID] = true
 			}
+		}
+		if listUnreadable {
+			if !unchanged {
+				fieldErrors = append(fieldErrors, FieldError{Field: field, Message: "Discord's channel list couldn't be read right now. Try again in a moment."})
+			}
+			continue
 		}
 		if !allowed[*channelID] {
 			fieldErrors = append(fieldErrors, FieldError{Field: field, Message: "Pick a text channel of the linked server."})

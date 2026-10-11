@@ -41,12 +41,9 @@ issue or a screenshot. If one leaks, reset it on the same page and update `.env`
 
 ## Coming from M1
 
-M1's `.env` had `DM_DISCORD_ID` and `DISCORD_GUILD_ID`. M1.5 replaces both.
+M1.5 names the site owner with `SITE_OWNER_DISCORD_ID` and replaces M1's `DISCORD_GUILD_ID`.
 
-1. In Terminal, in the `colony-planner` folder, run `mise run env:upgrade`. It renames `DM_DISCORD_ID`
-   to `SITE_OWNER_DISCORD_ID` in `.env` and keeps the value, without printing it. Until you do, every
-   `colony` command that touches the database or serves (`mise run dev`, `seed`, `reset`, `fresh`) stops
-   with "DM_DISCORD_ID is gone". You can also rename the line by hand.
+1. Put your own Discord user ID in `SITE_OWNER_DISCORD_ID` in `.env` (step 5 says how to copy it).
 2. **Keep `DISCORD_GUILD_ID` for one start of Beny Bot.** M1 registered `/beny` in that one server only;
    now Beny Bot registers its commands for every server. On the first `mise run dev` with Beny Bot on,
    it clears the old server-only `/beny` and logs `old guild commands cleared; delete DISCORD_GUILD_ID
@@ -163,7 +160,8 @@ Leave every other line as it is. `PUBLIC_URL` stays `http://localhost:5173`.
 4. **Link the server.** In Sample Colony open **Settings** → **Discord server** → **Get a link code**. In
    the test server, type `/link` and paste the code into its `code` box (`/link code:BENY-XXXXX-XXXXX`).
    Beny Bot answers "Linked this server to **Sample Colony**. Pick channels in the campaign's Settings."
-   A code works once, for 15 minutes, and a restart of the site forgets it; get a new one if it's refused.
+   A code links one server, within 15 minutes; a refused `/link` doesn't use it up. A restart of the site
+   forgets it, so get a new one if Beny Bot says it doesn't work.
    Only members with **Manage Server** see `/link` and `/unlink`.
 5. Settings now shows "Linked to Colony Planner Test". Pick `dm-desk` from the **DM channel** list and
    save.
@@ -195,7 +193,6 @@ while Beny Bot is off; its channel lists are empty until it is back.
 
 | What you see | What to check |
 |---|---|
-| `mise run dev` stops at once with "DM_DISCORD_ID is gone" | Run `mise run env:upgrade` (see "Coming from M1"). |
 | Discord says "Invalid OAuth2 redirect_uri" | The redirect in step 3 must be exactly `http://localhost:5173/auth/discord/callback` and saved. |
 | No **Sign in with Discord** button | `DISCORD_CLIENT_ID` or `DISCORD_CLIENT_SECRET` is empty, or `mise run dev` wasn't restarted after editing `.env`. |
 | No **Site admin** in the profile menu | `SITE_OWNER_DISCORD_ID` isn't your user ID, or `mise run dev` wasn't restarted after editing `.env`. |
@@ -206,9 +203,9 @@ while Beny Bot is off; its channel lists are empty until it is back.
 | "The application did not respond" | The site isn't running, or it was started without the bot token. |
 | "Use Beny Bot in your campaign's server." | The command was sent in a direct message. Run it in the linked server. |
 | "This server isn't linked to a campaign yet." | Link it: step 4 of "Try it". |
-| "That code doesn't work." | The code expired (15 minutes), was used already, or the site restarted since you got it. Get a new one on Settings. |
-| "This server is already linked to a campaign." | Unlink it in that campaign's Settings, or run `/unlink` in the server, then `/link` again. |
-| "Unlink the other server in Settings first." | This campaign is linked to another server. Unlink it on Settings first. |
+| "That code doesn't work." | The code expired (15 minutes), already linked a server, or the site restarted since you got it. Get a new one on Settings. |
+| "This server is already linked to a campaign." | Unlink it in that campaign's Settings, or run `/unlink` in the server, then run `/link` again with the same code if it hasn't expired. |
+| "Unlink the other server in Settings first." | This campaign is linked to another server. Unlink the other server (on Settings, or `/unlink` there), then run `/link` again with the same code if it hasn't expired. |
 | "Only someone with the Manage Server permission can do that." | Ask the server's owner, or give your role Manage Server. |
 | "You're not in this campaign." | That Discord account has no membership in the campaign linked to this server. Open the campaign's invite link with it and have the DM let it in. |
 | "The DM hasn't let you in yet." | The account is waiting or was removed. The DM lets it in on Players. |

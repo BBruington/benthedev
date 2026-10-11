@@ -2,6 +2,8 @@ package core_test
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -184,7 +186,7 @@ func TestLeavingACampaign(t *testing.T) {
 		t.Fatalf("the DM left: %v", err)
 	}
 	left, err := test.service.LeaveCampaign(test.context, ana)
-	if err != nil || left.Status != core.MemberStatusRemoved || left.Member.Dm == nil || !left.Member.Dm.LeftOnOwn {
+	if err != nil || left.Status != core.MemberStatusRemoved || left.Member.Dm == nil || removalKind(left.Member) != core.RemovalKindLeft {
 		t.Fatalf("leave from ACTIVE = %+v, %v", left, err)
 	}
 	if _, err := test.service.LeaveCampaign(test.context, bram); err != nil {
@@ -202,12 +204,302 @@ func TestLeavingACampaign(t *testing.T) {
 		t.Fatalf("the invite link after leaving = %+v, %v", rejoined, err)
 	}
 	groups, err := test.service.ListMembers(test.context, dm)
-	if err != nil || len(groups.Removed) != 2 || !groups.Removed[0].Dm.LeftOnOwn {
+	if err != nil || len(groups.Removed) != 2 || removalKind(groups.Removed[0]) != core.RemovalKindLeft {
 		t.Fatalf("players = %+v, %v", groups, err)
 	}
 	readmitted, err := test.service.ReadmitMember(test.context, dm, ana.MemberID())
-	if err != nil || readmitted.Dm.Status != core.MemberStatusActive || readmitted.Dm.LeftOnOwn {
+	if err != nil || readmitted.Dm.Status != core.MemberStatusActive || readmitted.Dm.RemovalKind != nil {
 		t.Fatalf("re-admit = %+v, %v", readmitted, err)
+	}
+}
+
+// A refused /link leaves the code working; only the link that is made uses it up, and only once.
+func TestRefusedLinksKeepTheCode(t *testing.T) {
+	test := newFixture(t)
+	_, dmA := test.campaign(test.caller(discordID(1), "dm-a"), "A", "campaign-a")
+	_, dmB := test.campaign(test.caller(discordID(2), "dm-b"), "B", "campaign-b")
+	const guildX = "900000000000000001"
+	const guildY = "900000000000000002"
+	const guildZ = "900000000000000003"
+	link := func(code string, guildID string) error {
+		_, err := test.service.LinkGuild(test.context, core.LinkGuildInput{Code: code, GuildID: guildID, GuildName: "Test", DiscordUserID: discordID(1)})
+		return err
+	}
+	linkedGuild := func(dm core.Viewer) string {
+		t.Helper()
+		settings, err := test.service.GetSettings(test.context, dm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settings.DiscordServer == nil {
+			return ""
+		}
+		return settings.DiscordServer.GuildID
+	}
+	codeB, _ := test.service.CreateLinkCode(test.context, dmB)
+	if err := link(codeB.Code, guildX); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _ := test.service.CreateLinkCode(test.context, dmA)
+	if err := link(code.Code, guildX); !errors.Is(err, core.ErrGuildAlreadyLinked) {
+		t.Fatalf("a server linked elsewhere: %v", err)
+	}
+	if err := link(code.Code, "not a server"); !isKind(err, core.KindInvalid) {
+		t.Fatalf("a malformed server: %v", err)
+	}
+	if err := link(code.Code, guildY); err != nil {
+		t.Fatalf("the code after two refusals: %v", err)
+	}
+	if linkedGuild(dmA) != guildY || linkedGuild(dmB) != guildX {
+		t.Fatalf("A is on %q and B on %q", linkedGuild(dmA), linkedGuild(dmB))
+	}
+	// Used once: unlinking doesn't bring the code back.
+	if err := test.service.UnlinkGuild(test.context, dmA); err != nil {
+		t.Fatal(err)
+	}
+	if err := link(code.Code, guildY); !errors.Is(err, core.ErrLinkCodeInvalid) {
+		t.Fatalf("a used code worked again: %v", err)
+	}
+
+	// The campaign already linked: unlink the other server, then the same code works.
+	if err := link(mustLinkCode(t, test, dmA), guildY); err != nil {
+		t.Fatal(err)
+	}
+	second := mustLinkCode(t, test, dmA)
+	if err := link(second, guildZ); !errors.Is(err, core.ErrCampaignAlreadyLinked) {
+		t.Fatalf("a second server: %v", err)
+	}
+	if err := test.service.UnlinkGuild(test.context, dmA); err != nil {
+		t.Fatal(err)
+	}
+	if err := link(second, guildZ); err != nil || linkedGuild(dmA) != guildZ {
+		t.Fatalf("the same code after unlinking the other server: %v (linked to %q)", err, linkedGuild(dmA))
+	}
+	// A refused code still expires.
+	third := mustLinkCode(t, test, dmA)
+	if err := link(third, guildY); !errors.Is(err, core.ErrCampaignAlreadyLinked) {
+		t.Fatal(err)
+	}
+	if err := test.service.UnlinkGuild(test.context, dmA); err != nil {
+		t.Fatal(err)
+	}
+	test.clock.advance(core.LinkCodeLifetime)
+	if err := link(third, guildY); !errors.Is(err, core.ErrLinkCodeInvalid) {
+		t.Fatalf("an expired code: %v", err)
+	}
+}
+
+func mustLinkCode(t *testing.T, test *fixture, dm core.Viewer) string {
+	t.Helper()
+	code, err := test.service.CreateLinkCode(test.context, dm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code.Code
+}
+
+// Several /link runs with one code at once: exactly one links, whatever the servers.
+func TestConcurrentLinksWithOneCode(t *testing.T) {
+	test := newFixture(t)
+	_, dm := test.campaign(test.caller(discordID(1), "dm"), "A", "campaign-a")
+	for round, sameServer := range []bool{false, true} {
+		code := mustLinkCode(t, test, dm)
+		const attempts = 6
+		start := make(chan struct{})
+		results := make(chan error, attempts)
+		var waitGroup sync.WaitGroup
+		for attempt := range attempts {
+			guildID := fmt.Sprintf("9000000000000%02d%03d", round, attempt)
+			if sameServer {
+				guildID = fmt.Sprintf("9000000000000%02d999", round)
+			}
+			waitGroup.Go(func() {
+				<-start
+				_, err := test.service.LinkGuild(test.context, core.LinkGuildInput{Code: code, GuildID: guildID, GuildName: "Test", DiscordUserID: discordID(1)})
+				results <- err
+			})
+		}
+		close(start)
+		waitGroup.Wait()
+		close(results)
+		succeeded := 0
+		for err := range results {
+			switch {
+			case err == nil:
+				succeeded++
+			case errors.Is(err, core.ErrCampaignAlreadyLinked), errors.Is(err, core.ErrGuildAlreadyLinked), errors.Is(err, core.ErrLinkCodeInvalid):
+			default:
+				t.Errorf("round %d: an unexpected refusal: %v", round, err)
+			}
+		}
+		if succeeded != 1 {
+			t.Fatalf("round %d: %d links succeeded, want 1", round, succeeded)
+		}
+		if err := test.service.UnlinkGuild(test.context, dm); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := test.service.LinkGuild(test.context, core.LinkGuildInput{Code: code, GuildID: "900000000000000777", GuildName: "Test"}); !errors.Is(err, core.ErrLinkCodeInvalid) {
+			t.Fatalf("round %d: the code outlived its link: %v", round, err)
+		}
+	}
+}
+
+// Ready reconciliation never acts on an empty guild list; an explicit list still unlinks.
+func TestReconcileIgnoresAnEmptyReady(t *testing.T) {
+	test := newFixture(t)
+	_, dm := test.campaign(test.caller(discordID(1), "dm"), "A", "campaign-a")
+	if unlinked, err := test.service.ReconcileGuilds(test.context, nil); err != nil || unlinked != 0 {
+		t.Fatalf("nothing linked: %d, %v", unlinked, err)
+	}
+	const guildID = "900000000000000001"
+	if _, err := test.service.LinkGuild(test.context, core.LinkGuildInput{Code: mustLinkCode(t, test, dm), GuildID: guildID, GuildName: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, empty := range [][]string{nil, {}} {
+		if unlinked, err := test.service.ReconcileGuilds(test.context, empty); err != nil || unlinked != 0 {
+			t.Fatalf("an empty Ready (%#v): %d unlinked, %v", empty, unlinked, err)
+		}
+	}
+	if _, err := test.service.ViewerForGuild(test.context, guildID, discordID(1)); err != nil {
+		t.Fatalf("an empty Ready unlinked the server: %v", err)
+	}
+	if unlinked, err := test.service.ReconcileGuilds(test.context, []string{guildID}); err != nil || unlinked != 0 {
+		t.Fatalf("a Ready that lists the server: %d, %v", unlinked, err)
+	}
+	if unlinked, err := test.service.ReconcileGuilds(test.context, []string{"900000000000000002"}); err != nil || unlinked != 1 {
+		t.Fatalf("a Ready that lists only another server: %d, %v", unlinked, err)
+	}
+	if _, err := test.service.ViewerForGuild(test.context, guildID, discordID(1)); !errors.Is(err, core.ErrGuildNotLinked) {
+		t.Fatalf("after a Ready without it: %v", err)
+	}
+}
+
+// When Discord's channel list can't be read, saving Settings keeps the stored channels and refuses
+// only a change.
+func TestChannelsWhenDiscordCantBeRead(t *testing.T) {
+	test := newFixture(t)
+	_, dm := test.campaign(test.caller(discordID(1), "dm"), "A", "campaign-a")
+	const guildID = "900000000000000001"
+	stored := "910000000000000001"
+	other := "910000000000000002"
+	test.directory.channels[guildID] = []core.DiscordChannel{{ID: stored, Name: "announcements"}, {ID: other, Name: "general"}}
+	if _, err := test.service.LinkGuild(test.context, core.LinkGuildInput{Code: mustLinkCode(t, test, dm), GuildID: guildID, GuildName: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	input := core.SettingsInput{CampaignName: "A", ColonyName: "A", Timezone: "UTC", DiscordAnnounceChannelID: &stored}
+	if _, err := test.service.UpdateSettings(test.context, dm, input); err != nil {
+		t.Fatal(err)
+	}
+
+	test.directory.unreadable = true
+	if options, err := test.service.DiscordChannelOptions(test.context, dm); err != nil || options == nil || len(options) != 0 {
+		t.Fatalf("the picker while the list can't be read = %#v, %v; want an empty list", options, err)
+	}
+	input.Timezone = "Europe/Paris"
+	settings, err := test.service.UpdateSettings(test.context, dm, input)
+	if err != nil || settings.Timezone != "Europe/Paris" || settings.DiscordAnnounceChannelID == nil || *settings.DiscordAnnounceChannelID != stored {
+		t.Fatalf("saving with the stored channel unchanged = %+v, %v", settings, err)
+	}
+	input.DiscordReminderChannelID = &other
+	_, err = test.service.UpdateSettings(test.context, dm, input)
+	operationError, typed := core.AsError(err)
+	if !typed || operationError.Kind != core.KindInvalid || len(operationError.Fields) != 1 || operationError.Fields[0].Field != "discordReminderChannelId" ||
+		operationError.Fields[0].Message != "Discord's channel list couldn't be read right now. Try again in a moment." {
+		t.Fatalf("a new channel while the list can't be read: %+v", err)
+	}
+	// Clearing a channel needs no list.
+	input.DiscordReminderChannelID = nil
+	input.DiscordAnnounceChannelID = nil
+	if settings, err := test.service.UpdateSettings(test.context, dm, input); err != nil || settings.DiscordAnnounceChannelID != nil {
+		t.Fatalf("clearing a channel = %+v, %v", settings, err)
+	}
+
+	test.directory.unreadable = false
+	input.DiscordReminderChannelID = &other
+	if settings, err := test.service.UpdateSettings(test.context, dm, input); err != nil || settings.DiscordReminderChannelID == nil {
+		t.Fatalf("the change once the list reads again = %+v, %v", settings, err)
+	}
+}
+
+// removalKind is the label /players shows for a member, or "" when they aren't removed.
+func removalKind(member core.Member) core.RemovalKind {
+	if member.Dm == nil || member.Dm.RemovalKind == nil {
+		return ""
+	}
+	return *member.Dm.RemovalKind
+}
+
+// /players tells a denial from a removal and from leaving: core decides, the web only shows it.
+func TestRemovalKinds(t *testing.T) {
+	test := newFixture(t)
+	_, dm := test.campaign(test.caller(discordID(1), "dm"), "Sample", "sample")
+	_, denied := test.player(dm, discordID(2), "denied", false)
+	_, removedWhileWaiting := test.player(dm, discordID(3), "removed-while-waiting", false)
+	_, removed := test.player(dm, discordID(4), "removed", true)
+	_, leaver := test.player(dm, discordID(5), "leaver", false)
+	_, deniedThenReadmitted := test.player(dm, discordID(6), "readmitted", false)
+	_, playing := test.player(dm, discordID(7), "playing", true)
+	_, waiting := test.player(dm, discordID(8), "waiting", false)
+
+	steps := []struct {
+		name   string
+		action func() (core.Member, error)
+	}{
+		{"deny", func() (core.Member, error) { return test.service.DenyMember(test.context, dm, denied.MemberID()) }},
+		{"remove a waiting member", func() (core.Member, error) {
+			return test.service.RemoveMember(test.context, dm, removedWhileWaiting.MemberID())
+		}},
+		{"remove a player", func() (core.Member, error) { return test.service.RemoveMember(test.context, dm, removed.MemberID()) }},
+		{"deny before re-admitting", func() (core.Member, error) {
+			return test.service.DenyMember(test.context, dm, deniedThenReadmitted.MemberID())
+		}},
+		{"re-admit", func() (core.Member, error) {
+			return test.service.ReadmitMember(test.context, dm, deniedThenReadmitted.MemberID())
+		}},
+		{"remove the re-admitted", func() (core.Member, error) {
+			return test.service.RemoveMember(test.context, dm, deniedThenReadmitted.MemberID())
+		}},
+	}
+	for _, step := range steps {
+		if _, err := step.action(); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+	}
+	if _, err := test.service.LeaveCampaign(test.context, leaver); err != nil {
+		t.Fatalf("leave: %v", err)
+	}
+
+	groups, err := test.service.ListMembers(test.context, dm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[uuid.UUID]core.RemovalKind{
+		denied.MemberID():               core.RemovalKindDenied,
+		removedWhileWaiting.MemberID():  core.RemovalKindDenied,
+		removed.MemberID():              core.RemovalKindRemoved,
+		leaver.MemberID():               core.RemovalKindLeft,
+		deniedThenReadmitted.MemberID(): core.RemovalKindRemoved,
+		playing.MemberID():              "",
+		waiting.MemberID():              "",
+		dm.MemberID():                   "",
+	}
+	seen := 0
+	for _, group := range [][]core.Member{groups.Pending, groups.Active, groups.Removed} {
+		for _, member := range group {
+			want, listed := expected[member.ID]
+			if !listed {
+				t.Errorf("an unexpected member %s", member.DisplayName)
+				continue
+			}
+			seen++
+			if got := removalKind(member); got != want {
+				t.Errorf("%s: removal kind %q, want %q", member.DisplayName, got, want)
+			}
+		}
+	}
+	if seen != len(expected) {
+		t.Errorf("saw %d members, want %d", seen, len(expected))
 	}
 }
 

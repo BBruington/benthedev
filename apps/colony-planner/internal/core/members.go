@@ -28,11 +28,11 @@ type MemberDm struct {
 	DiscordUsername string       `json:"discordUsername"`
 	Status          MemberStatus `json:"status"`
 	IsDM            bool         `json:"isDm"`
-	// LeftOnOwn marks a REMOVED member who left by themselves: /players shows "Left", not "Removed".
-	LeftOnOwn  bool       `json:"leftOnOwn"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	ApprovedAt *time.Time `json:"approvedAt"`
-	LastSeenAt *time.Time `json:"lastSeenAt"`
+	// RemovalKind is how a REMOVED member got there, the label /players shows; null for anyone else.
+	RemovalKind *RemovalKind `json:"removalKind" nullable:"true" doc:"null unless status is REMOVED"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	ApprovedAt  *time.Time   `json:"approvedAt"`
+	LastSeenAt  *time.Time   `json:"lastSeenAt"`
 }
 
 // CampaignMe is the caller's own view of themselves in one campaign (the pending-level GET .../me).
@@ -93,7 +93,7 @@ func toMember(membership store.CampaignMember, account store.Account) Member {
 			DiscordUsername: account.DiscordUsername,
 			Status:          membership.Status,
 			IsDM:            membership.Role == store.CampaignRoleDM,
-			LeftOnOwn:       membership.LeftOnOwn,
+			RemovalKind:     removalKindOf(membership),
 			CreatedAt:       membership.CreatedAt.UTC(),
 			ApprovedAt:      utcPointer(membership.ApprovedAt),
 			LastSeenAt:      utcPointer(account.LastSeenAt),

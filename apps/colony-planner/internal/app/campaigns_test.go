@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -168,12 +169,23 @@ func TestLeavingACampaign(t *testing.T) {
 	if err := json.Unmarshal(members.Body.Bytes(), &groups); err != nil {
 		t.Fatalf("decode members: %v", err)
 	}
-	leftOnOwn := map[string]bool{}
+	removalKinds := map[string]core.RemovalKind{}
 	for _, member := range groups.Removed {
-		leftOnOwn[member.DisplayName] = member.Dm != nil && member.Dm.LeftOnOwn
+		if member.Dm != nil && member.Dm.RemovalKind != nil {
+			removalKinds[member.DisplayName] = *member.Dm.RemovalKind
+		}
 	}
-	if !leftOnOwn["Ana"] || !leftOnOwn["Emil"] || leftOnOwn["Gus"] {
-		t.Fatalf("left on own = %v; want Ana and Emil (left), not Gus (denied)", leftOnOwn)
+	expectedKinds := map[string]core.RemovalKind{"Ana": core.RemovalKindLeft, "Emil": core.RemovalKindLeft, "Gus": core.RemovalKindDenied}
+	if !maps.Equal(removalKinds, expectedKinds) {
+		t.Fatalf("removal kinds = %v; want Ana and Emil left, Gus denied", removalKinds)
+	}
+	// The kind is DM-only: the people it describes never see it.
+	for _, removed := range []account{testHarness.ana, testHarness.removedA} {
+		me := testHarness.do(http.MethodGet, campaignPathOf(campaignA, "/me"), requestOptions{token: testHarness.signIn(removed)})
+		testHarness.expectStatus(me, http.StatusOK)
+		if strings.Contains(me.Body.String(), "removalKind") {
+			t.Errorf("%s reads their own removal kind: %s", removed.name, me.Body.String())
+		}
 	}
 
 	pings := testHarness.notifier.waitingCount()

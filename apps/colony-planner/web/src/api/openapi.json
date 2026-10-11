@@ -1149,8 +1149,16 @@
               "null"
             ]
           },
-          "leftOnOwn": {
-            "type": "boolean"
+          "removalKind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RemovalKind"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null unless status is REMOVED"
           },
           "status": {
             "$ref": "#/components/schemas/MemberStatus"
@@ -1161,7 +1169,7 @@
           "discordUsername",
           "status",
           "isDm",
-          "leftOnOwn",
+          "removalKind",
           "createdAt",
           "approvedAt",
           "lastSeenAt"
@@ -1327,6 +1335,14 @@
           "entries"
         ],
         "type": "object"
+      },
+      "RemovalKind": {
+        "enum": [
+          "LEFT",
+          "DENIED",
+          "REMOVED"
+        ],
+        "type": "string"
       },
       "ResourceChangePreview": {
         "additionalProperties": false,

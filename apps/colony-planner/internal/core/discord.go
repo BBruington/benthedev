@@ -14,10 +14,17 @@ import (
 )
 
 // DiscordDirectory is core's one outward seam for reading Discord: Beny Bot implements it from its
-// gateway state. Core uses it to accept only channels of a campaign's linked server.
+// gateway state. Core uses it to accept only channels of a campaign's linked server. TextChannels
+// returns ErrDiscordListUnavailable (possibly wrapped) when it can't tell what the server's channels are.
 type DiscordDirectory interface {
 	TextChannels(requestContext context.Context, guildID string) ([]DiscordChannel, error)
 }
+
+// ErrDiscordListUnavailable means the linked server's channel list can't be read right now: Beny Bot
+// hasn't heard about the server since it connected, Discord reports it unavailable, or Beny Bot is no
+// longer in it. An empty list would instead say the server has no text channels, and Settings would
+// then refuse even the channels it already stores.
+var ErrDiscordListUnavailable = errors.New("discord: the linked server's channel list is unavailable")
 
 // DiscordChannel is one text channel of a linked server, for the Settings channel picker.
 type DiscordChannel struct {
@@ -84,9 +91,11 @@ func (service *Service) CreateLinkCode(requestContext context.Context, viewer Vi
 
 // LinkGuild is Beny Bot's /link: the code is the DM's consent, Manage Server (checked by the bot) the
 // server's. A server links to one campaign and a campaign to one server; linking clears the campaign's
-// channels, which belonged to no server or another one.
+// channels, which belonged to no server or another one. Only a link that is made uses the code up, so
+// after any refusal (this server or the campaign already linked, a paused campaign) the same code works
+// again until it expires. Pausing or deleting a campaign still forgets its code (linkCodeStore.drop).
 func (service *Service) LinkGuild(requestContext context.Context, input LinkGuildInput) (LinkedGuild, error) {
-	campaignID, live := service.linkCodes.take(input.Code)
+	campaignID, live := service.linkCodes.lookup(input.Code)
 	if !live {
 		return LinkedGuild{}, ErrLinkCodeInvalid
 	}
@@ -133,6 +142,12 @@ func (service *Service) LinkGuild(requestContext context.Context, input LinkGuil
 		}
 		if err := queries.ClearSettingsChannels(requestContext, campaignID); err != nil {
 			return err
+		}
+		// Claimed last, under the campaign's row lock: two /link runs with one code take that lock in
+		// turn, so the second finds the campaign linked or the code gone. Only a failed commit after this
+		// uses a code up without a link; the DM then makes a new one.
+		if !service.linkCodes.claim(input.Code, campaignID) {
+			return ErrLinkCodeInvalid
 		}
 		linked = LinkedGuild{CampaignID: campaignID, CampaignName: campaign.Name}
 		return nil
@@ -191,11 +206,18 @@ func (service *Service) UnlinkGuildByID(requestContext context.Context, guildID 
 }
 
 // ReconcileGuilds runs on every Ready: a linked server missing from Beny Bot's guild list removed the
-// bot while it was offline, so it is unlinked. It returns how many were unlinked.
+// bot while it was offline, so it is unlinked. It returns how many were unlinked. A Ready that lists
+// no servers at all while some are linked is taken as incomplete, not as the bot having been removed
+// everywhere, so it unlinks nothing. Should the bot really be in no server, posts there are skipped
+// anyway (the bot can't see their channels) and each DM can unlink in Settings.
 func (service *Service) ReconcileGuilds(requestContext context.Context, presentGuildIDs []string) (int, error) {
 	links, err := service.queries.ListGuildLinks(requestContext)
 	if err != nil {
 		return 0, err
+	}
+	if len(presentGuildIDs) == 0 && len(links) > 0 {
+		service.logger.WarnContext(requestContext, "Ready listed no Discord servers; kept every link", slog.Int("linked", len(links)))
+		return 0, nil
 	}
 	present := make(map[string]bool, len(presentGuildIDs))
 	for _, guildID := range presentGuildIDs {
@@ -216,7 +238,7 @@ func (service *Service) ReconcileGuilds(requestContext context.Context, presentG
 }
 
 // DiscordChannelOptions lists the linked server's text channels for the Settings picker; empty when
-// no server is linked or Beny Bot is off.
+// no server is linked, Beny Bot is off or the list can't be read right now (the picker then says so).
 func (service *Service) DiscordChannelOptions(requestContext context.Context, viewer Viewer) ([]DiscordChannel, error) {
 	if err := requireDm(viewer); err != nil {
 		return nil, err
@@ -226,6 +248,9 @@ func (service *Service) DiscordChannelOptions(requestContext context.Context, vi
 		return []DiscordChannel{}, err
 	}
 	channels, err := service.directory.TextChannels(requestContext, link.GuildID)
+	if errors.Is(err, ErrDiscordListUnavailable) {
+		return []DiscordChannel{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}

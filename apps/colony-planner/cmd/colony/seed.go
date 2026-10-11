@@ -58,7 +58,8 @@ func resetDatabase(commandContext context.Context) error {
 		return err
 	}
 	defer pool.Close()
-	// Maintenance DDL rather than an application query, so it lives here and not in db/queries.
+	// Maintenance DDL rather than an application query, so it lives here and not in db/queries. It
+	// runs before migrateUp's history check, so reset (and fresh) rebuild a database that check refuses.
 	if _, err := pool.Exec(commandContext, "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); err != nil {
 		return fmt.Errorf("reset: drop the schema: %w", err)
 	}

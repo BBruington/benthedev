@@ -14,7 +14,7 @@ import (
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
-// The site owner of every core test. Tests never read SITE_OWNER_DISCORD_ID or DM_DISCORD_ID.
+// The site owner of every core test. Tests never read SITE_OWNER_DISCORD_ID.
 const testOwnerDiscordID = "500000000000000005"
 
 type countingNotifier struct {
@@ -56,12 +56,17 @@ func (evictor *recordingEvictor) EvictAccount(accountID uuid.UUID) {
 	evictor.accounts = append(evictor.accounts, accountID)
 }
 
-// fakeDirectory is Beny Bot's channel list for one linked server.
+// fakeDirectory is Beny Bot's channel list for one linked server. unreadable makes every read fail as
+// Beny Bot's does when its gateway can't see the server.
 type fakeDirectory struct {
-	channels map[string][]core.DiscordChannel
+	channels   map[string][]core.DiscordChannel
+	unreadable bool
 }
 
 func (directory *fakeDirectory) TextChannels(_ context.Context, guildID string) ([]core.DiscordChannel, error) {
+	if directory.unreadable {
+		return nil, fmt.Errorf("guild %s: %w", guildID, core.ErrDiscordListUnavailable)
+	}
 	return directory.channels[guildID], nil
 }
 

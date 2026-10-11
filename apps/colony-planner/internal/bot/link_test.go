@@ -124,6 +124,36 @@ func TestLinkIsOneServerToOneCampaign(t *testing.T) {
 	}
 }
 
+// The troubleshooting answer in docs/discord-dev-setup.md: unlink the other server, then run /link
+// again with the same code.
+func TestARefusedLinkKeepsTheCode(t *testing.T) {
+	test := newWorld(t)
+	test.link(guildX, test.dmA)
+
+	code := test.linkCode(test.dmA)
+	if reply := test.run(serverCommand(guildZ, dmUserID, "link", manageServer, codeOption(code))); reply != core.ErrCampaignAlreadyLinked.Message {
+		t.Fatalf("linking a second server: %q", reply)
+	}
+	if reply := test.run(serverCommand(guildY, otherDmUserID, "link", manageServer, codeOption(test.linkCode(test.dmB)))); !strings.HasPrefix(reply, "Linked") {
+		t.Fatalf("B's link: %q", reply)
+	}
+	if reply := test.run(serverCommand(guildY, dmUserID, "link", manageServer, codeOption(code))); reply != core.ErrGuildAlreadyLinked.Message {
+		t.Fatalf("linking B's server: %q", reply)
+	}
+	if reply := test.run(serverCommand(guildX, dmUserID, "unlink", manageServer)); !strings.HasPrefix(reply, "Unlinked this server") {
+		t.Fatalf("/unlink: %q", reply)
+	}
+	if reply := test.run(serverCommand(guildZ, dmUserID, "link", manageServer, codeOption(code))); !strings.HasPrefix(reply, "Linked") {
+		t.Fatalf("the same code after the refusals: %q", reply)
+	}
+	if guildID, _ := test.linkedServer(test.dmA); guildID != guildZ {
+		t.Errorf("A is linked to %q, want Z", guildID)
+	}
+	if reply := test.run(serverCommand(guildX, dmUserID, "link", manageServer, codeOption(code))); reply != core.ErrLinkCodeInvalid.Message {
+		t.Errorf("the code after it linked: %q", reply)
+	}
+}
+
 func TestUnlinkNeedsManageServerAndClearsTheLink(t *testing.T) {
 	test := newWorld(t)
 	test.link(guildX, test.dmA)
@@ -191,5 +221,25 @@ func TestReadyUnlinksServersThatRemovedBenyBotWhileItWasOff(t *testing.T) {
 	}
 	if reply := test.run(slashCommand(guildY, activeUserID, "beny")); reply != core.ErrGuildNotLinked.Message {
 		t.Errorf("after reconciling, server Y answered %q", reply)
+	}
+}
+
+// A Ready with no servers is taken as incomplete: it unlinks nothing.
+func TestAnEmptyReadyUnlinksNothing(t *testing.T) {
+	test := newWorld(t)
+	test.link(guildX, test.dmA)
+	test.link(guildY, test.dmB)
+
+	for _, guilds := range [][]*discordgo.Guild{nil, {}, {nil, {ID: ""}}} {
+		test.bot.handleReady(test.context, &discordgo.Ready{User: &discordgo.User{ID: "500000000000000001"}, Guilds: guilds})
+	}
+	if guildID, _ := test.linkedServer(test.dmA); guildID != guildX {
+		t.Errorf("an empty Ready unlinked A's server: %q", guildID)
+	}
+	if guildID, _ := test.linkedServer(test.dmB); guildID != guildY {
+		t.Errorf("an empty Ready unlinked B's server: %q", guildID)
+	}
+	if reply := test.run(slashCommand(guildX, activeUserID, "beny")); reply != "Boy!" {
+		t.Errorf("after an empty Ready, /beny answered %q", reply)
 	}
 }

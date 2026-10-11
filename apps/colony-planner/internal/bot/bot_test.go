@@ -19,8 +19,8 @@ import (
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
-// Discord IDs of the test world. Tests never read SITE_OWNER_DISCORD_ID, DM_DISCORD_ID or
-// DISCORD_GUILD_ID: every value comes from here.
+// Discord IDs of the test world. Tests never read SITE_OWNER_DISCORD_ID or DISCORD_GUILD_ID: every
+// value comes from here.
 const (
 	testPublicURL = "http://localhost:5173"
 
@@ -201,6 +201,21 @@ func (state *fakeGatewayState) addGuild(guildID string, name string, channels ..
 		state.channels[channel.ID] = channel
 	}
 	state.guilds[guildID] = &discordgo.Guild{ID: guildID, Name: name, Channels: channels}
+}
+
+// forgetGuild drops a server from the gateway state, as right after a restart before its GuildCreate
+// arrives, or after Beny Bot has left it.
+func (state *fakeGatewayState) forgetGuild(guildID string) {
+	state.Lock()
+	defer state.Unlock()
+	delete(state.guilds, guildID)
+}
+
+// markUnavailable makes the gateway report a server as unavailable, as during a Discord outage.
+func (state *fakeGatewayState) markUnavailable(guildID string) {
+	state.Lock()
+	defer state.Unlock()
+	state.guilds[guildID].Unavailable = true
 }
 
 // moveChannel makes the gateway report a channel as another server's.

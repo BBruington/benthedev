@@ -73,10 +73,16 @@ var secrecyFixtures = []secrecyFixture{
 	{
 		feature: "members",
 		// Usernames are DM-only (MemberDm) and newHarness plants them; character names are seen by
-		// every member, so B's carry canaryB.
+		// every member, so B's carry canaryB. MemberDm's other fields (status, isDm, removalKind, the
+		// times) can't hold a token, so each campaign gets a denied member whose username carries its DM
+		// token: the removalKind DENIED then travels only beside a planted value (A's is removedA).
 		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
 			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			if side.campaign == testHarness.campaignB {
+				deniedB := testHarness.signUp("deniedB", "200000000000000003", "jun."+canaryBdm, "Jun")
+				testHarness.join(side.campaign, side.dm, deniedB, "deny")
+			}
 			for accountName, characterName := range side.characterNames {
 				if _, err := testHarness.core.SetCharacterName(testHarness.context, dmViewer, side.campaign.members[accountName], core.CharacterNameInput{CharacterName: &characterName}); err != nil {
 					t.Fatalf("name %s's character in %s: %v", accountName, side.campaign.name, err)

@@ -27,20 +27,30 @@ var _ gatewayState = (*discordgo.State)(nil)
 var textChannelTypes = []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews}
 
 // TextChannels implements core.DiscordDirectory for the Settings channel picker: the linked server's
-// text channels, in Discord's order. A server Beny Bot isn't in (or hasn't heard about yet) has none.
+// text channels, in Discord's order. A server missing from the gateway state (right after a restart,
+// before its GuildCreate arrives, or once Beny Bot has left it) or one Discord reports unavailable
+// has an unknown list, not an empty one: core.ErrDiscordListUnavailable, so Settings still accepts the
+// channels it already stores.
 func (benyBot *Bot) TextChannels(_ context.Context, guildID string) ([]core.DiscordChannel, error) {
-	if benyBot.state == nil || guildID == "" {
+	if guildID == "" {
 		return []core.DiscordChannel{}, nil
 	}
+	if benyBot.state == nil {
+		return nil, core.ErrDiscordListUnavailable
+	}
 	guild, err := benyBot.state.Guild(guildID)
-	if err != nil {
-		return []core.DiscordChannel{}, nil
+	if err != nil || guild == nil {
+		return nil, core.ErrDiscordListUnavailable
 	}
 	type positionedChannel struct {
 		channel  core.DiscordChannel
 		position int
 	}
 	benyBot.state.RLock()
+	if guild.Unavailable {
+		benyBot.state.RUnlock()
+		return nil, core.ErrDiscordListUnavailable
+	}
 	positioned := make([]positionedChannel, 0, len(guild.Channels))
 	for _, channel := range guild.Channels {
 		if channel != nil && slices.Contains(textChannelTypes, channel.Type) {

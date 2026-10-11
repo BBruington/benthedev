@@ -258,7 +258,7 @@ The **site owner** (F8) has a third column: nothing inside a campaign they aren'
 
 | Area | Old feature | Disposition | Reason |
 |---|---|---|---|
-| Colony | Initialize Colony | **Drop** | The first migration seeds the singleton colony, resources and roles. |
+| Colony | Initialize Colony | **Drop** | Approving a campaign creates its colony, resources and roles. |
 | Colony | Resource tiles + shipment countdown | **Redesign** | Tiles come from resource rows. The countdown can never go negative. Live delta chips. |
 | Colony | Edit resources / shipment interval | **Redesign** | Becomes Adjust (deltas, or "set to" values converted under the lock) plus a separate shipment schedule that can be cleared. Fixes the NaN save block and the overwrite of absolute values. |
 | Colony | Advance Day | **Redesign** | Becomes Advance N days with a preview, chips and a version guard. Fixes the off-by-one and the `== 0` stall. Undoable. |
@@ -324,7 +324,7 @@ All tables live in one Postgres database:
 
 | Table | Key fields | Notes |
 |---|---|---|
-| `account` | `id`, `discord_user_id text UNIQUE`, `discord_username`, `display_name`, `avatar_url`, `created_at`, `last_seen_at` (written at most once a day) | One per Discord identity (M1's `member`, renamed by migration 0003). |
+| `account` | `id`, `discord_user_id text UNIQUE`, `discord_username`, `display_name`, `avatar_url`, `created_at`, `last_seen_at` (written at most once a day) | One per Discord identity. |
 | `campaign` | `id`, `slug` (3–40 of `a-z 0-9 -`, UNIQUE, fixed after approval, C2), `name`, `status campaign_status` (ACTIVE, SUSPENDED), `suspended_at`, `invite_code` UNIQUE, `created_at` | The invite code is served only to the DM. |
 | `campaign_request` | `id`, `account_id`, `campaign_name`, `slug`, `note`, `status campaign_request_status` (PENDING, APPROVED, DENIED, WITHDRAWN), `decided_at`, `campaign_id NULL`, `created_at` | One open request per account and per slug. |
 | `discord_guild_link` | `campaign_id PK`, `guild_id UNIQUE`, `guild_name`, `linked_by_discord_user_id`, `linked_at` | One server per campaign and one campaign per server. Link codes live in memory. |
@@ -847,7 +847,7 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
 | `/places`, `/places/$placeId` | List and detail; CRUD; reveal; `dm_notes`; pin | Visible places, redacted; NPCs who are here |
 | `/npcs`, `/npcs/$npcId` | Roster with search and filters; full edit; reveal; colony role; first-encountered session | Revealed NPCs under their display name, redacted |
 | `/sessions`, `/sessions/$sessionId` | Series CRUD; upcoming dates (cancel or restore); history; recap editor; mark played or end session; edit day stamps; ICS link | Upcoming dates (cancelled ones struck through) in local time; history with recaps and "Days 36–41"; ICS link |
-| `/players` | Pending (approve or deny); active (character names, remove); removed or denied (re-admit) | 403 |
+| `/players` | Pending (approve or deny); active (character names, remove); removed, left or denied, each labeled so (re-admit) | 403 |
 | `/settings` | Campaign and colony name; timezone; resources (add, rename, icon, bounds, archive); roles; Discord channels and event location; bot invite link; ICS token | 403 |
 | Profile menu | Character name, theme, **View as player**, sign out, sign out everywhere | Character name, theme, sign out, sign out everywhere |
 
@@ -951,7 +951,7 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
   - To try real sign-in and Beny Bot, the author puts Beny Bot Dev's values in the local `.env`. `docs/discord-dev-setup.md`, written in M0, walks through creating the application.
   - The production Beny Bot application and its token are never used by this project. The old bot keeps serving the real table, untouched.
 - **M6 (optional)** puts a production application in the real guild after the old bot is stopped for good (§10, Open Question 19). Beny Bot Dev is never promoted to production.
-- **One shared bot, many servers (F8).** Each DM invites Beny Bot to their own server with the URL on Settings, and links that server to their campaign: Settings → **Get a link code** (`BENY-XXXXX-XXXXX`, 15 minutes, single use, kept in memory), then `/link code:` run in the server by a member with Manage Server. One server per campaign and one campaign per server. `/unlink`, Settings → Unlink…, or removing the bot (GuildDelete, or a server missing from Ready's list) unlinks. Invite:
+- **One shared bot, many servers (F8).** Each DM invites Beny Bot to their own server with the URL on Settings, and links that server to their campaign: Settings → **Get a link code** (`BENY-XXXXX-XXXXX`, 15 minutes, kept in memory, used up only by the `/link` that succeeds), then `/link code:` run in the server by a member with Manage Server. One server per campaign and one campaign per server. `/unlink`, Settings → Unlink…, or removing the bot (GuildDelete without Unavailable, or a server missing from a Ready that lists other servers; a Ready that lists none unlinks nothing) unlinks. Invite:
   - scopes `bot applications.commands`;
   - permissions: View Channel, Send Messages, Embed Links, Manage Events (8589954048). No Read Message History: no feature reads messages.
 - **Commands are global** (`ApplicationCommandBulkOverwrite(app, "", ...)` on Ready). M1's guild-scoped commands are cleared once while the legacy `DISCORD_GUILD_ID` is still set; then it is deleted.
@@ -962,7 +962,7 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
 
 | Item | Action | Details |
 |---|---|---|
-| Bot core, interaction routing (`internal/bot/bot.go`) | **Port** | Simplified; commands receive a `Viewer` resolved from the caller's Discord ID. |
+| Bot core, interaction routing (`internal/bot/bot.go`) | **Port** | Simplified; every interaction resolves guild → linked campaign → membership (`core.ViewerForGuild`, §7.1), and commands receive that `Viewer`. |
 | Per-user rate limiter (`ratelimit.go`) | **Port as is** | Burst 3, one token every 2 s. |
 | Command registration | **Fix** | Since M1.5: global `ApplicationCommandBulkOverwrite` on Ready, and a one-time clear of the legacy guild's commands (§7.1). M1 did: guild-scoped `ApplicationCommandBulkOverwrite`, **plus** a global overwrite with an empty list, so the application never carries stale global commands. The old application's global `/schedule`, `/registercampaign` and `/available` leave the real guild at M6, when that application is removed from it after the old bot is stopped for good. If the author keeps the existing application instead (Open Question 19), the empty global overwrite removes them, and nothing re-adds them because the old bot no longer runs. |
 | Caller identity | **Add** | Commands answer only ACTIVE members of the server's linked campaign; others get an ephemeral line saying why (§7.1). |
@@ -1065,7 +1065,7 @@ Browser ──http://localhost:5173──▶ Vite dev server (web/, hot reload)
 ### 8.2 Repo layout (`colony-planner/`)
 
 ```
-CLAUDE.md  AGENTS.md → CLAUDE.md    single agent/dev guide (≤ 150 lines)
+CLAUDE.md  AGENTS.md → CLAUDE.md    single agent/dev guide (kept short)
 mise.toml                            pins go, bun, sqlc; tasks: dev, dev:phone, gen, test, check, build,
                                      seed, reset, fresh
 compose.yaml                         Postgres 17 for development and tests (bound to 127.0.0.1, named volume)
@@ -1167,7 +1167,7 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
 | Moving parts | Clerk SDK, JWT/JWKS verification, a public webhook plus svix to sync users | Two handlers, one table, one middleware |
 | Discord ID for Beny Bot | Indirect, through Clerk's external accounts | The primary identity |
 | DM approval | Still needs our own member table | The same table |
-| Revoking access | Waits for JWT expiry, plus our own check | Delete the session rows: immediate |
+| Revoking access | Waits for JWT expiry, plus our own check | A membership status change, read on every campaign request: immediate |
 | Local development and tests | Needs a Clerk dev instance | Offline, via the `devauth` build tag |
 
 **Flow**
@@ -1200,7 +1200,7 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
 
 **Dev sign-in**
 - A `devauth` build tag adds `/auth/dev?as=owner|dm|player|pending|<account id>` (dm, player and pending mean Sample Colony's) and `?as=new&name=`, and `/login` then lists every account once with its roles under **Dev sign-in**. `mise run dev` always builds with it, so local work needs no Discord account. Integration tests use it too.
-- The seeded Sample DM takes `SITE_OWNER_DISCORD_ID` when it is set, so real sign-in through Beny Bot Dev lands on the same account. When it is unset, a devauth build treats the seeded `seed:dm` account as the site owner (§9). `DM_DISCORD_ID` is gone: every `colony` command except `openapi` refuses to run while it is set, and `mise run env:upgrade` renames it.
+- The seeded Sample DM takes `SITE_OWNER_DISCORD_ID` when it is set, so real sign-in through Beny Bot Dev lands on the same account. When it is unset, a devauth build treats the seeded `seed:dm` account as the site owner (§9).
 - The binary refuses to start with the tag when `APP_ENV=production`, and the M6 Dockerfile never sets it.
 
 **Secrets:** the app has no signing keys, so there is nothing like the old RSA keypair to leak.
@@ -1212,7 +1212,7 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
 - **`internal/store`** is sqlc's output. All SQL lives in `db/queries/`.
 - **`internal/core/<feature>.go`** holds every operation as a plain Go function. It takes a context, the `Viewer` and an input struct, and returns a DTO (with its `Dm` sub-struct) or a typed error: conflict, invalid, forbidden or not found. Colony mutations follow the write path in §5.1: transaction, game call, store, timeline, publish. Beny Bot and `colony seed` call these same functions.
 - **`internal/app`** is the transport and nothing else. Each huma handler decodes, calls one core function and encodes. One function maps core's typed errors to 409, 422, 403 and 404. Access levels (`x-access`), the redaction Transformer, the route table and the SSE endpoint live here too.
-- **`internal/auth`** handles sign-in mechanics only: the Discord OAuth2 redirect, the session cookie and the in-memory session cache. Member and session data are core's (`internal/core/sessions.go`), so removing a player deletes their sessions in the same transaction as the status change.
+- **`internal/auth`** handles sign-in mechanics only: the Discord OAuth2 redirect, the session cookie and the in-memory session cache. Member and session data are core's (`internal/core/sessions.go`). Since M1.5 removing a player touches no session: core changes the membership and rescopes its streams, so their other campaigns keep working.
 - There is no repository layer. Interfaces exist only where a seam needs one: the Discord client, `core.Notifier` (core → Beny Bot) and `core.SessionEvictor` (core → the session cache).
 
 **Enforced boundaries.** Dependencies point inward: `cmd/colony → app → auth → core → store`, `cmd/colony → bot → core`, and `seed → core, store`. `mise run check` fails when:
@@ -1299,7 +1299,7 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
   The author opens http://localhost:5173. Plain http uses the unprefixed `colony_session` cookie (§8.5).
 - **`mise run dev:phone`** does the same, but also listens on the Mac's Wi-Fi address and prints it, so a phone on the same network can test touch gestures and live updates. Dev sign-in works there, which means anyone on that network could use it: use it at home. Real Discord sign-in is tested on the Mac only.
 - **Sign-in.** Dev sign-in by default (§8.5). Real Discord sign-in and Beny Bot need Beny Bot Dev's values in `.env` (§7.1); without them, the Discord button is hidden and Beny Bot is off.
-- **`.env`** is gitignored. `.env.example` lists only the names: `DATABASE_URL`, `TEST_DATABASE_URL`, `POSTGRES_PASSWORD`, `PUBLIC_URL`, `APP_ENV`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `SITE_OWNER_DISCORD_ID` (M1.5 removed `DISCORD_GUILD_ID` and `DM_DISCORD_ID`).
+- **`.env`** is gitignored. `.env.example` lists only the names: `DATABASE_URL`, `TEST_DATABASE_URL`, `POSTGRES_PASSWORD`, `PUBLIC_URL`, `APP_ENV`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `SITE_OWNER_DISCORD_ID` (M1.5 removed `DISCORD_GUILD_ID`).
   - Logs carry IDs, kinds, counts and statuses, never campaign content or message text.
   - Locally, `PUBLIC_URL` is `http://localhost:5173` and `APP_ENV` is `development`.
   - Discord values, when set, are Beny Bot Dev's and the private test server's.
@@ -1314,9 +1314,9 @@ Deployment (Dockerfile, Railway, Neon, environment and cost) is designed under M
 | Layer | Tests |
 |---|---|
 | `internal/game` | §5.12 examples A–I verbatim. Property and fuzz tests: span engine = day-by-day reference; `Advance(a+b) == Advance(Advance(a), b)`; bounds; `D > day`; colonist derivation; the overflow guard on day and next shipment day. CLAMP vs STRICT; transfer below 0 rejected; undo snapshot round-trip. `occurrences()` across both DST changes in America/New_York, biweekly parity, multi-weekday, one-offs, cancelled dates. |
-| `internal/core` and `internal/app` (real Postgres via `TEST_DATABASE_URL`: the compose `colony_test` database, fresh schema per test, `devauth` sessions) | **Access + secrecy test** over every OpenAPI operation, every route-table route, SSE payloads and Beny Bot replies (§2.2). Double Complete pays once. Two concurrent advances with the same `expectedVersion` give exactly one 409. Request → approve applies the snapshot; a tweak lands in `applied_effects`; a short approval gives 409 and writes nothing. Undo restores, and is refused once something newer exists. A removed member is locked out, their stream closes, and signing in again yields only `pending` access. A reconnect with an up-to-date last ID sends nothing and runs no query. Two concurrent paint calls both land, and a refetch after their invalidations shows both. Repainting keeps a hex's label. Deleting an NPC colonist is refused. Reminder claim is single-send. `colony seed` succeeds on a fresh database and refuses a used one; `seed` and `reset` refuse `APP_ENV=production` and a non-local `DATABASE_URL`. |
-| Migrations and SQL (M1.5) | `db/migrations_test.go`: 0003 turns an M1 database into one campaign owned by `SITE_OWNER_DISCORD_ID`, leaves an empty database with no campaign, and refuses a lone or mismatched `DM_DISCORD_ID` or a missing owner without changing anything. `db/scope_test.go`: the SQL scope lint and its bad-query cases. |
-| `internal/bot` | Guild routing (every refusal), `/link` and `/unlink` refusals, unlinking on GuildDelete and Ready, posting only into the linked server; button DM check, deferred reply then edit, status-guard no-op on a second click; planner due-time computation (fake clock); event lease expiry and orphan adoption. |
+| `internal/core` and `internal/app` (real Postgres via `TEST_DATABASE_URL`: the compose `colony_test` database, fresh schema per test, `devauth` sessions) | **Access + secrecy test** over every OpenAPI operation, every route-table route, SSE payloads and Beny Bot replies (§2.2). Double Complete pays once. Two concurrent advances with the same `expectedVersion` give exactly one 409. Request → approve applies the snapshot; a tweak lands in `applied_effects`; a short approval gives 409 and writes nothing. Undo restores, and is refused once something newer exists. A removed member is locked out of that campaign at once (403, and its streams rescoped to `me`) but keeps their account, their session and their other campaigns; signing in again leaves them removed there. A reconnect with an up-to-date last ID sends nothing and runs exactly one read, the membership, and no write. Two concurrent paint calls both land, and a refetch after their invalidations shows both. Repainting keeps a hex's label. Deleting an NPC colonist is refused. Reminder claim is single-send. `colony seed` succeeds on a fresh database and refuses a used one; `seed` and `reset` refuse `APP_ENV=production` and a non-local `DATABASE_URL`. |
+| Migrations and SQL (M1.5) | `db/migrations_test.go`: an empty database migrates with no rows (no campaign until one is approved) and migrates down and up again; the schema itself keeps campaigns apart (composite foreign keys, keys per campaign, one active DM, `left_on_own` only when removed, one open request per account and per slug, a deleted campaign takes its rows with it). `db/migrate_test.go`: `serve`, `migrate` and `seed` refuse a database that records a migration this build doesn't have, and `reset` (which drops the schema before migrating) rebuilds it. `db/scope_test.go`: the SQL scope lint and its bad-query cases. |
+| `internal/bot` | Guild routing (every refusal), `/link` and `/unlink` refusals (a refused `/link` keeps its code; two at once with one code link once), unlinking on GuildDelete and on a Ready that lists other servers (a Ready that lists none unlinks nothing), posting only into the linked server; button DM check, deferred reply then edit, status-guard no-op on a second click; planner due-time computation (fake clock); event lease expiry and orphan adoption. |
 | Web | `tsc`, `biome ci`, `vite build`; `bun test` for hex math and the topic → query-key map. An optional Playwright smoke run (dev sign-in, advance, paint, request then grant). |
 
 ### 8.12 Checks (`mise run check`)
@@ -1336,7 +1336,7 @@ It ends by printing "All checks passed" or the first failure. `.github/workflows
 
 ### 8.13 Agent docs
 
-There is one root `CLAUDE.md` of at most 150 lines; `AGENTS.md` is a symlink to it. There are no per-layer files and no ADR folder. It contains:
+There is one root `CLAUDE.md`, kept as short as its contents allow (M1.5 dropped the 150-line target); `AGENTS.md` is a symlink to it. There are no per-layer files and no ADR folder. It contains:
 
 - the commands (`mise run dev|dev:phone|gen|test|check|seed|reset|fresh`);
 - the layout map;
@@ -1350,6 +1350,7 @@ There is one root `CLAUDE.md` of at most 150 lines; `AGENTS.md` is a symlink to 
   7. single replica;
   8. no timer that polls the database, and no per-request bookkeeping write;
   9. local only until the author approves M6: no deploy work, no production credential, and no secret value read, printed or copied from any `.env` or `.pem` file in either repo;
+  10. (since M1.5) every campaign-owned table carries `campaign_id` and every query on one filters by it (`db/scope_test.go`); a `core.Viewer` is proof of membership and only core builds one; broadcasts are per campaign; logs carry IDs, kinds, counts and statuses, never campaign content;
 - the **4-step add-a-field** and **add-an-entity** recipes, and "add a daily step";
 - the **"do not invent game mechanics"** rule;
 - the process: stop after each milestone for the author's check-in; **the author makes every commit, and agents never commit**;
@@ -1417,7 +1418,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
   - [ ] http://localhost:5173 shows the sign-in page over the Eldari art.
   - [ ] Dev sign-in as the DM lands on the Colony page.
   - [ ] In a private window, dev sign-in as a pending sample player shows "Waiting for the DM". I approve them on `/players`, and their page opens without a refresh.
-  - [ ] I remove that player. Their window is signed out at once, and signing in as them again shows "You don't have access". Re-admitting them lets them back in.
+  - [ ] I remove that player. Their window is signed out at once, and signing in as them again shows "You don't have access". Re-admitting them lets them back in. (Since M1.5 they stay signed in: the campaign shows "You don't have access" at once and their other campaigns keep working.)
   - [ ] (Discord) "Sign in with Discord" with my own account lands me on the Colony page as DM. Signing in with a second Discord account in a private window shows "Waiting for the DM", and Beny Bot Dev posts in my test server's DM channel.
   - [ ] (Discord) `/beny` answers "Boy!" in the test server.
   - [ ] `mise run check` ends with "All checks passed".
@@ -1445,7 +1446,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
   - [ ] `mise run check` ends with "All checks passed". It runs examples A–I from §5.12 verbatim, and checks that an idle open tab and a reconnect run no database query.
 
 **M1.5: Multi-campaign.**
-- **Scope:** `docs/design/multi-campaign.md` with the author's decisions C1–C6: accounts and per-campaign memberships, owner-approved campaigns, invite links, path-scoped URLs, the seven access levels, per-campaign broadcasts, the cross-campaign secrecy sweep, one shared Beny Bot with `/link`, suspend and delete (the DM's own delete, C3), leaving (C5), migration 0003 and two sample campaigns.
+- **Scope:** `docs/design/multi-campaign.md` with the author's decisions C1–C6: accounts and per-campaign memberships, owner-approved campaigns, invite links, path-scoped URLs, the seven access levels, per-campaign broadcasts, the cross-campaign secrecy sweep, one shared Beny Bot with `/link`, suspend and delete (the DM's own delete, C3), leaving (C5), the multi-campaign schema and two sample campaigns.
 - **Acceptance:** `docs/checklists/M1.5.md` (multi-campaign design §10 plus the C3 and C5 steps).
 
 **M2: People and secrecy.**
@@ -1670,7 +1671,7 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 | Roles judged against the wrong membership (a DM of B gets DM powers in A) (F8) | Low / high | A Viewer is built per campaign with no owner flag; a DM elsewhere is swept as a player; the owner-flag table test. |
 | "The owner can't read" is only an app promise (F8) | Known / medium | Said on the request form; owner routes read directory tables only; no Read Message History; logs carry no content; row-level security decided at M6. |
 | Beny Bot posts into the wrong server, or a server that removed it (F8) | Low / medium | Channels picked from the linked server; every post checks the channel's server; GuildDelete and Ready unlink. |
-| Migration 0003 makes the wrong account DM (F8) | Low / high | Every command except `openapi` refuses `DM_DISCORD_ID`; the migration refuses mismatched or missing variables and a missing owner account; tested. |
+| A database migrated before M1.5's migrations were squashed skips a later migration that reuses a version (F8) | Low / medium | `serve`, `migrate` (up and status) and `seed` refuse a database that records a migration the build doesn't have and say to run `mise run fresh`; `reset` drops the schema before migrating, so `mise run reset` and `fresh` rebuild such a database; tested. |
 
 ---
 

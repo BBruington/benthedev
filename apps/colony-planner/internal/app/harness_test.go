@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// testOwnerDiscordID is the harness's site owner. Tests never read SITE_OWNER_DISCORD_ID or
-	// DM_DISCORD_ID from the environment.
+	// testOwnerDiscordID is the harness's site owner. Tests never read SITE_OWNER_DISCORD_ID from the
+	// environment.
 	testOwnerDiscordID = "500000000000000005"
 	testPublicURL      = "http://localhost:5173"
 	// testHost is the Host header a browser sends through the Vite proxy.

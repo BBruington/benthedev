@@ -25,13 +25,6 @@ type config struct {
 	siteOwnerDiscordID   string
 }
 
-// errLegacyDmDiscordID stops every command that touches the database or serves while the M1 variable is
-// still in .env: migration 0003 makes the site owner the DM of the first campaign, so the owner must be
-// named by SITE_OWNER_DISCORD_ID (docs/design/multi-campaign.md §2.4).
-var errLegacyDmDiscordID = errors.New("DM_DISCORD_ID is gone: rename it to SITE_OWNER_DISCORD_ID in .env (keep the value). " +
-	"`mise run env:upgrade` renames it for you without printing it. Keep DISCORD_GUILD_ID until Beny Bot has run once " +
-	"and logged \"old guild commands cleared\", then delete it (docs/discord-dev-setup.md)")
-
 var discordUserIDPattern = regexp.MustCompile(`^[0-9]{17,20}$`)
 
 var appEnvironments = []string{"development", "test", "production"}
@@ -47,9 +40,6 @@ func loadConfig() (config, error) {
 		discordBotToken:      os.Getenv("DISCORD_BOT_TOKEN"),
 		legacyDiscordGuildID: os.Getenv("DISCORD_GUILD_ID"),
 		siteOwnerDiscordID:   os.Getenv("SITE_OWNER_DISCORD_ID"),
-	}
-	if _, legacySet := os.LookupEnv("DM_DISCORD_ID"); legacySet {
-		return config{}, errLegacyDmDiscordID
 	}
 	if loaded.siteOwnerDiscordID != "" && !discordUserIDPattern.MatchString(loaded.siteOwnerDiscordID) {
 		return config{}, errors.New("SITE_OWNER_DISCORD_ID must be a Discord user ID: 17 to 20 digits")

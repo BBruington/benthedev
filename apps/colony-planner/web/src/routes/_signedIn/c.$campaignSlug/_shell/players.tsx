@@ -52,6 +52,13 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 
 type Member = Schemas["Member"];
 
+/** What a removed member's row says: core decides which kind of removal it was. */
+const removalLabels: Record<Schemas["RemovalKind"], string> = {
+	DENIED: "Denied",
+	LEFT: "Left",
+	REMOVED: "Removed",
+};
+
 /** At most 20 requests wait at once per campaign; past that, the invite link turns people away. */
 const pendingCap = 20;
 
@@ -157,7 +164,8 @@ function MembersBody({
 			<div className="grid grid-cols-3 gap-3 md:gap-4">
 				<StatTile icon={HourglassIcon} label="Waiting" tone="gilt" value={pending.length} />
 				<StatTile icon={UsersIcon} label="Playing" tone="moss" value={active.length} />
-				<StatTile icon={UserXIcon} label="Removed" tone="ember" value={removed.length} />
+				{/* Counts the "Removed, left or denied" section; a label that long truncates at 360 px. */}
+				<StatTile icon={UserXIcon} label="Out" tone="ember" value={removed.length} />
 			</div>
 
 			<MemberSection
@@ -240,10 +248,10 @@ function MembersBody({
 
 			<MemberSection
 				count={turnedAway.length}
-				description="Removed, denied and departed players can't ask again, even with the invite link. Only you can let them back in."
+				description="People you removed or denied, and players who left, can't ask again, even with the invite link. Only you can let them back in."
 				emptyMessage="No one has been removed, denied or left."
 				headingId={sectionHeadingIds.removed}
-				title="Removed or left"
+				title="Removed, left or denied"
 			>
 				{turnedAway.map((member) => (
 					<MemberRow
@@ -260,7 +268,7 @@ function MembersBody({
 								Re-admit
 							</Button>
 						}
-						detail={member.dm?.leftOnOwn ? "Left" : "Removed"}
+						detail={removalLabel(member)}
 						key={member.id}
 						member={member}
 						muted
@@ -287,6 +295,14 @@ function byDmThenName(first: Member, second: Member): number {
 		return firstIsDm ? -1 : 1;
 	}
 	return byName(first, second);
+}
+
+function removalLabel(member: Member): string {
+	const removalKind = member.dm?.removalKind;
+	if (!removalKind) {
+		return removalLabels.REMOVED;
+	}
+	return removalLabels[removalKind];
 }
 
 function askedAt(member: Member): ReactNode {
@@ -564,7 +580,7 @@ const confirmationCopy: Record<
 	deny: {
 		action: "Deny",
 		description:
-			"They won't be able to ask again with the invite link, and opening it won't ping you. You can re-admit them later from Removed or left.",
+			"They won't be able to ask again with the invite link, and opening it won't ping you. You can re-admit them later from Removed, left or denied.",
 		destructive: true,
 		title: (name) => `Turn ${name} away?`,
 	},

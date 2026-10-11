@@ -2,49 +2,16 @@ package db_test
 
 import (
 	"context"
-	"strings"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/BBruington/colony-planner/db"
 	"github.com/BBruington/colony-planner/db/dbtest"
 )
-
-// Migration 0003 turns the author's single-campaign database into the first campaign
-// (docs/design/multi-campaign.md §2.4). These tests migrate to 0002, insert rows in the old shape,
-// then apply 0003. They set the environment goose substitutes, so they don't run in parallel, and
-// they never depend on the developer's own .env values.
-
-const (
-	authorDiscordID = "123456789012345678"
-	otherDiscordID  = "223456789012345678"
-)
-
-type legacyMember struct {
-	discordUserID string
-	status        string
-	characterName *string
-}
-
-func insertLegacyMember(t *testing.T, database *dbtest.Database, member legacyMember) uuid.UUID {
-	t.Helper()
-	var memberID uuid.UUID
-	err := database.Pool.QueryRow(context.Background(), `
-		INSERT INTO member (discord_user_id, discord_username, display_name, status, character_name, approved_at)
-		VALUES ($1, $1, $1, $2::member_status, $3, CASE WHEN $2 = 'PENDING' THEN NULL ELSE now() END)
-		RETURNING id`, member.discordUserID, member.status, member.characterName).Scan(&memberID)
-	if err != nil {
-		t.Fatalf("insert legacy member: %v", err)
-	}
-	return memberID
-}
-
-func setMigrationEnvironment(t *testing.T, siteOwnerDiscordID string, legacyDmDiscordID string) {
-	t.Helper()
-	t.Setenv("SITE_OWNER_DISCORD_ID", siteOwnerDiscordID)
-	t.Setenv("DM_DISCORD_ID", legacyDmDiscordID)
-}
 
 func countRows(t *testing.T, database *dbtest.Database, query string, arguments ...any) int64 {
 	t.Helper()
@@ -55,261 +22,174 @@ func countRows(t *testing.T, database *dbtest.Database, query string, arguments 
 	return count
 }
 
-func TestMigration0003TurnsTheAuthorsDataIntoTheFirstCampaign(t *testing.T) {
-	setMigrationEnvironment(t, authorDiscordID, "")
-	testContext := context.Background()
-	database := dbtest.NewAtVersion(t, 2)
-	thorin := "Thorin"
-	author := insertLegacyMember(t, database, legacyMember{discordUserID: authorDiscordID, status: "PENDING"})
-	ana := insertLegacyMember(t, database, legacyMember{discordUserID: "seed:ana", status: "ACTIVE", characterName: &thorin})
-	emil := insertLegacyMember(t, database, legacyMember{discordUserID: "seed:emil", status: "PENDING"})
-	gus := insertLegacyMember(t, database, legacyMember{discordUserID: "seed:gus", status: "REMOVED"})
-	statements := []string{
-		`UPDATE settings SET campaign_name = 'The Iron Coast of the Far Northern Reach - Year 2', timezone = 'Europe/Lisbon', discord_announce_channel_id = '323456789012345678', discord_reminder_channel_id = '423456789012345678', discord_dm_channel_id = '523456789012345678'`,
-		`UPDATE colony SET name = 'Port Eldari', day = 22, version = 9`,
-		`UPDATE resource SET amount = 63 WHERE key = 'food'`,
-		`UPDATE role SET unnamed_count = 4 WHERE key = 'FARMER'`,
-	}
-	for _, statement := range statements {
-		if _, err := database.Pool.Exec(testContext, statement); err != nil {
-			t.Fatalf("%s: %v", statement, err)
-		}
-	}
-	if _, err := database.Pool.Exec(testContext, `
-		INSERT INTO timeline_event (day, kind, title, visibility, created_by) VALUES
-			(3, 'CUSTOM', 'Founded', 'PUBLIC', $1),
-			(5, 'CUSTOM', 'A note', 'DM', NULL)`, author); err != nil {
-		t.Fatalf("insert history: %v", err)
-	}
-	if _, err := database.Pool.Exec(testContext, `
-		INSERT INTO web_session (token_hash, member_id, expires_at) VALUES ($1, $2, $3)`,
-		make([]byte, 32), ana, time.Now().Add(time.Hour)); err != nil {
-		t.Fatalf("insert session: %v", err)
-	}
-
-	if err := database.MigrateTo(testContext, 3); err != nil {
-		t.Fatalf("migrate to 0003: %v", err)
-	}
-
-	var campaignID uuid.UUID
-	var slug, name, inviteCode, status string
-	if err := database.Pool.QueryRow(testContext, `SELECT id, slug, name, invite_code, status FROM campaign`).
-		Scan(&campaignID, &slug, &name, &inviteCode, &status); err != nil {
-		t.Fatalf("read the one campaign: %v", err)
-	}
-	if name != "The Iron Coast of the Far Northern Reach - Year 2" || slug != "the-iron-coast-of-the-far-northern-reach" || status != "ACTIVE" {
-		t.Fatalf("campaign = %q, %q, %q", name, slug, status)
-	}
-	if len(inviteCode) < 22 {
-		t.Fatalf("invite code %q is too short", inviteCode)
-	}
-	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member"} {
-		if unattributed := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id IS DISTINCT FROM $1`, campaignID); unattributed != 0 {
-			t.Errorf("%s has %d rows outside the first campaign", table, unattributed)
-		}
-	}
-	if count := countRows(t, database, `SELECT count(*) FROM campaign`); count != 1 {
-		t.Fatalf("campaigns = %d, want 1", count)
-	}
-	if count := countRows(t, database, `SELECT count(*) FROM resource`); count != 4 {
-		t.Fatalf("resources = %d", count)
-	}
-	if day := countRows(t, database, `SELECT day FROM colony`); day != 22 {
-		t.Fatalf("colony day = %d", day)
-	}
-	if food := countRows(t, database, `SELECT amount FROM resource WHERE key = 'food'`); food != 63 {
-		t.Fatalf("food = %d", food)
-	}
-	if timezone := countRows(t, database, `SELECT count(*) FROM settings WHERE timezone = 'Europe/Lisbon'`); timezone != 1 {
-		t.Fatalf("the timezone wasn't kept")
-	}
-	// The M1 channels belonged to the unlinked legacy server; kept, they would block every save of
-	// Settings, because a channel must belong to the linked server.
-	if kept := countRows(t, database, `SELECT count(*) FROM settings WHERE discord_announce_channel_id IS NOT NULL
-		OR discord_reminder_channel_id IS NOT NULL OR discord_dm_channel_id IS NOT NULL`); kept != 0 {
-		t.Fatalf("settings kept %d rows with legacy channels", kept)
-	}
-
-	type membership struct {
-		role, status  string
-		characterName *string
-	}
-	memberships := map[uuid.UUID]membership{}
-	rows, err := database.Pool.Query(testContext, `SELECT id, account_id, role, status, character_name FROM campaign_member`)
+// applicationTables lists the schema's tables other than goose's own.
+func applicationTables(t *testing.T, database *dbtest.Database) []string {
+	t.Helper()
+	rows, err := database.Pool.Query(context.Background(), `SELECT table_name FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' AND table_name <> 'goose_db_version'
+		ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
+	var tables []string
 	for rows.Next() {
-		var memberID, accountID uuid.UUID
-		var row membership
-		if err := rows.Scan(&memberID, &accountID, &row.role, &row.status, &row.characterName); err != nil {
+		var table string
+		if err := rows.Scan(&table); err != nil {
 			t.Fatal(err)
 		}
-		if memberID != accountID {
-			t.Errorf("membership %s should reuse its account's id %s", memberID, accountID)
-		}
-		memberships[accountID] = row
+		tables = append(tables, table)
 	}
-	rows.Close()
-	expected := map[uuid.UUID]membership{
-		author: {role: "DM", status: "ACTIVE"},
-		ana:    {role: "PLAYER", status: "ACTIVE", characterName: &thorin},
-		emil:   {role: "PLAYER", status: "PENDING"},
-		gus:    {role: "PLAYER", status: "REMOVED"},
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
-	for accountID, want := range expected {
-		got, found := memberships[accountID]
-		if !found || got.role != want.role || got.status != want.status || (want.characterName == nil) != (got.characterName == nil) {
-			t.Errorf("membership of %s = %+v, want %+v", accountID, got, want)
-		}
-	}
-	if count := countRows(t, database, `SELECT count(*) FROM timeline_event WHERE created_by = $1`, author); count != 1 {
-		t.Fatalf("the founding entry lost its author: %d", count)
-	}
-	if count := countRows(t, database, `SELECT count(*) FROM web_session WHERE account_id = $1`, ana); count != 1 {
-		t.Fatalf("Ana's session didn't survive: %d", count)
-	}
-	if count := countRows(t, database, `SELECT count(*) FROM information_schema.columns
-		WHERE table_schema = current_schema() AND table_name = 'account' AND column_name IN ('status', 'character_name', 'approved_at')`); count != 0 {
-		t.Fatalf("account still has %d per-campaign columns", count)
-	}
-	if count := countRows(t, database, `SELECT count(*) FROM information_schema.columns
-		WHERE table_schema = current_schema() AND table_name = 'settings' AND column_name IN ('id', 'campaign_name')`); count != 0 {
-		t.Fatalf("settings still has its singleton id or campaign_name")
-	}
-
-	// The composite foreign key keeps created_by inside the campaign.
-	if _, err := database.Pool.Exec(testContext, `
-		INSERT INTO campaign (slug, name, invite_code) VALUES ('other-campaign', 'Other', repeat('a', 32))`); err != nil {
-		t.Fatalf("insert a second campaign: %v", err)
-	}
-	if _, err := database.Pool.Exec(testContext, `
-		INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, created_by)
-		SELECT id, 0, 'CUSTOM', 'Cross', 'PUBLIC', $1 FROM campaign WHERE slug = 'other-campaign'`, author); err == nil {
-		t.Fatal("a timeline entry in one campaign named a member of another")
-	}
-	if _, err := database.Pool.Exec(testContext, `UPDATE campaign_member SET role = 'DM' WHERE id = $1`, ana); err == nil {
-		t.Fatal("a second DM was stored")
-	}
+	return tables
 }
 
-func TestMigration0003SlugsAreValidWithoutATrailingDash(t *testing.T) {
-	testCases := map[string]string{
-		strings.Repeat("abc ", 15): strings.TrimSuffix(strings.Repeat("abc-", 10), "-"),
-		"Ël":                       "colony",
-		"   Sample Colony!!":       "sample-colony",
+// A new database has no campaign until the site owner approves one: the migrations insert no rows,
+// and core creates a campaign's settings, colony, resources and roles at approval. The Down section
+// undoes everything, so a full down and up again works.
+func TestAnEmptyDatabaseMigratesCleanly(t *testing.T) {
+	testContext := context.Background()
+	database := dbtest.New(t)
+	tables := applicationTables(t, database)
+	if len(tables) == 0 {
+		t.Fatal("the migrations created no tables")
 	}
-	for campaignName, wantSlug := range testCases {
-		t.Run(wantSlug, func(t *testing.T) {
-			setMigrationEnvironment(t, "", "")
-			database := dbtest.NewAtVersion(t, 2)
-			insertLegacyMember(t, database, legacyMember{discordUserID: "seed:dm", status: "ACTIVE"})
-			if _, err := database.Pool.Exec(context.Background(), `UPDATE settings SET campaign_name = $1`, campaignName); err != nil {
-				t.Fatal(err)
-			}
-			if err := database.MigrateTo(context.Background(), 3); err != nil {
-				t.Fatalf("migrate: %v", err)
-			}
-			var slug string
-			if err := database.Pool.QueryRow(context.Background(), `SELECT slug FROM campaign`).Scan(&slug); err != nil {
-				t.Fatal(err)
-			}
-			if slug != wantSlug {
-				t.Fatalf("slug of %q = %q, want %q", campaignName, slug, wantSlug)
-			}
-		})
-	}
-}
-
-func TestMigration0003LeavesAnEmptyDatabaseWithoutACampaign(t *testing.T) {
-	// A stale legacy variable can't break a fresh database.
-	setMigrationEnvironment(t, "", authorDiscordID)
-	database := dbtest.NewAtVersion(t, 2)
-	if err := database.MigrateTo(context.Background(), 3); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	for _, table := range []string{"campaign", "settings", "colony", "resource", "role", "campaign_member"} {
+	for _, table := range tables {
 		if count := countRows(t, database, `SELECT count(*) FROM `+table); count != 0 {
-			t.Errorf("%s has %d rows on an empty database", table, count)
+			t.Errorf("%s has %d rows on a new database", table, count)
 		}
 	}
-}
 
-func TestMigration0003RefusesAmbiguousOwnersAndChangesNothing(t *testing.T) {
-	testCases := []struct {
-		name               string
-		siteOwnerDiscordID string
-		legacyDmDiscordID  string
-		accounts           []string
-		wantMessage        string
-	}{
-		{
-			name:              "a seed:dm and a real account with only the legacy variable",
-			legacyDmDiscordID: authorDiscordID,
-			accounts:          []string{"seed:dm", authorDiscordID},
-			wantMessage:       "rename DM_DISCORD_ID to SITE_OWNER_DISCORD_ID",
-		},
-		{
-			name:               "the two variables differ",
-			siteOwnerDiscordID: authorDiscordID,
-			legacyDmDiscordID:  otherDiscordID,
-			accounts:           []string{authorDiscordID, otherDiscordID},
-			wantMessage:        "differ",
-		},
-		{
-			name:               "no account has the owner's Discord ID",
-			siteOwnerDiscordID: otherDiscordID,
-			accounts:           []string{authorDiscordID},
-			wantMessage:        "no account has Discord ID " + otherDiscordID,
-		},
-		{
-			name:        "no variable and no seed:dm account",
-			accounts:    []string{authorDiscordID},
-			wantMessage: "no account has Discord ID seed:dm",
-		},
-		{
-			name:               "an owner value that isn't a Discord ID",
-			siteOwnerDiscordID: "12345",
-			accounts:           []string{authorDiscordID},
-			wantMessage:        "must be a Discord user ID",
-		},
+	connection := stdlib.OpenDBFromPool(database.Pool)
+	defer func() { _ = connection.Close() }()
+	provider, err := db.MigrationProvider(connection, false)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			setMigrationEnvironment(t, testCase.siteOwnerDiscordID, testCase.legacyDmDiscordID)
-			testContext := context.Background()
-			database := dbtest.NewAtVersion(t, 2)
-			for _, discordUserID := range testCase.accounts {
-				insertLegacyMember(t, database, legacyMember{discordUserID: discordUserID, status: "ACTIVE"})
-			}
-			err := database.MigrateTo(testContext, 3)
-			if err == nil || !strings.Contains(err.Error(), testCase.wantMessage) {
-				t.Fatalf("migrate = %v, want an error containing %q", err, testCase.wantMessage)
-			}
-			version, err := database.Version(testContext)
-			if err != nil || version != 2 {
-				t.Fatalf("version after the refusal = %d, %v; want 2", version, err)
-			}
-			if count := countRows(t, database, `SELECT count(*) FROM member`); count != int64(len(testCase.accounts)) {
-				t.Fatalf("member rows = %d", count)
-			}
-			if count := countRows(t, database, `SELECT count(*) FROM information_schema.tables
-				WHERE table_schema = current_schema() AND table_name IN ('campaign', 'account')`); count != 0 {
-				t.Fatalf("the refused migration left %d new tables", count)
-			}
-		})
+	if _, err := provider.DownTo(testContext, 0); err != nil {
+		t.Fatalf("migrate down: %v", err)
+	}
+	if remaining := applicationTables(t, database); len(remaining) != 0 {
+		t.Fatalf("tables left after migrating down: %v", remaining)
+	}
+	if types := countRows(t, database, `SELECT count(*) FROM pg_type
+		WHERE typnamespace = current_schema()::regnamespace AND typtype = 'e'`); types != 0 {
+		t.Fatalf("%d enum types left after migrating down", types)
+	}
+	if _, err := provider.Up(testContext); err != nil {
+		t.Fatalf("migrate up again: %v", err)
+	}
+	if again := applicationTables(t, database); len(again) != len(tables) {
+		t.Fatalf("tables after migrating up again = %v, want %v", again, tables)
 	}
 }
 
-func TestMigration0003ChoosesSeedDmWithNoVariables(t *testing.T) {
-	setMigrationEnvironment(t, "", "")
-	database := dbtest.NewAtVersion(t, 2)
-	seedDm := insertLegacyMember(t, database, legacyMember{discordUserID: "seed:dm", status: "PENDING"})
-	insertLegacyMember(t, database, legacyMember{discordUserID: authorDiscordID, status: "ACTIVE"})
-	if err := database.MigrateTo(context.Background(), 3); err != nil {
-		t.Fatalf("migrate: %v", err)
+func requireConstraintViolation(t *testing.T, err error, constraintName string) {
+	t.Helper()
+	var postgresError *pgconn.PgError
+	if !errors.As(err, &postgresError) || postgresError.ConstraintName != constraintName {
+		t.Fatalf("got %v; want a violation of %s", err, constraintName)
 	}
-	if count := countRows(t, database, `SELECT count(*) FROM campaign_member WHERE role = 'DM' AND status = 'ACTIVE' AND account_id = $1`, seedDm); count != 1 {
-		t.Fatalf("seed:dm is not the DM")
+}
+
+// The schema itself keeps campaigns apart and holds the membership rules (CLAUDE.md Invariant 11,
+// docs/design/multi-campaign.md §2), whatever core does.
+func TestTheSchemaKeepsCampaignsApart(t *testing.T) {
+	testContext := context.Background()
+	database := dbtest.New(t)
+	execute := func(statement string, arguments ...any) error {
+		_, err := database.Pool.Exec(testContext, statement, arguments...)
+		return err
+	}
+	insertAccount := func(discordUserID string) uuid.UUID {
+		t.Helper()
+		var accountID uuid.UUID
+		if err := database.Pool.QueryRow(testContext, `INSERT INTO account (discord_user_id, discord_username, display_name)
+			VALUES ($1, $1, $1) RETURNING id`, discordUserID).Scan(&accountID); err != nil {
+			t.Fatalf("insert account: %v", err)
+		}
+		return accountID
+	}
+	insertCampaign := func(slug string) uuid.UUID {
+		t.Helper()
+		var campaignID uuid.UUID
+		if err := database.Pool.QueryRow(testContext, `INSERT INTO campaign (slug, name, invite_code)
+			VALUES ($1, $1, repeat('a', 22) || $1) RETURNING id`, slug).Scan(&campaignID); err != nil {
+			t.Fatalf("insert campaign: %v", err)
+		}
+		for _, statement := range []string{
+			`INSERT INTO settings (campaign_id) VALUES ($1)`,
+			`INSERT INTO colony (campaign_id) VALUES ($1)`,
+			`INSERT INTO resource (campaign_id, key, label, icon) VALUES ($1, 'food', 'Food', 'Wheat')`,
+			`INSERT INTO role (campaign_id, key, label, icon) VALUES ($1, 'FARMER', 'Farmer', 'Wheat')`,
+		} {
+			if err := execute(statement, campaignID); err != nil {
+				t.Fatalf("%s: %v", statement, err)
+			}
+		}
+		return campaignID
+	}
+	insertMember := func(campaignID uuid.UUID, accountID uuid.UUID, role string, status string) uuid.UUID {
+		t.Helper()
+		var memberID uuid.UUID
+		if err := database.Pool.QueryRow(testContext, `INSERT INTO campaign_member (campaign_id, account_id, role, status)
+			VALUES ($1, $2, $3::campaign_role, $4::member_status) RETURNING id`, campaignID, accountID, role, status).Scan(&memberID); err != nil {
+			t.Fatalf("insert member: %v", err)
+		}
+		return memberID
+	}
+
+	dmAccount := insertAccount("100000000000000001")
+	playerAccount := insertAccount("100000000000000002")
+	firstCampaign := insertCampaign("first-campaign")
+	secondCampaign := insertCampaign("second-campaign")
+	firstDm := insertMember(firstCampaign, dmAccount, "DM", "ACTIVE")
+	firstPlayer := insertMember(firstCampaign, playerAccount, "PLAYER", "ACTIVE")
+	insertMember(secondCampaign, playerAccount, "DM", "ACTIVE")
+
+	// Keys are per campaign: both campaigns have their own food.
+	if count := countRows(t, database, `SELECT count(*) FROM resource WHERE key = 'food'`); count != 2 {
+		t.Fatalf("food rows = %d, want one per campaign", count)
+	}
+	requireConstraintViolation(t,
+		execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, created_by)
+			VALUES ($1, 0, 'CUSTOM', 'Cross', 'PUBLIC', $2)`, secondCampaign, firstDm),
+		"timeline_event_created_by_fkey")
+	requireConstraintViolation(t, execute(`UPDATE campaign_member SET role = 'DM' WHERE id = $1`, firstPlayer), "campaign_member_one_dm")
+	requireConstraintViolation(t, execute(`UPDATE campaign_member SET status = 'REMOVED' WHERE id = $1`, firstDm), "campaign_member_dm_active")
+	requireConstraintViolation(t, execute(`UPDATE campaign_member SET left_on_own = true WHERE id = $1`, firstPlayer), "campaign_member_left_is_removed")
+	requireConstraintViolation(t, execute(`INSERT INTO campaign (slug, name, invite_code) VALUES ('No Capitals', 'x', repeat('b', 22))`), "campaign_slug_check")
+	const requestStatement = `INSERT INTO campaign_request (account_id, campaign_name, slug) VALUES ($1, $2, $2)`
+	if err := execute(requestStatement, dmAccount, "sky-isles"); err != nil {
+		t.Fatalf("insert campaign request: %v", err)
+	}
+	requireConstraintViolation(t, execute(requestStatement, dmAccount, "sky-isles-two"), "campaign_request_one_open")
+	requireConstraintViolation(t, execute(requestStatement, playerAccount, "sky-isles"), "campaign_request_open_slug")
+
+	// Removing a member clears only the author column of their entries, not the entry's campaign.
+	if err := execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, created_by)
+		VALUES ($1, 0, 'CUSTOM', 'Founded', 'PUBLIC', $2)`, firstCampaign, firstPlayer); err != nil {
+		t.Fatalf("insert timeline entry: %v", err)
+	}
+	if err := execute(`DELETE FROM campaign_member WHERE id = $1`, firstPlayer); err != nil {
+		t.Fatalf("delete member: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM timeline_event WHERE campaign_id = $1 AND created_by IS NULL`, firstCampaign); count != 1 {
+		t.Fatalf("the entry of a deleted member = %d rows, want 1 with no author", count)
+	}
+
+	// Deleting a campaign takes every campaign-owned row with it and leaves the other campaign alone.
+	if err := execute(`DELETE FROM campaign WHERE id = $1`, firstCampaign); err != nil {
+		t.Fatalf("delete campaign: %v", err)
+	}
+	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member"} {
+		if left := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, firstCampaign); left != 0 {
+			t.Errorf("%s kept %d rows of the deleted campaign", table, left)
+		}
+		if kept := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, secondCampaign); kept == 0 && table != "timeline_event" {
+			t.Errorf("%s lost the other campaign's rows", table)
+		}
 	}
 }

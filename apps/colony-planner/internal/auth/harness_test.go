@@ -15,8 +15,8 @@ import (
 	"github.com/BBruington/colony-planner/internal/store"
 )
 
-// testOwnerDiscordID is the harness's site owner; tests never read SITE_OWNER_DISCORD_ID or
-// DM_DISCORD_ID from the environment.
+// testOwnerDiscordID is the harness's site owner; tests never read SITE_OWNER_DISCORD_ID from the
+// environment.
 const testOwnerDiscordID = "200000000000000002"
 
 type recordingNotifier struct {

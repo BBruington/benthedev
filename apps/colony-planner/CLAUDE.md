@@ -18,7 +18,6 @@ Run `mise run setup` once (pinned tools, `bun install`, and a `.env` with a rand
 | `mise run test` | Go tests against the `colony_test` database, then web unit tests |
 | `mise run check` | every check; it must end with "All checks passed" |
 | `mise run seed` / `reset` / `fresh` | load the two sample campaigns / wipe and re-migrate / both |
-| `mise run env:upgrade` | once, after M1: renames DM_DISCORD_ID to SITE_OWNER_DISCORD_ID in .env in place, never printing a value (`scripts/migrate-env.sh`) |
 | `mise run build` | the SPA into web/dist/spa and bin/colony (no devauth); then bin/colony serve is the one-origin shape |
 | `mise run db:up` / `db:down` | start / stop the Postgres container (and the database browser) |
 | `mise run db:studio` | DbGate, a web database browser on http://localhost:54330, connected to `colony`; edits skip the app's rules |
@@ -48,7 +47,7 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
 | `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build |
-| `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories), `scripts/migrate-env.sh` (the env:upgrade task) |
+| `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) and `docs/checklists/` |
 
 ## Boundaries (enforced by `mise run check`)
@@ -130,7 +129,11 @@ API details that keep the contract single-sourced:
   cookie. `internal/app/access.go` resolves `{campaignId}` before huma parses input (an unparsable ID is the
   same 404), so every campaign input struct declares its CampaignID field itself (huma ignores path
   parameters in embedded structs).
-- Every colony command except `openapi` refuses to run while DM_DISCORD_ID is set (`cmd/colony/config.go`).
+- `serve`, `migrate` (up and status) and `seed` refuse a database whose goose_db_version records a
+  migration this build doesn't embed (`CheckMigrationHistory` in `db/migrate.go`), because goose would
+  skip a later migration that reuses its version; the message says to run `mise run fresh`. `reset` drops
+  the schema before migrating, so `mise run reset` and `fresh` rebuild such a database. Never renumber or
+  delete a migration once it is merged.
 - Mutations accept JSON bodies only, behind stdlib http.CrossOriginProtection.
 - Sessions belong to the account and are cached in memory (`internal/auth/cache.go`). Sign-out and
   sign-out-everywhere evict through `core.SessionEvictor`; a membership change (approve, deny, remove,
