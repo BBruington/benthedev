@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { useCampaignId } from "@/hooks/use-campaign";
 import { useSheetState } from "@/hooks/use-sheet-state";
 import { formatNumber, parseWholeNumber } from "@/lib/colony";
 import { cn } from "@/lib/utils";
@@ -40,7 +41,7 @@ function boundsText(resource: ResourceSettings): string {
  * renaming, choosing an icon, setting bounds and archiving need no code change.
  */
 export function ResourceSettingsCard() {
-	const resources = useQuery(resourcesQuery);
+	const resources = useQuery(resourcesQuery(useCampaignId()));
 	const editing = useSheetState<Editing>();
 	return (
 		<section
@@ -199,12 +200,17 @@ function ResourceSheet({
 	);
 	const [archived, setArchived] = useState(existing?.archived ?? false);
 
+	const campaignId = useCampaignId();
 	function settle() {
-		queryClient.invalidateQueries({ queryKey: resourcesQuery.queryKey });
-		queryClient.invalidateQueries({ queryKey: colonyBoardQuery.queryKey });
+		queryClient.invalidateQueries({ queryKey: resourcesQuery(campaignId).queryKey });
+		queryClient.invalidateQueries({ queryKey: colonyBoardQuery(campaignId).queryKey });
 	}
-	const create = api.useMutation("post", "/api/resources", { onSettled: settle });
-	const update = api.useMutation("put", "/api/resources/{resourceKey}", { onSettled: settle });
+	const create = api.useMutation("post", "/api/campaigns/{campaignId}/resources", {
+		onSettled: settle,
+	});
+	const update = api.useMutation("put", "/api/campaigns/{campaignId}/resources/{resourceKey}", {
+		onSettled: settle,
+	});
 	const error = create.error ?? update.error;
 	const isSaving = create.isPending || update.isPending;
 
@@ -239,7 +245,7 @@ function ResourceSheet({
 			update.mutate(
 				{
 					body: { ...common, archived, sortOrder: existing.sortOrder },
-					params: { path: { resourceKey: existing.key } },
+					params: { path: { campaignId, resourceKey: existing.key } },
 				},
 				{
 					onSuccess: (saved) => {
@@ -251,7 +257,7 @@ function ResourceSheet({
 			return;
 		}
 		create.mutate(
-			{ body: common },
+			{ body: common, params: { path: { campaignId } } },
 			{
 				onSuccess: (saved) => {
 					toast.success(`${saved.label} added to the stockpile.`);

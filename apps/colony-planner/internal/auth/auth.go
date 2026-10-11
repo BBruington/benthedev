@@ -1,5 +1,5 @@
 // Package auth signs people in (Discord OAuth2, or dev sign-in in devauth builds), carries the session
-// token in a cookie, caches session lookups in memory, and resolves every request to a core.Viewer.
+// token in a cookie, caches session lookups in memory, and resolves every request to a core.Caller.
 // It talks only to internal/core: core owns the member and session data (spec §8.6).
 package auth
 
@@ -30,8 +30,8 @@ type Options struct {
 	AppEnvironment      string
 	DiscordClientID     string
 	DiscordClientSecret string
-	// DmDiscordID is already resolved by EffectiveDmDiscordID.
-	DmDiscordID string
+	// SiteOwnerDiscordID is already resolved by EffectiveSiteOwnerDiscordID.
+	SiteOwnerDiscordID string
 	// DiscordBaseURL replaces https://discord.com in tests, which run a fake Discord.
 	DiscordBaseURL string
 	// HTTPClient makes the calls to Discord; the default gives up after 10 seconds.
@@ -153,13 +153,15 @@ func (service *Service) SessionCookieName() string {
 	return service.sessionCookieName
 }
 
-type viewerContextKey struct{}
+type callerContextKey struct{}
 
-func WithViewer(requestContext context.Context, viewer core.Viewer) context.Context {
-	return context.WithValue(requestContext, viewerContextKey{}, viewer)
+// WithCaller stores the signed-in Caller. A campaign Viewer is not auth's to build: internal/app gets
+// one from core.EnterCampaign for the request's {campaignId}.
+func WithCaller(requestContext context.Context, caller core.Caller) context.Context {
+	return context.WithValue(requestContext, callerContextKey{}, caller)
 }
 
-func ViewerFromContext(requestContext context.Context) (core.Viewer, bool) {
-	viewer, ok := requestContext.Value(viewerContextKey{}).(core.Viewer)
-	return viewer, ok
+func CallerFromContext(requestContext context.Context) (core.Caller, bool) {
+	caller, ok := requestContext.Value(callerContextKey{}).(core.Caller)
+	return caller, ok
 }

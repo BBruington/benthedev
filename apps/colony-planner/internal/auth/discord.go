@@ -23,7 +23,6 @@ const oauthStateLifetime = 10 * time.Minute
 
 // Where a failed sign-in lands; /login explains each error value.
 const (
-	loginPageSignUpsFull   = "/login?error=full"
 	loginPageDiscordFailed = "/login?error=discord"
 )
 
@@ -101,17 +100,14 @@ func (service *Service) DiscordCallback() http.Handler {
 			http.Redirect(writer, request, loginPageDiscordFailed, http.StatusSeeOther)
 			return
 		}
-		memberID, err := service.options.Core.SignIn(requestContext, identity)
-		if errors.Is(err, core.ErrSignUpsFull) {
-			http.Redirect(writer, request, loginPageSignUpsFull, http.StatusSeeOther)
-			return
-		}
+		// A first sign-in only creates the account: joining is by invite link, so nobody is turned away here.
+		accountID, err := service.options.Core.SignIn(requestContext, identity)
 		if err != nil {
 			service.options.Logger.ErrorContext(requestContext, "recording a Discord sign-in failed", slog.Any("error", err))
 			http.Redirect(writer, request, loginPageDiscordFailed, http.StatusSeeOther)
 			return
 		}
-		if err := service.startSession(writer, request, memberID); err != nil {
+		if err := service.startSession(writer, request, accountID); err != nil {
 			service.options.Logger.ErrorContext(requestContext, "starting a session failed", slog.Any("error", err))
 			http.Redirect(writer, request, loginPageDiscordFailed, http.StatusSeeOther)
 			return

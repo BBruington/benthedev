@@ -12,6 +12,186 @@ import (
 	"github.com/google/uuid"
 )
 
+type CampaignRequestStatus string
+
+const (
+	CampaignRequestStatusPENDING   CampaignRequestStatus = "PENDING"
+	CampaignRequestStatusAPPROVED  CampaignRequestStatus = "APPROVED"
+	CampaignRequestStatusDENIED    CampaignRequestStatus = "DENIED"
+	CampaignRequestStatusWITHDRAWN CampaignRequestStatus = "WITHDRAWN"
+)
+
+func (e *CampaignRequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CampaignRequestStatus(s)
+	case string:
+		*e = CampaignRequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CampaignRequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCampaignRequestStatus struct {
+	CampaignRequestStatus CampaignRequestStatus
+	Valid                 bool // Valid is true if CampaignRequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCampaignRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CampaignRequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CampaignRequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCampaignRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CampaignRequestStatus), nil
+}
+
+func (e CampaignRequestStatus) Valid() bool {
+	switch e {
+	case CampaignRequestStatusPENDING,
+		CampaignRequestStatusAPPROVED,
+		CampaignRequestStatusDENIED,
+		CampaignRequestStatusWITHDRAWN:
+		return true
+	}
+	return false
+}
+
+func AllCampaignRequestStatusValues() []CampaignRequestStatus {
+	return []CampaignRequestStatus{
+		CampaignRequestStatusPENDING,
+		CampaignRequestStatusAPPROVED,
+		CampaignRequestStatusDENIED,
+		CampaignRequestStatusWITHDRAWN,
+	}
+}
+
+type CampaignRole string
+
+const (
+	CampaignRoleDM     CampaignRole = "DM"
+	CampaignRolePLAYER CampaignRole = "PLAYER"
+)
+
+func (e *CampaignRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CampaignRole(s)
+	case string:
+		*e = CampaignRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CampaignRole: %T", src)
+	}
+	return nil
+}
+
+type NullCampaignRole struct {
+	CampaignRole CampaignRole
+	Valid        bool // Valid is true if CampaignRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCampaignRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.CampaignRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CampaignRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCampaignRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CampaignRole), nil
+}
+
+func (e CampaignRole) Valid() bool {
+	switch e {
+	case CampaignRoleDM,
+		CampaignRolePLAYER:
+		return true
+	}
+	return false
+}
+
+func AllCampaignRoleValues() []CampaignRole {
+	return []CampaignRole{
+		CampaignRoleDM,
+		CampaignRolePLAYER,
+	}
+}
+
+type CampaignStatus string
+
+const (
+	CampaignStatusACTIVE    CampaignStatus = "ACTIVE"
+	CampaignStatusSUSPENDED CampaignStatus = "SUSPENDED"
+)
+
+func (e *CampaignStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CampaignStatus(s)
+	case string:
+		*e = CampaignStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CampaignStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCampaignStatus struct {
+	CampaignStatus CampaignStatus
+	Valid          bool // Valid is true if CampaignStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCampaignStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CampaignStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CampaignStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCampaignStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CampaignStatus), nil
+}
+
+func (e CampaignStatus) Valid() bool {
+	switch e {
+	case CampaignStatusACTIVE,
+		CampaignStatusSUSPENDED:
+		return true
+	}
+	return false
+}
+
+func AllCampaignStatusValues() []CampaignStatus {
+	return []CampaignStatus{
+		CampaignStatusACTIVE,
+		CampaignStatusSUSPENDED,
+	}
+}
+
 type ColonyIcon string
 
 const (
@@ -297,8 +477,51 @@ func AllTimelineVisibilityValues() []TimelineVisibility {
 	}
 }
 
+type Account struct {
+	ID              uuid.UUID
+	DiscordUserID   string
+	DiscordUsername string
+	DisplayName     string
+	AvatarUrl       *string
+	CreatedAt       time.Time
+	LastSeenAt      *time.Time
+}
+
+type Campaign struct {
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Status      CampaignStatus
+	SuspendedAt *time.Time
+	InviteCode  string
+	CreatedAt   time.Time
+}
+
+type CampaignMember struct {
+	ID            uuid.UUID
+	CampaignID    uuid.UUID
+	AccountID     uuid.UUID
+	Role          CampaignRole
+	Status        MemberStatus
+	CharacterName *string
+	LeftOnOwn     bool
+	CreatedAt     time.Time
+	ApprovedAt    *time.Time
+}
+
+type CampaignRequest struct {
+	ID           uuid.UUID
+	AccountID    uuid.UUID
+	CampaignName string
+	Slug         string
+	Note         string
+	Status       CampaignRequestStatus
+	DecidedAt    *time.Time
+	CampaignID   *uuid.UUID
+	CreatedAt    time.Time
+}
+
 type Colony struct {
-	ID                   int16
 	Name                 string
 	Day                  int32
 	Version              int64
@@ -306,31 +529,28 @@ type Colony struct {
 	NextShipmentDay      *int32
 	LastChange           []byte
 	UpdatedAt            time.Time
+	CampaignID           uuid.UUID
 }
 
-type Member struct {
-	ID              uuid.UUID
-	DiscordUserID   string
-	DiscordUsername string
-	DisplayName     string
-	AvatarUrl       *string
-	CharacterName   *string
-	Status          MemberStatus
-	CreatedAt       time.Time
-	ApprovedAt      *time.Time
-	LastSeenAt      *time.Time
+type DiscordGuildLink struct {
+	CampaignID            uuid.UUID
+	GuildID               string
+	GuildName             string
+	LinkedByDiscordUserID string
+	LinkedAt              time.Time
 }
 
 type Resource struct {
-	Key       string
-	Label     string
-	Icon      ColonyIcon
-	Amount    int32
-	MinAmount int32
-	MaxAmount *int32
-	SortOrder int32
-	IsSystem  bool
-	Archived  bool
+	Key        string
+	Label      string
+	Icon       ColonyIcon
+	Amount     int32
+	MinAmount  int32
+	MaxAmount  *int32
+	SortOrder  int32
+	IsSystem   bool
+	Archived   bool
+	CampaignID uuid.UUID
 }
 
 type Role struct {
@@ -341,15 +561,15 @@ type Role struct {
 	UnnamedCount int32
 	IsSystem     bool
 	Archived     bool
+	CampaignID   uuid.UUID
 }
 
 type Settings struct {
-	ID                       int16
-	CampaignName             string
 	Timezone                 string
 	DiscordAnnounceChannelID *string
 	DiscordReminderChannelID *string
 	DiscordDmChannelID       *string
+	CampaignID               uuid.UUID
 }
 
 type TimelineEvent struct {
@@ -367,11 +587,12 @@ type TimelineEvent struct {
 	CreatedBy  *uuid.UUID
 	CreatedAt  time.Time
 	EditedAt   *time.Time
+	CampaignID uuid.UUID
 }
 
 type WebSession struct {
 	TokenHash    []byte
-	MemberID     uuid.UUID
+	AccountID    uuid.UUID
 	ViewAsPlayer bool
 	CreatedAt    time.Time
 	ExpiresAt    time.Time

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,19 +17,18 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/BBruington/colony-planner/internal/auth"
 	"github.com/BBruington/colony-planner/internal/core"
-	"github.com/BBruington/colony-planner/internal/store"
 )
 
-// The secrecy and access test (spec §2.2, item 6). Each feature plants a canary in every DM-only value
-// it stores (secrecy_fixtures_test.go). Every operation in the OpenAPI document and every route in the
-// route table is then called as a player, the DM viewing as player, a pending member, a removed member
-// and a visitor: dm routes must answer 403, member routes 403 for anyone not let in, member reads must
-// succeed for an active caller, every /api/ and /auth/ response must say Cache-Control: no-store, and
-// no response may contain a canary. Path parameters point at the fixtures' rows and required query
-// parameters are filled from their schemas, so a new endpoint is swept without editing this file. Its
-// DM-only data is covered only once its feature plants canaries: plant one for every new Dm field or
-// hidden row.
+// The cross-campaign secrecy and access sweep (spec §2.2 item 6; docs/design/multi-campaign.md §4.4).
+// Each feature plants tokens into both campaigns (secrecy_fixtures_test.go): canaryA in A's DM-only
+// values, canaryB in every value of B its players see, canaryBdm in B's DM-only values, plus each
+// campaign's invite and link codes and Discord IDs as literals. Every operation in the OpenAPI document
+// and every route in the route table is then called by every kind of caller, path parameters filled
+// with real rows and bodies shaped by their schemas, so a new endpoint is swept without editing this
+// file. A leak is caught only if its value was planted: plant a token for every new Dm field or hidden
+// row, in both campaigns.
 
 type documentedOperation struct {
 	method      string
@@ -80,26 +80,93 @@ func documentedOperations(t *testing.T, server *Server) ([]documentedOperation, 
 	return operations, document
 }
 
+// sweepRoute is one OpenAPI operation or one route-table route.
+type sweepRoute struct {
+	label     string
+	method    string
+	path      string
+	access    AccessLevel
+	operation *documentedOperation
+}
+
+// inCampaign reports whether the route is a campaign route: {campaignId} outside /api/admin/.
+func (route sweepRoute) inCampaign() bool {
+	return strings.Contains(route.path, "{"+campaignParameter+"}") && !strings.HasPrefix(route.path, adminPathPrefix)
+}
+
+func (route sweepRoute) isLeave() bool {
+	return route.method == http.MethodPost && strings.HasSuffix(route.path, "/leave")
+}
+
+func (route sweepRoute) isStream() bool {
+	return route.operation == nil && strings.HasSuffix(route.path, "/stream")
+}
+
+func sweepRoutes(t *testing.T, server *Server) ([]sweepRoute, map[string]any) {
+	t.Helper()
+	operations, document := documentedOperations(t, server)
+	routes := make([]sweepRoute, 0, len(operations)+len(server.routes))
+	for index := range operations {
+		operation := &operations[index]
+		if !operation.access.valid() {
+			t.Errorf("%s %s declares no access level", operation.method, operation.path)
+		}
+		routes = append(routes, sweepRoute{
+			label:     operation.method + " " + operation.path,
+			method:    operation.method,
+			path:      operation.path,
+			access:    operation.access,
+			operation: operation,
+		})
+	}
+	for _, route := range server.routes {
+		method, path, _ := strings.Cut(route.Pattern, " ")
+		routes = append(routes, sweepRoute{label: route.Pattern, method: method, path: path, access: route.Access})
+	}
+	return routes, document
+}
+
+// campaignRoutesLeaveLast lists the campaign routes with POST .../leave at the end, so a caller who
+// leaves does so after every other call.
+func campaignRoutesLeaveLast(routes []sweepRoute) []sweepRoute {
+	var campaignRoutes, leave []sweepRoute
+	for _, route := range routes {
+		switch {
+		case !route.inCampaign():
+		case route.isLeave():
+			leave = append(leave, route)
+		default:
+			campaignRoutes = append(campaignRoutes, route)
+		}
+	}
+	return append(campaignRoutes, leave...)
+}
+
 var pathParameter = regexp.MustCompile(`\{[^}]+\}`)
 
-// fillPath puts the fixture row named after each path parameter into the path, so handlers run against
-// existing rows. A parameter no fixture names fails the test: add its ID in secrecy_fixtures_test.go.
-func fillPath(t *testing.T, path string, fixtureIDs map[string]string) string {
+// fillPath puts the row named after each path parameter into the path. A parameter no fixture names
+// fails the test: record one in its feature's plant (secrecy_fixtures_test.go).
+func fillPath(t *testing.T, path string, pathIDs map[string]string) string {
 	t.Helper()
 	return pathParameter.ReplaceAllStringFunc(path, func(placeholder string) string {
 		name := strings.TrimSuffix(strings.TrimPrefix(placeholder, "{"), "}")
-		id, known := fixtureIDs[name]
+		id, known := pathIDs[name]
 		if !known {
-			t.Errorf("%s: no secrecy fixture names path parameter %q; return one from its feature's plant", path, name)
+			t.Errorf("%s: no secrecy fixture names path parameter %q; record one in its feature's plant", path, name)
 			return uuid.Nil.String()
 		}
-		return id
+		return url.PathEscape(id)
 	})
 }
 
-// fillQuery adds every required query parameter: a fixture ID when one has its name, otherwise a value
-// shaped by its schema.
-func fillQuery(document map[string]any, operation documentedOperation, fixtureIDs map[string]string, memberID uuid.UUID) string {
+// queryDefaults keeps day ranges wide enough to reach the planted entries.
+var queryDefaults = map[string]string{"fromDay": "0", "toDay": "30", "days": "1"}
+
+// fillQuery adds every required query parameter, shaped by its schema.
+func fillQuery(document map[string]any, operation *documentedOperation, sampleID uuid.UUID) string {
+	if operation == nil {
+		return ""
+	}
 	query := url.Values{}
 	for _, parameter := range operation.parameters {
 		if location, _ := parameter["in"].(string); location != "query" {
@@ -109,12 +176,12 @@ func fillQuery(document map[string]any, operation documentedOperation, fixtureID
 			continue
 		}
 		name, _ := parameter["name"].(string)
-		if id, known := fixtureIDs[name]; known {
-			query.Set(name, id)
+		if value, known := queryDefaults[name]; known {
+			query.Set(name, value)
 			continue
 		}
 		schema, _ := parameter["schema"].(map[string]any)
-		query.Set(name, fmt.Sprint(sampleValue(document, schema, memberID)))
+		query.Set(name, fmt.Sprint(sampleValue(document, schema, sampleID)))
 	}
 	if len(query) == 0 {
 		return ""
@@ -122,44 +189,58 @@ func fillQuery(document map[string]any, operation documentedOperation, fixtureID
 	return "?" + query.Encode()
 }
 
-// sampleBody builds a schema-shaped JSON body, so the handler behind validation runs too.
-func sampleBody(document map[string]any, requestBody map[string]any, memberID uuid.UUID) string {
-	if requestBody == nil {
-		return ""
-	}
+func requestBodySchema(requestBody map[string]any) map[string]any {
 	content, _ := requestBody["content"].(map[string]any)
 	media, _ := content["application/json"].(map[string]any)
 	schema, _ := media["schema"].(map[string]any)
-	encoded, _ := json.Marshal(sampleValue(document, schema, memberID))
+	return schema
+}
+
+// sampleBody builds a schema-shaped JSON body, so the handler behind validation runs too.
+func sampleBody(document map[string]any, operation *documentedOperation, sampleID uuid.UUID) string {
+	if operation == nil || operation.requestBody == nil {
+		return ""
+	}
+	encoded, _ := json.Marshal(sampleValue(document, requestBodySchema(operation.requestBody), sampleID))
 	return string(encoded)
 }
 
-func sampleValue(document map[string]any, schema map[string]any, memberID uuid.UUID) any {
-	if reference, isReference := schema["$ref"].(string); isReference {
-		components, _ := document["components"].(map[string]any)
-		schemas, _ := components["schemas"].(map[string]any)
-		resolved, _ := schemas[strings.TrimPrefix(reference, "#/components/schemas/")].(map[string]any)
-		return sampleValue(document, resolved, memberID)
+func resolveSchema(document map[string]any, schema map[string]any) map[string]any {
+	reference, isReference := schema["$ref"].(string)
+	if !isReference {
+		return schema
 	}
+	components, _ := document["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	resolved, _ := schemas[strings.TrimPrefix(reference, "#/components/schemas/")].(map[string]any)
+	return resolved
+}
+
+func schemaType(schema map[string]any) string {
+	if name, isString := schema["type"].(string); isString {
+		return name
+	}
+	types, _ := schema["type"].([]any)
+	for _, candidate := range types {
+		if name, _ := candidate.(string); name != "null" {
+			return name
+		}
+	}
+	return ""
+}
+
+func sampleValue(document map[string]any, schema map[string]any, sampleID uuid.UUID) any {
+	schema = resolveSchema(document, schema)
 	if values, isEnum := schema["enum"].([]any); isEnum && len(values) > 0 {
 		return values[0]
 	}
-	schemaType, _ := schema["type"].(string)
-	if types, isList := schema["type"].([]any); isList {
-		for _, candidate := range types {
-			if name, _ := candidate.(string); name != "null" {
-				schemaType = name
-				break
-			}
-		}
-	}
-	switch schemaType {
+	switch schemaType(schema) {
 	case "object":
 		object := map[string]any{}
 		properties, _ := schema["properties"].(map[string]any)
 		for name, property := range properties {
 			propertySchema, _ := property.(map[string]any)
-			object[name] = sampleValue(document, propertySchema, memberID)
+			object[name] = sampleValue(document, propertySchema, sampleID)
 		}
 		return object
 	case "array":
@@ -170,14 +251,10 @@ func sampleValue(document map[string]any, schema map[string]any, memberID uuid.U
 		return true
 	case "string":
 		if format, _ := schema["format"].(string); format == "uuid" {
-			return memberID.String()
+			return sampleID.String()
 		}
 		// Core checks formats, so the schema only describes them; a valid sample lets the handler run.
-		description, _ := schema["description"].(string)
-		if strings.Contains(description, "Discord channel ID") {
-			return "123456789012345678"
-		}
-		if strings.Contains(description, "IANA") {
+		if description, _ := schema["description"].(string); strings.Contains(description, "IANA") {
 			return "America/New_York"
 		}
 		return "Sample"
@@ -186,179 +263,606 @@ func sampleValue(document map[string]any, schema map[string]any, memberID uuid.U
 	}
 }
 
-// expectedRefusal is the status access control must give, or 0 when the route may answer.
-func expectedRefusal(access AccessLevel, viewer core.Viewer, signedIn bool) int {
-	switch access {
-	case AccessPublic, AccessToken:
-		return 0
+// sweepCaller is one caller of a campaign pass and what they are in the campaign the pass calls.
+type sweepCaller struct {
+	name string
+	// who is nil for a visitor.
+	who          *account
+	isMember     bool
+	isDM         bool
+	viewAsPlayer bool
+	status       core.MemberStatus
+	// forbidden are the values no response to this caller may hold.
+	forbidden []string
+	// token, when set, is reused for every call; otherwise each call signs in afresh (the sweep calls
+	// sign out and view as player, which change a session).
+	token string
+}
+
+func (testHarness *harness) tokenFor(caller sweepCaller, campaign *campaignFixture) string {
+	testHarness.t.Helper()
+	if caller.who == nil {
+		return ""
 	}
-	if !signedIn {
+	if caller.token != "" {
+		return caller.token
+	}
+	token := testHarness.signIn(*caller.who)
+	if caller.viewAsPlayer {
+		testHarness.expectStatus(testHarness.do(http.MethodPost, campaignPathOf(campaign, "/me/view-as-player"), requestOptions{
+			token: token,
+			body:  `{"enabled":true}`,
+		}), http.StatusNoContent)
+	}
+	return token
+}
+
+// call performs one route as the caller with the given path IDs and body.
+func (testHarness *harness) call(route sweepRoute, document map[string]any, token string, pathIDs map[string]string, body string) (string, *httptest.ResponseRecorder) {
+	testHarness.t.Helper()
+	path := fillPath(testHarness.t, route.path, pathIDs)
+	options := requestOptions{token: token, body: body}
+	if route.isStream() {
+		streamContext, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		options.context = streamContext
+	}
+	return path, testHarness.do(route.method, path+fillQuery(document, route.operation, uuid.New()), options)
+}
+
+// expectedCampaignAnswer is the status the access layer must give a caller on a campaign route, or 0
+// when the route may answer.
+func expectedCampaignAnswer(access AccessLevel, caller sweepCaller, campaignActive bool) int {
+	switch {
+	case caller.who == nil:
 		return http.StatusUnauthorized
-	}
-	switch access {
-	case AccessDm:
+	case !caller.isMember:
+		return http.StatusNotFound
+	case access == AccessPending:
+		return 0
+	case caller.status != core.MemberStatusActive || !campaignActive:
 		return http.StatusForbidden
-	case AccessMember:
-		if !viewer.IsActive() {
-			return http.StatusForbidden
-		}
+	case access == AccessDm && (!caller.isDM || caller.viewAsPlayer):
+		return http.StatusForbidden
 	}
 	return 0
 }
 
-// mustSucceed reports whether an active caller's request is a plain read that has to work. A member
-// read that answers 404 or 422 never ran its data path, so the sweep would prove nothing about it.
-func mustSucceed(method string, access AccessLevel, viewer core.Viewer, signedIn bool) bool {
-	return signedIn && viewer.IsActive() && method == http.MethodGet && (access == AccessMember || access == AccessPending)
-}
-
-func checkSecrecy(t *testing.T, label, method, path string, access AccessLevel, viewer core.Viewer, signedIn bool, response *httptest.ResponseRecorder) {
+// checkResponse holds for every answer: no 5xx, no-store on /api/ and /auth/, and no forbidden value
+// in the headers or body. ownValues are the caller's own (their Discord username on GET /api/me), which
+// they may see even where they hold a token.
+func checkResponse(t *testing.T, label string, path string, forbidden []string, response *httptest.ResponseRecorder, ownValues ...string) {
 	t.Helper()
-	if refusal := expectedRefusal(access, viewer, signedIn); refusal != 0 && response.Code != refusal {
-		t.Errorf("%s (%s): status %d, want %d; body: %s", label, access, response.Code, refusal, response.Body.String())
-	}
 	if response.Code >= http.StatusInternalServerError {
-		t.Errorf("%s (%s): status %d; body: %s", label, access, response.Code, response.Body.String())
-	}
-	if mustSucceed(method, access, viewer, signedIn) && (response.Code < 200 || response.Code > 299) {
-		t.Errorf("%s (%s): an active member's read answered %d; body: %s", label, access, response.Code, response.Body.String())
+		t.Errorf("%s: status %d; body: %s", label, response.Code, response.Body.String())
 	}
 	if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/") {
 		if cacheControl := response.Header().Get("Cache-Control"); !strings.Contains(cacheControl, "no-store") {
-			t.Errorf("%s (%s): Cache-Control %q, want no-store", label, access, cacheControl)
+			t.Errorf("%s: Cache-Control %q, want no-store", label, cacheControl)
 		}
 	}
 	var headers strings.Builder
 	_ = response.Header().Write(&headers)
 	everything := headers.String() + response.Body.String()
-	for _, secret := range []string{canary, numericCanary} {
-		if strings.Contains(everything, secret) {
-			t.Errorf("%s (%s): the response leaks DM-only data %q: %s", label, access, secret, everything)
+	for _, own := range ownValues {
+		everything = strings.ReplaceAll(everything, own, "")
+	}
+	for _, secret := range forbidden {
+		if secret != "" && strings.Contains(everything, secret) {
+			t.Errorf("%s: the response leaks %q: %s", label, secret, everything)
 		}
 	}
 }
 
-func TestEveryRouteKeepsDmDataSecret(t *testing.T) {
+// sweepCampaign calls every campaign route of campaign as the caller and checks the access answer.
+func (testHarness *harness) sweepCampaign(t *testing.T, routes []sweepRoute, document map[string]any, campaign *campaignFixture, caller sweepCaller, campaignActive bool) {
+	t.Helper()
+	for _, route := range campaignRoutesLeaveLast(routes) {
+		token := testHarness.tokenFor(caller, campaign)
+		path, response := testHarness.call(route, document, token, campaign.pathIDs, sampleBody(document, route.operation, uuid.New()))
+		label := caller.name + ": " + route.label
+		checkResponse(t, label, path, caller.forbidden, response)
+		if route.isLeave() {
+			// Leaving is checked by TestLeavingACampaign; here it only must not leak.
+			continue
+		}
+		expected := expectedCampaignAnswer(route.access, caller, campaignActive)
+		if expected != 0 && response.Code != expected {
+			t.Errorf("%s (%s): status %d, want %d; body: %s", label, route.access, response.Code, expected, response.Body.String())
+		}
+		if expected == 0 && route.method == http.MethodGet && (route.access == AccessMember || route.access == AccessPending) &&
+			(response.Code < 200 || response.Code > 299) {
+			// A read that answers 404 or 422 never ran its data path, so the sweep would prove nothing.
+			t.Errorf("%s (%s): a member's read answered %d; body: %s", label, route.access, response.Code, response.Body.String())
+		}
+	}
+}
+
+func joinValues(groups ...[]string) []string {
+	var values []string
+	for _, group := range groups {
+		values = append(values, group...)
+	}
+	return values
+}
+
+// Passes 1 and 1b, and every account's view of the routes outside campaigns.
+func TestPlayersSeeOnlyTheirCampaignsPlayerData(t *testing.T) {
 	testHarness := newHarness(t)
-	fixtureIDs := plantCanaries(t, testHarness)
-	operations, document := documentedOperations(t, testHarness.server)
-	dmViewingAsPlayer := testHarness.viewerOf(testHarness.dm)
-	dmViewingAsPlayer.ViewAsPlayer = true
+	plantCanaries(t, testHarness)
+	routes, document := sweepRoutes(t, testHarness.server)
+	campaignA, campaignB := testHarness.campaignA, testHarness.campaignB
+	secretA, secretB := testHarness.dmOnlyValues(campaignA), testHarness.dmOnlyValues(campaignB)
+	everything := joinValues(secretA, secretB, []string{canaryB})
+	active, pending, removed := core.MemberStatusActive, core.MemberStatusPending, core.MemberStatusRemoved
 
-	for _, caller := range []struct {
-		name         string
-		member       store.Member
-		viewer       core.Viewer
-		signedIn     bool
-		viewAsPlayer bool
-	}{
-		{name: "player", member: testHarness.player, viewer: testHarness.viewerOf(testHarness.player), signedIn: true},
-		{name: "DM viewing as player", member: testHarness.dm, viewer: dmViewingAsPlayer, signedIn: true, viewAsPlayer: true},
-		{name: "pending member", member: testHarness.pending, viewer: testHarness.viewerOf(testHarness.pending), signedIn: true},
-		{name: "removed member", member: testHarness.removed, viewer: testHarness.viewerOf(testHarness.removed), signedIn: true},
-		{name: "visitor", signedIn: false},
-	} {
-		t.Run(caller.name, func(t *testing.T) {
-			target := testHarness.otherPlayer.ID
-			// A fresh session per call, because the sweep also calls sign out.
-			token := func() string {
-				if !caller.signedIn {
-					return ""
-				}
-				token := testHarness.signIn(caller.member.ID)
-				if caller.viewAsPlayer {
-					testHarness.expectStatus(testHarness.do(http.MethodPost, "/api/me/view-as-player", requestOptions{
-						token: token,
-						body:  `{"enabled":true}`,
-					}), http.StatusNoContent)
-				}
-				return token
+	t.Run("pass 1: players of A", func(t *testing.T) {
+		for _, caller := range []sweepCaller{
+			{name: "ana", who: &testHarness.ana, isMember: true, status: active},
+			{name: "otherA", who: &testHarness.otherA, isMember: true, status: active},
+			// A DM elsewhere is a player here, with player rules.
+			{name: "dmB (DM of B)", who: &testHarness.dmB, isMember: true, status: active},
+			{name: "dmA viewing as player", who: &testHarness.dmA, isMember: true, isDM: true, viewAsPlayer: true, status: active},
+			{name: "pendingA", who: &testHarness.pendingA, isMember: true, status: pending},
+			{name: "removedA", who: &testHarness.removedA, isMember: true, status: removed},
+			{name: "visitor"},
+		} {
+			caller.forbidden = everything
+			testHarness.sweepCampaign(t, routes, document, campaignA, caller, true)
+		}
+	})
+
+	t.Run("pass 1b: players of B", func(t *testing.T) {
+		for _, caller := range []sweepCaller{
+			// A's DM is a player in B: B's dm routes are closed to them.
+			{name: "dmA (DM of A)", who: &testHarness.dmA, isMember: true, status: active},
+			{name: "ana", who: &testHarness.ana, isMember: true, status: active},
+		} {
+			caller.forbidden = joinValues(secretB, secretA)
+			testHarness.sweepCampaign(t, routes, document, campaignB, caller, true)
+		}
+	})
+
+	t.Run("routes outside campaigns", func(t *testing.T) {
+		// A bogus invite code: joining a campaign mid-sweep would change who is in it.
+		pathIDs := map[string]string{
+			"campaignId":        campaignA.id.String(),
+			"campaignRequestId": campaignA.requestID.String(),
+			"inviteCode":        "no-such-invite-code-0000000",
+		}
+		inB := []string{"dmA", "ana", "dmB", "bOnly"}
+		usernames := map[string]string{"otherA": "bram." + canaryA, "pendingA": "emil." + canaryA, "removedA": "gus." + canaryA, "bOnly": "iko." + canaryBdm}
+		for _, who := range []account{testHarness.owner, testHarness.dmA, testHarness.ana, testHarness.otherA, testHarness.pendingA, testHarness.removedA, testHarness.dmB, testHarness.bOnly, testHarness.outsider} {
+			forbidden := everything
+			if slices.Contains(inB, who.name) {
+				// B's members see B's player-visible values on their own picker.
+				forbidden = joinValues(secretA, secretB)
 			}
-
-			for _, operation := range operations {
-				if !operation.access.valid() {
-					t.Errorf("%s %s declares no access level", operation.method, operation.path)
+			for _, route := range routes {
+				if route.inCampaign() {
 					continue
 				}
-				label := operation.method + " " + operation.path
-				path := fillPath(t, operation.path, fixtureIDs)
-				response := testHarness.do(operation.method, path+fillQuery(document, operation, fixtureIDs, target), requestOptions{
-					token: token(),
-					body:  sampleBody(document, operation.requestBody, target),
-				})
-				checkSecrecy(t, label, operation.method, path, operation.access, caller.viewer, caller.signedIn, response)
-			}
-
-			for _, route := range testHarness.server.routes {
-				method, routePath, _ := strings.Cut(route.Pattern, " ")
-				options := requestOptions{token: token()}
-				if routePath == "/api/stream" {
-					streamContext, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-					defer cancel()
-					options.context = streamContext
+				if route.path == "/api/login-options" && auth.DevAuthEnabled {
+					// Dev sign-in lists every account with its memberships, by design (§7.3); only devauth
+					// builds have it, and the build without the tag sweeps this route too.
+					continue
 				}
-				path := fillPath(t, routePath, fixtureIDs)
-				response := testHarness.do(method, path, options)
-				checkSecrecy(t, route.Pattern, method, path, route.Access, caller.viewer, caller.signedIn, response)
+				token := testHarness.signIn(who)
+				path, response := testHarness.call(route, document, token, pathIDs, sampleBody(document, route.operation, uuid.New()))
+				label := who.name + ": " + route.label
+				checkResponse(t, label, path, forbidden, response, usernames[who.name])
+				if route.access == AccessOwner && !who.caller.IsSiteOwner && response.Code != http.StatusForbidden {
+					t.Errorf("%s: a non-owner got %d from an owner route", label, response.Code)
+				}
+				if route.access == AccessAccount && route.method == http.MethodGet && !strings.Contains(route.path, "{") && response.Code != http.StatusOK {
+					t.Errorf("%s: an account read answered %d; body: %s", label, response.Code, response.Body.String())
+				}
 			}
-		})
+		}
+	})
+}
+
+// Passes 2 to 6, with campaign B's rows fingerprinted before and after: nothing campaign A's DM, B's
+// members, an outsider or the site owner does from A's routes or the admin routes changes B.
+func TestCampaignsStaySealed(t *testing.T) {
+	testHarness := newHarness(t)
+	plantCanaries(t, testHarness)
+	routes, document := sweepRoutes(t, testHarness.server)
+	campaignA, campaignB := testHarness.campaignA, testHarness.campaignB
+	secretA, secretB := testHarness.dmOnlyValues(campaignA), testHarness.dmOnlyValues(campaignB)
+	everything := joinValues(secretA, secretB, []string{canaryB})
+	notB := joinValues(secretB, []string{canaryB})
+	// B-only accounts' sessions are fingerprinted, so they are made before and reused.
+	bOnlyToken := testHarness.signIn(testHarness.bOnly)
+	before := testHarness.fingerprint(campaignB, testHarness.bOnly)
+
+	t.Run("pass 2: non-members get 404 from every campaign route", func(t *testing.T) {
+		for _, caller := range []sweepCaller{
+			{name: "bOnly", who: &testHarness.bOnly, token: bOnlyToken},
+			{name: "outsider", who: &testHarness.outsider},
+			{name: "owner", who: &testHarness.owner},
+		} {
+			caller.forbidden = everything
+			testHarness.sweepCampaign(t, routes, document, campaignA, caller, true)
+			// An unparsable, empty or unknown campaign ID reads exactly like a campaign the caller isn't in.
+			for _, campaignID := range []string{"not-a-uuid", uuid.Nil.String(), uuid.New().String(), campaignA.id.String() + "x"} {
+				pathIDs := maps.Clone(campaignA.pathIDs)
+				pathIDs["campaignId"] = campaignID
+				for _, route := range campaignRoutesLeaveLast(routes) {
+					path, response := testHarness.call(route, document, testHarness.tokenFor(caller, campaignA), pathIDs, sampleBody(document, route.operation, uuid.New()))
+					checkResponse(t, caller.name+": "+route.label, path, everything, response)
+					if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), core.ErrNoSuchCampaign.Message) {
+						t.Errorf("%s: %s with campaign %q = %d, want 404 No such campaign; body: %s", caller.name, route.label, campaignID, response.Code, response.Body.String())
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("pass 6: the owner on the admin routes", func(t *testing.T) {
+		// Admin {campaignId} routes act on A, so B's rows stay as they were.
+		pathIDs := map[string]string{"campaignId": campaignA.id.String(), "campaignRequestId": campaignA.requestID.String()}
+		for _, route := range routes {
+			if route.access != AccessOwner {
+				continue
+			}
+			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.owner), pathIDs, sampleBody(document, route.operation, uuid.New()))
+			checkResponse(t, "owner: "+route.label, path, everything, response)
+			if route.method == http.MethodGet && response.Code != http.StatusOK {
+				t.Errorf("owner: %s answered %d; body: %s", route.label, response.Code, response.Body.String())
+			}
+		}
+		list := testHarness.do(http.MethodGet, "/api/admin/campaigns", requestOptions{token: testHarness.signIn(testHarness.owner)})
+		testHarness.expectStatus(list, http.StatusOK)
+		for _, directoryValue := range []string{campaignA.slug, campaignB.slug, "Hollis", "hollis"} {
+			if !strings.Contains(list.Body.String(), directoryValue) {
+				t.Errorf("the owner's campaign list lacks %q: %s", directoryValue, list.Body.String())
+			}
+		}
+	})
+
+	t.Run("pass 3: A's DM runs every operation", func(t *testing.T) {
+		caller := sweepCaller{name: "dmA", who: &testHarness.dmA, isMember: true, isDM: true, status: core.MemberStatusActive, forbidden: notB}
+		testHarness.sweepCampaign(t, routes, document, campaignA, caller, true)
+	})
+
+	t.Run("pass 4: A's DM with B's IDs and keys", func(t *testing.T) {
+		testHarness.sweepMixedIDs(t, routes, document, notB)
+	})
+
+	t.Run("pass 5: A suspended", func(t *testing.T) {
+		testHarness.refreshInviteCode(campaignA, testHarness.dmA)
+		testHarness.expectStatus(testHarness.do(http.MethodPost, "/api/admin/campaigns/"+campaignA.id.String()+"/suspend", requestOptions{token: testHarness.signIn(testHarness.owner)}), http.StatusOK)
+		for _, caller := range []sweepCaller{
+			{name: "dmA", who: &testHarness.dmA, isMember: true, isDM: true, status: core.MemberStatusActive, forbidden: notB},
+			{name: "ana", who: &testHarness.ana, isMember: true, status: core.MemberStatusActive, forbidden: everything},
+		} {
+			testHarness.sweepCampaign(t, routes, document, campaignA, caller, false)
+		}
+		outsiderToken := testHarness.signIn(testHarness.outsider)
+		invite := testHarness.do(http.MethodGet, "/api/invites/"+campaignA.inviteCode, requestOptions{token: outsiderToken})
+		testHarness.expectStatus(invite, http.StatusOK)
+		checkResponse(t, "outsider: the paused invite", "/api/invites/", everything, invite)
+		var info core.InviteInfo
+		if err := json.Unmarshal(invite.Body.Bytes(), &info); err != nil || info.CampaignStatus != core.CampaignStatusSuspended || info.Membership != nil {
+			t.Errorf("the paused invite = %+v, %v; want SUSPENDED and no membership", info, err)
+		}
+		join := testHarness.do(http.MethodPost, "/api/invites/"+campaignA.inviteCode+"/join", requestOptions{token: outsiderToken})
+		testHarness.expectStatus(join, http.StatusConflict)
+		checkResponse(t, "outsider: joining a paused campaign", "/api/invites/", everything, join)
+		mine, err := testHarness.core.MyCampaigns(testHarness.context, testHarness.outsider.caller)
+		if err != nil || len(mine.Campaigns) != 0 {
+			t.Errorf("joining a paused campaign made a membership: %+v, %v", mine, err)
+		}
+	})
+
+	if after := testHarness.fingerprint(campaignB, testHarness.bOnly); !maps.Equal(before, after) {
+		for name, hash := range after {
+			if before[name] != hash {
+				t.Errorf("campaign B's %s changed during passes 2 to 6", name)
+			}
+		}
+	}
+
+	// The log is the operator's (the site owner's) view: it carries IDs (Discord server IDs among
+	// them), kinds, counts and statuses, never campaign content, an invite code or a /link code, which
+	// only the campaign's DM may read (Invariant 14).
+	logOutput := testHarness.logs.String()
+	if !strings.Contains(logOutput, "/api/invites/{inviteCode}/join") {
+		t.Errorf("the sweep's invite requests weren't logged: the log check below would prove nothing")
+	}
+	for _, forbidden := range joinValues([]string{canaryA, canaryB, campaignA.inviteCode, campaignB.inviteCode}, campaignA.linkCodes, campaignB.linkCodes) {
+		if strings.Contains(logOutput, forbidden) {
+			t.Errorf("the server log carries %q", forbidden)
+		}
 	}
 }
 
-// Only GET /api/me, GET /api/stream and POST /auth/logout admit pending and removed members (spec
-// §2.2); anything else at that level would show data to people the DM hasn't let in.
-func TestOnlyThreeRoutesAdmitPendingMembers(t *testing.T) {
-	server := newTestServer(t)
-	operations, _ := documentedOperations(t, server)
-	var pendingLevel []string
-	for _, operation := range operations {
-		if operation.access == AccessPending {
-			pendingLevel = append(pendingLevel, operation.method+" "+operation.path)
+// bodyField is one value in a request body that pass 4 replaces with campaign B's.
+type bodyField struct {
+	path []string
+	// kind is "uuid" (an ID), "map" (an object keyed by resource or role keys) or "key".
+	kind string
+}
+
+// mixedIDFields lists the body fields whose values name other rows; a field not classified here
+// fails the sweep, so a new one gets a substitution (docs/design/multi-campaign.md §4.4, pass 4).
+var mixedIDFields = map[string]string{
+	"arrivalEntryId": "uuid",
+	"groupId":        "uuid",
+	"deltas":         "map",
+	"setTo":          "map",
+}
+
+func bodyFields(t *testing.T, label string, document map[string]any, schema map[string]any, prefix []string) []bodyField {
+	t.Helper()
+	schema = resolveSchema(document, schema)
+	properties, _ := schema["properties"].(map[string]any)
+	var fields []bodyField
+	for name, property := range properties {
+		propertySchema := resolveSchema(document, property.(map[string]any))
+		path := append(slices.Clone(prefix), name)
+		format, _ := propertySchema["format"].(string)
+		_, isMap := propertySchema["additionalProperties"].(map[string]any)
+		isKey := schemaType(propertySchema) == "string" && (strings.HasSuffix(name, "Key") || name == "key")
+		switch {
+		case format == "uuid", isMap, isKey:
+			kind, classified := mixedIDFields[name]
+			if isKey {
+				kind, classified = "key", true
+			}
+			if !classified {
+				t.Errorf("%s: body field %s names other rows but pass 4 doesn't classify it; add it to mixedIDFields", label, strings.Join(path, "."))
+				continue
+			}
+			fields = append(fields, bodyField{path: path, kind: kind})
+		case schemaType(propertySchema) == "object":
+			fields = append(fields, bodyFields(t, label, document, propertySchema, path)...)
 		}
 	}
-	for _, route := range server.routes {
-		if route.Access == AccessPending {
-			pendingLevel = append(pendingLevel, route.Pattern)
+	return fields
+}
+
+func setBodyField(body map[string]any, path []string, value any) {
+	for _, name := range path[:len(path)-1] {
+		next, _ := body[name].(map[string]any)
+		if next == nil {
+			next = map[string]any{}
+			body[name] = next
+		}
+		body = next
+	}
+	body[path[len(path)-1]] = value
+}
+
+// sweepMixedIDs is pass 4: A's DM calls every A operation with, one at a time, each other path
+// parameter set to B's real row, and each body field that names a row set to B's (B's arrival, B's
+// undo group, B's own resource key). Each must answer 404, 409 or 422 and leak nothing of B. Where a
+// valid body exists, the same request with A's own values must succeed, so the refusal is the ID's.
+func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, document map[string]any, forbidden []string) {
+	t.Helper()
+	campaignA, campaignB := testHarness.campaignA, testHarness.campaignB
+	dmViewerA := testHarness.enter(testHarness.dmA, campaignA.id)
+	dmViewerB := testHarness.enter(testHarness.dmB, campaignB.id)
+	boardOf := func(viewer core.Viewer) core.ColonyBoard {
+		board, err := testHarness.core.GetColonyBoard(testHarness.context, viewer)
+		if err != nil {
+			t.Fatalf("read a board: %v", err)
+		}
+		return board
+	}
+	lastGroupB := boardOf(dmViewerB)
+	if lastGroupB.Dm == nil || lastGroupB.Dm.LastChange == nil {
+		t.Fatal("campaign B has no undo slot to borrow")
+	}
+	valuesOfB := map[string]any{
+		"arrivalEntryId": campaignB.arrivalEntryID.String(),
+		"groupId":        lastGroupB.Dm.LastChange.GroupID.String(),
+	}
+	keyOfB := campaignB.pathIDs["resourceKey"]
+
+	// Valid bodies in A, built at call time because they carry the colony's current version.
+	validBodies := map[string]func() map[string]any{
+		"/colony/adjust-preview": func() map[string]any {
+			return map[string]any{
+				"expectedVersion": boardOf(dmViewerA).Version, "source": string(core.AdjustSourceShipment),
+				"arrivalEntryId": campaignA.arrivalEntryID.String(), "deltas": map[string]any{"gold": 1},
+				"setTo": map[string]any{}, "colonists": 0, "reason": "", "public": false,
+			}
+		},
+		"/colony/undo": func() map[string]any {
+			board := boardOf(dmViewerA)
+			if board.Dm == nil || board.Dm.LastChange == nil {
+				t.Fatal("campaign A has no undo slot")
+			}
+			return map[string]any{"groupId": board.Dm.LastChange.GroupID.String()}
+		},
+	}
+	validBodies["/colony/adjust"] = validBodies["/colony/adjust-preview"]
+	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
+		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
+		build, found := validBodies[suffix]
+		return build, found
+	}
+
+	expectRefused := func(label, path string, response *httptest.ResponseRecorder) {
+		t.Helper()
+		checkResponse(t, label, path, forbidden, response)
+		if !slices.Contains([]int{http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity}, response.Code) {
+			t.Errorf("%s: status %d, want 404, 409 or 422; body: %s", label, response.Code, response.Body.String())
+		}
+	}
+
+	substituted := map[string]bool{}
+	for _, route := range campaignRoutesLeaveLast(routes) {
+		if route.isStream() || route.isLeave() {
+			continue
+		}
+		// Every other path parameter, one at a time, from B.
+		for _, name := range pathParameter.FindAllString(route.path, -1) {
+			name = strings.Trim(name, "{}")
+			if name == campaignParameter {
+				continue
+			}
+			pathIDs := maps.Clone(campaignA.pathIDs)
+			pathIDs[name] = campaignB.pathIDs[name]
+			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.dmA), pathIDs, sampleBody(document, route.operation, uuid.New()))
+			expectRefused("dmA: "+route.label+" with B's "+name, path, response)
+		}
+		if route.operation == nil || route.operation.requestBody == nil {
+			continue
+		}
+		fields := bodyFields(t, route.label, document, requestBodySchema(route.operation.requestBody), nil)
+		build, hasValidBody := validBodyFor(route)
+		baseline := func() map[string]any {
+			if hasValidBody {
+				return build()
+			}
+			var sample map[string]any
+			_ = json.Unmarshal([]byte(sampleBody(document, route.operation, uuid.New())), &sample)
+			return sample
+		}
+		for _, field := range fields {
+			body := baseline()
+			fieldName := field.path[len(field.path)-1]
+			substituted[fieldName] = true
+			switch field.kind {
+			case "uuid":
+				setBodyField(body, field.path, valuesOfB[fieldName])
+			case "map":
+				setBodyField(body, field.path, map[string]any{keyOfB: 1})
+			case "key":
+				setBodyField(body, field.path, keyOfB)
+			}
+			encoded, _ := json.Marshal(body)
+			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.dmA), campaignA.pathIDs, string(encoded))
+			expectRefused("dmA: "+route.label+" with B's "+strings.Join(field.path, "."), path, response)
+		}
+		if hasValidBody {
+			encoded, _ := json.Marshal(build())
+			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.dmA), campaignA.pathIDs, string(encoded))
+			checkResponse(t, "dmA: "+route.label+" with A's own values", path, forbidden, response)
+			if response.Code < 200 || response.Code > 299 {
+				t.Errorf("dmA: %s with A's own values answered %d, so pass 4 proves nothing; body: %s", route.label, response.Code, response.Body.String())
+			}
+		}
+	}
+	for fieldName := range mixedIDFields {
+		if !substituted[fieldName] {
+			t.Errorf("pass 4 found no body field %q to fill with B's value; the schema walk missed it", fieldName)
+		}
+	}
+}
+
+// fingerprint hashes a campaign's rows: every row of every table with a campaign_id column (found from
+// information_schema, so new tables are covered), the campaign row, and the accounts whose only
+// memberships are there (named up front, since deleting another campaign would add to them) with their
+// sessions, leaving out the bookkeeping columns sign-in touches.
+func (testHarness *harness) fingerprint(campaign *campaignFixture, onlyThere ...account) map[string]string {
+	testHarness.t.Helper()
+	pool := testHarness.database.Pool
+	rows, err := pool.Query(testHarness.context, `SELECT DISTINCT table_name FROM information_schema.columns
+		WHERE column_name = 'campaign_id' AND table_schema = current_schema() ORDER BY table_name`)
+	if err != nil {
+		testHarness.t.Fatalf("list campaign tables: %v", err)
+	}
+	var tables []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			testHarness.t.Fatalf("scan: %v", err)
+		}
+		tables = append(tables, table)
+	}
+	rows.Close()
+	if len(tables) < 5 {
+		testHarness.t.Fatalf("found only %v with a campaign_id column", tables)
+	}
+	const rowsAsText = `SELECT coalesce(string_agg(row_text, '|' ORDER BY row_text), '') FROM (
+		SELECT (to_jsonb(row_value) - 'last_seen_at' - 'expires_at')::text AS row_text FROM %s row_value WHERE %s) hashed`
+	hashes := map[string]string{}
+	hash := func(name, table, condition string, argument any) {
+		var text string
+		if err := pool.QueryRow(testHarness.context, fmt.Sprintf(rowsAsText, table, condition), argument).Scan(&text); err != nil {
+			testHarness.t.Fatalf("fingerprint %s: %v", name, err)
+		}
+		hashes[name] = text
+	}
+	for _, table := range tables {
+		hash(table, table, "campaign_id = $1", campaign.id)
+	}
+	hash("campaign", "campaign", "id = $1", campaign.id)
+	accountIDs := make([]uuid.UUID, 0, len(onlyThere))
+	for _, who := range onlyThere {
+		memberships, err := testHarness.core.MyCampaigns(testHarness.context, who.caller)
+		if err != nil || len(memberships.Campaigns) != 1 || memberships.Campaigns[0].Campaign.ID != campaign.id {
+			testHarness.t.Fatalf("%s is not only in %s: %+v, %v", who.name, campaign.name, memberships, err)
+		}
+		accountIDs = append(accountIDs, who.caller.AccountID)
+	}
+	hash("B-only accounts", "account", "id = ANY($1)", accountIDs)
+	hash("B-only accounts' sessions", "web_session", "account_id = ANY($1)", accountIDs)
+	return hashes
+}
+
+// TestDmSeesTheCanaries proves the fixtures really hold DM-only data in both campaigns, so the sweep
+// can fail.
+func TestDmSeesTheCanaries(t *testing.T) {
+	testHarness := newHarness(t)
+	plantCanaries(t, testHarness)
+	for _, side := range testHarness.sides() {
+		token := testHarness.signIn(side.dm)
+		secrets := testHarness.dmOnlyValues(side.campaign)
+		for _, fixture := range secrecyFixtures {
+			if len(fixture.dmProof) == 0 {
+				t.Errorf("secrecy fixture %s names no GET path where the DM sees its values", fixture.feature)
+			}
+			for _, suffix := range fixture.dmProof {
+				response := testHarness.do(http.MethodGet, campaignPathOf(side.campaign, suffix), requestOptions{token: token})
+				testHarness.expectStatus(response, http.StatusOK)
+				if !slices.ContainsFunc(secrets, func(secret string) bool { return strings.Contains(response.Body.String(), secret) }) {
+					t.Errorf("%s in %s: the DM's %s lacks every DM-only value: %s", fixture.feature, side.campaign.name, suffix, response.Body.String())
+				}
+			}
+		}
+	}
+}
+
+// Exactly three campaign routes admit a membership the DM hasn't let in, or one in a paused campaign:
+// the caller's own .../me, the stream (so the waiting page opens live) and leaving (decision C5).
+func TestOnlyThreeRoutesAdmitPendingMembers(t *testing.T) {
+	server := newTestServer(t)
+	routes, _ := sweepRoutes(t, server)
+	var pendingLevel []string
+	for _, route := range routes {
+		if route.access == AccessPending {
+			pendingLevel = append(pendingLevel, route.label)
 		}
 	}
 	slices.Sort(pendingLevel)
-	if want := []string{"GET /api/me", "GET /api/stream", "POST /auth/logout"}; !slices.Equal(pendingLevel, want) {
+	want := []string{
+		"GET /api/campaigns/{campaignId}/me",
+		"GET /api/campaigns/{campaignId}/stream",
+		"POST /api/campaigns/{campaignId}/leave",
+	}
+	if !slices.Equal(pendingLevel, want) {
 		t.Fatalf("pending-level routes = %v, want %v", pendingLevel, want)
 	}
 }
 
-// TestDmSeesTheCanaries proves the fixtures really hold DM-only data, so the test above can fail.
-func TestDmSeesTheCanaries(t *testing.T) {
-	testHarness := newHarness(t)
-	plantCanaries(t, testHarness)
-	token := testHarness.signIn(testHarness.dm.ID)
-
-	for _, fixture := range secrecyFixtures {
-		if len(fixture.dmProof) == 0 {
-			t.Errorf("secrecy fixture %s names no GET path where the DM sees its canaries", fixture.feature)
-		}
-		for _, path := range fixture.dmProof {
-			response := testHarness.do(http.MethodGet, path, requestOptions{token: token})
-			testHarness.expectStatus(response, http.StatusOK)
-			if body := response.Body.String(); !strings.Contains(body, canary) && !strings.Contains(body, numericCanary) {
-				t.Errorf("%s: the DM's %s lacks the canary: %s", fixture.feature, path, body)
-			}
-		}
-	}
-}
-
-// TestStreamMessagesCarryOnlyTopics replays every SSE message a player, a pending member and a
-// removed member receive while the DM works, against the same canaries.
+// TestStreamMessagesCarryOnlyTopics replays every SSE message A's players, pending and removed members
+// receive while A's DM works, against the tokens.
 func TestStreamMessagesCarryOnlyTopics(t *testing.T) {
 	testHarness := newHarness(t)
 	plantCanaries(t, testHarness)
-	dmViewer := testHarness.viewerOf(testHarness.dm)
-	testContext := context.Background()
+	campaignA := testHarness.campaignA
+	dmViewer := testHarness.enter(testHarness.dmA, campaignA.id)
+	forbidden := joinValues(testHarness.dmOnlyValues(campaignA), testHarness.dmOnlyValues(testHarness.campaignB), []string{canaryB})
 
 	streams := map[string]*liveStream{
-		"player":  testHarness.openStream(testHarness.signIn(testHarness.player.ID), ""),
-		"pending": testHarness.openStream(testHarness.signIn(testHarness.pending.ID), ""),
-		"removed": testHarness.openStream(testHarness.signIn(testHarness.removed.ID), ""),
+		"player":  testHarness.openStream(campaignA, testHarness.signIn(testHarness.ana), ""),
+		"pending": testHarness.openStream(campaignA, testHarness.signIn(testHarness.pendingA), ""),
+		"removed": testHarness.openStream(campaignA, testHarness.signIn(testHarness.removedA), ""),
 	}
 	for name, stream := range streams {
 		if _, received := stream.nextMessage(2 * time.Second); !received {
@@ -366,15 +870,14 @@ func TestStreamMessagesCarryOnlyTopics(t *testing.T) {
 		}
 	}
 
-	secretName := canary + " name"
-	if _, err := testHarness.core.UpdateSettings(testContext, dmViewer, core.SettingsInput{CampaignName: secretName, ColonyName: secretName, Timezone: "UTC"}); err != nil {
+	secretName := canaryA + " name"
+	if _, err := testHarness.core.UpdateSettings(testHarness.context, dmViewer, core.SettingsInput{CampaignName: "Campaign Alpha", ColonyName: secretName, Timezone: "UTC"}); err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
-	if _, err := testHarness.core.SetCharacterName(testContext, dmViewer, testHarness.pending.ID, core.CharacterNameInput{CharacterName: &secretName}); err != nil {
-		t.Fatalf("set character name: %v", err)
-	}
-	if _, err := testHarness.core.SetCharacterName(testContext, dmViewer, testHarness.removed.ID, core.CharacterNameInput{CharacterName: &secretName}); err != nil {
-		t.Fatalf("set character name: %v", err)
+	for _, accountName := range []string{"pendingA", "removedA"} {
+		if _, err := testHarness.core.SetCharacterName(testHarness.context, dmViewer, campaignA.members[accountName], core.CharacterNameInput{CharacterName: &secretName}); err != nil {
+			t.Fatalf("set character name: %v", err)
+		}
 	}
 
 	known := core.AllTopics()
@@ -385,8 +888,10 @@ func TestStreamMessagesCarryOnlyTopics(t *testing.T) {
 			if !received {
 				break
 			}
-			if strings.Contains(message.raw, canary) || strings.Contains(message.raw, numericCanary) {
-				t.Errorf("%s: a stream message leaks DM-only data: %q", name, message.raw)
+			for _, secret := range forbidden {
+				if strings.Contains(message.raw, secret) {
+					t.Errorf("%s: a stream message leaks %q: %q", name, secret, message.raw)
+				}
 			}
 			if message.event != "invalidate" {
 				t.Errorf("%s: unexpected event %q", name, message.event)
@@ -405,10 +910,8 @@ func TestStreamMessagesCarryOnlyTopics(t *testing.T) {
 		if name == "player" && !slices.Contains(topics, core.TopicSettings) {
 			t.Errorf("player: expected a settings invalidation, got %v", topics)
 		}
-		if name != "player" {
-			if fmt.Sprint(topics) != fmt.Sprint([]core.Topic{core.TopicMe}) {
-				t.Errorf("%s: should hear only its own me topic once, got %v", name, topics)
-			}
+		if name != "player" && fmt.Sprint(topics) != fmt.Sprint([]core.Topic{core.TopicMe}) {
+			t.Errorf("%s: should hear only its own me topic once, got %v", name, topics)
 		}
 	}
 }

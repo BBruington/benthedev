@@ -17,6 +17,7 @@ import { TimelineEntry } from "@/components/timeline-entry";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useCampaign } from "@/hooks/use-campaign";
 import { colonistsLine, formatNumber } from "@/lib/colony";
 import { formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -126,6 +127,7 @@ export function RecentEntries({
 	isPending: boolean;
 	isError: boolean;
 }) {
+	const { slug } = useCampaign();
 	let body: ReactNode;
 	if (isPending) {
 		body = (
@@ -167,7 +169,7 @@ export function RecentEntries({
 					Latest from the timeline
 				</h2>
 				<Button asChild size="sm" variant="ghost">
-					<Link to="/timeline">
+					<Link params={{ campaignSlug: slug }} to="/c/$campaignSlug/timeline">
 						Timeline
 						<ArrowRightIcon aria-hidden="true" />
 					</Link>

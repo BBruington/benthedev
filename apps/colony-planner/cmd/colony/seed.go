@@ -32,15 +32,15 @@ func seedDatabase(commandContext context.Context, arguments []string) error {
 		return err
 	}
 
-	dmDiscordID := loaded.dmDiscordID
-	if dmDiscordID == "" {
-		dmDiscordID = core.SeedDmDiscordID
+	ownerDiscordID := loaded.siteOwnerDiscordID
+	if ownerDiscordID == "" {
+		ownerDiscordID = core.SeedDmDiscordID
 	}
-	service := core.New(core.Options{Pool: pool, Logger: logger, DmDiscordID: dmDiscordID})
-	if err := seed.Run(commandContext, seed.Options{Pool: pool, Core: service, DmDiscordID: dmDiscordID, Hexes: *hexes}); err != nil {
+	service := core.New(core.Options{Pool: pool, Logger: logger, SiteOwnerDiscordID: ownerDiscordID})
+	if err := seed.Run(commandContext, seed.Options{Pool: pool, Core: service, OwnerDiscordID: ownerDiscordID, Hexes: *hexes}); err != nil {
 		return err
 	}
-	fmt.Println("seed: the sample campaign is loaded.")
+	fmt.Println("seed: the two sample campaigns are loaded.")
 	return nil
 }
 

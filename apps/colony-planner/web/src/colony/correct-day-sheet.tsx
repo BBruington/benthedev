@@ -43,7 +43,7 @@ export function CorrectDaySheet({
 			return;
 		}
 		mutation.mutate(
-			{ body: { day, expectedVersion: board.version } },
+			{ body: { day, expectedVersion: board.version }, ...changes.inCampaign },
 			{
 				onSuccess: () => {
 					onOpenChange(false);

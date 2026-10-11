@@ -49,6 +49,41 @@ type Database struct {
 // New creates a schema named after a random suffix, migrates it, and drops it when the test ends.
 func New(t testing.TB) *Database {
 	t.Helper()
+	return newDatabase(t, -1)
+}
+
+// NewAtVersion is New stopped after migration version, so a migration test can insert rows in the
+// old shape and then apply the next migration with MigrateTo.
+func NewAtVersion(t testing.TB, version int64) *Database {
+	t.Helper()
+	return newDatabase(t, version)
+}
+
+// MigrateTo applies the migrations up to and including version.
+func (database *Database) MigrateTo(migrateContext context.Context, version int64) error {
+	connection := stdlib.OpenDBFromPool(database.Pool)
+	defer func() { _ = connection.Close() }()
+	provider, err := db.MigrationProvider(connection, false)
+	if err != nil {
+		return err
+	}
+	_, err = provider.UpTo(migrateContext, version)
+	return err
+}
+
+// Version is the newest applied migration.
+func (database *Database) Version(versionContext context.Context) (int64, error) {
+	connection := stdlib.OpenDBFromPool(database.Pool)
+	defer func() { _ = connection.Close() }()
+	provider, err := db.MigrationProvider(connection, false)
+	if err != nil {
+		return 0, err
+	}
+	return provider.GetDBVersion(versionContext)
+}
+
+func newDatabase(t testing.TB, version int64) *Database {
+	t.Helper()
 	baseURL := os.Getenv("TEST_DATABASE_URL")
 	if baseURL == "" {
 		t.Fatal("TEST_DATABASE_URL is not set; run the tests with `mise run test`, which loads .env")
@@ -114,7 +149,12 @@ func New(t testing.TB) *Database {
 	if err != nil {
 		t.Fatalf("prepare migrations: %v", err)
 	}
-	if _, err := provider.Up(setupContext); err != nil {
+	if version < 0 {
+		_, err = provider.Up(setupContext)
+	} else {
+		_, err = provider.UpTo(setupContext, version)
+	}
+	if err != nil {
 		t.Fatalf("migrate the test schema: %v", err)
 	}
 	_ = database.Close()

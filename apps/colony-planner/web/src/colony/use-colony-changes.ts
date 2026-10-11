@@ -10,6 +10,7 @@ import {
 	resourcesQuery,
 	timelineQueryKeyPrefix,
 } from "@/api/queries";
+import { useCampaignId } from "@/hooks/use-campaign";
 import { isPublicEntry } from "@/lib/colony";
 import { markAnnounced } from "./live-toasts";
 
@@ -21,17 +22,21 @@ const undoToastDurationInMilliseconds = 12_000;
  * Brings this tab up to date after the DM's own change, without waiting for the live stream: the
  * board comes back with the change, and everything it touched is read again.
  */
-function refreshAfter(queryClient: QueryClient, change: ColonyChange | undefined) {
+function refreshAfter(
+	queryClient: QueryClient,
+	campaignId: string,
+	change: ColonyChange | undefined,
+) {
 	if (change) {
-		queryClient.setQueryData(colonyBoardQuery.queryKey, change.board);
+		queryClient.setQueryData(colonyBoardQuery(campaignId).queryKey, change.board);
 	} else {
-		queryClient.invalidateQueries({ queryKey: colonyBoardQuery.queryKey });
+		queryClient.invalidateQueries({ queryKey: colonyBoardQuery(campaignId).queryKey });
 	}
-	queryClient.invalidateQueries({ queryKey: advancePreviewQueryKeyPrefix });
-	queryClient.invalidateQueries({ queryKey: adjustPreviewQueryKeyPrefix });
-	queryClient.invalidateQueries({ queryKey: timelineQueryKeyPrefix });
-	queryClient.invalidateQueries({ queryKey: recentTimelineQuery.queryKey });
-	queryClient.invalidateQueries({ queryKey: resourcesQuery.queryKey });
+	queryClient.invalidateQueries({ queryKey: advancePreviewQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: adjustPreviewQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: timelineQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: recentTimelineQuery(campaignId).queryKey });
+	queryClient.invalidateQueries({ queryKey: resourcesQuery(campaignId).queryKey });
 }
 
 /** The DM's toast for their own change: its public text, and Undo (spec §6.3). */
@@ -66,41 +71,57 @@ export function isConflict(error: unknown): boolean {
  */
 export function useColonyChanges() {
 	const queryClient = useQueryClient();
+	const campaignId = useCampaignId();
+	const inCampaign = { params: { path: { campaignId } } };
 
-	const undo = api.useMutation("post", "/api/colony/undo", {
+	const undo = api.useMutation("post", "/api/campaigns/{campaignId}/colony/undo", {
 		onError: (error) => {
-			refreshAfter(queryClient, undefined);
+			refreshAfter(queryClient, campaignId, undefined);
 			toast.error(problemMessage(error, "That change couldn't be undone."));
 		},
 		onSuccess: (change) => {
-			refreshAfter(queryClient, change);
+			refreshAfter(queryClient, campaignId, change);
 			markAnnounced(change.entries.map((entry) => entry.id));
 			toast.success(change.label);
 		},
 	});
 
 	function undoGroup(groupId: string) {
-		undo.mutate({ body: { groupId } });
+		undo.mutate({ body: { groupId }, ...inCampaign });
 	}
 
 	const changeOptions = {
 		onError: (error: unknown) => {
 			if (isConflict(error)) {
-				refreshAfter(queryClient, undefined);
+				refreshAfter(queryClient, campaignId, undefined);
 			}
 		},
 		onSuccess: (change: ColonyChange) => {
-			refreshAfter(queryClient, change);
+			refreshAfter(queryClient, campaignId, change);
 			toastChange(change, undoGroup);
 		},
 	};
 
 	return {
-		adjust: api.useMutation("post", "/api/colony/adjust", changeOptions),
-		advance: api.useMutation("post", "/api/colony/advance", changeOptions),
-		clearShipments: api.useMutation("post", "/api/colony/shipments/clear", changeOptions),
-		correctDay: api.useMutation("post", "/api/colony/correct-day", changeOptions),
-		setShipments: api.useMutation("put", "/api/colony/shipments", changeOptions),
+		adjust: api.useMutation("post", "/api/campaigns/{campaignId}/colony/adjust", changeOptions),
+		advance: api.useMutation("post", "/api/campaigns/{campaignId}/colony/advance", changeOptions),
+		clearShipments: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/colony/shipments/clear",
+			changeOptions,
+		),
+		correctDay: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/colony/correct-day",
+			changeOptions,
+		),
+		/** The path parameters every change sends: the campaign on screen. */
+		inCampaign,
+		setShipments: api.useMutation(
+			"put",
+			"/api/campaigns/{campaignId}/colony/shipments",
+			changeOptions,
+		),
 		undo,
 		undoGroup,
 	};

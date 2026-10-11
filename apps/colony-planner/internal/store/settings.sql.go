@@ -7,61 +7,74 @@ package store
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
-const getSettings = `-- name: GetSettings :one
-SELECT id, campaign_name, timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id FROM settings WHERE id = 1
+const clearSettingsChannels = `-- name: ClearSettingsChannels :exec
+UPDATE settings
+SET discord_announce_channel_id = NULL,
+    discord_reminder_channel_id = NULL,
+    discord_dm_channel_id = NULL
+WHERE campaign_id = $1
 `
 
-func (q *Queries) GetSettings(ctx context.Context) (Settings, error) {
-	row := q.db.QueryRow(ctx, getSettings)
+// Linking or unlinking a Discord server clears the channels: they belonged to the old server.
+func (q *Queries) ClearSettingsChannels(ctx context.Context, campaignID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearSettingsChannels, campaignID)
+	return err
+}
+
+const getSettings = `-- name: GetSettings :one
+SELECT timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id FROM settings WHERE campaign_id = $1
+`
+
+func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settings, error) {
+	row := q.db.QueryRow(ctx, getSettings, campaignID)
 	var i Settings
 	err := row.Scan(
-		&i.ID,
-		&i.CampaignName,
 		&i.Timezone,
 		&i.DiscordAnnounceChannelID,
 		&i.DiscordReminderChannelID,
 		&i.DiscordDmChannelID,
+		&i.CampaignID,
 	)
 	return i, err
 }
 
 const updateSettings = `-- name: UpdateSettings :one
 UPDATE settings
-SET campaign_name = $1,
-    timezone = $2,
-    discord_announce_channel_id = $3,
-    discord_reminder_channel_id = $4,
-    discord_dm_channel_id = $5
-WHERE id = 1
-RETURNING id, campaign_name, timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id
+SET timezone = $1,
+    discord_announce_channel_id = $2,
+    discord_reminder_channel_id = $3,
+    discord_dm_channel_id = $4
+WHERE campaign_id = $5
+RETURNING timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id
 `
 
 type UpdateSettingsParams struct {
-	CampaignName             string
 	Timezone                 string
 	DiscordAnnounceChannelID *string
 	DiscordReminderChannelID *string
 	DiscordDmChannelID       *string
+	CampaignID               uuid.UUID
 }
 
 func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) (Settings, error) {
 	row := q.db.QueryRow(ctx, updateSettings,
-		arg.CampaignName,
 		arg.Timezone,
 		arg.DiscordAnnounceChannelID,
 		arg.DiscordReminderChannelID,
 		arg.DiscordDmChannelID,
+		arg.CampaignID,
 	)
 	var i Settings
 	err := row.Scan(
-		&i.ID,
-		&i.CampaignName,
 		&i.Timezone,
 		&i.DiscordAnnounceChannelID,
 		&i.DiscordReminderChannelID,
 		&i.DiscordDmChannelID,
+		&i.CampaignID,
 	)
 	return i, err
 }

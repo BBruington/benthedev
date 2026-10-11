@@ -1,6 +1,6 @@
 # Colony Planner: v1 Specification
 
-**Status:** final spec for the author's review, revised with the author's follow-up decisions F1–F7 (below). **Date:** 2026-10-10.
+**Status:** final spec for the author's review, revised with the author's follow-up decisions F1–F8 (below). **Date:** 2026-10-10.
 **Build target:** `/Users/bibruington/myCodeSpace/colony-planner`, a new, empty, clean-room repo that runs **only on the author's Mac** (Postgres 17 in Docker) until the optional cutover, M6.
 **Reference only:** `/Users/bibruington/myCodeSpace/party-planner`, read-only. Port from it only where named: the Beny Bot bot core, the rate limiter, the Discord message texts, the terrain colours, the pin styling and the Eldari art. No data is imported from it.
 **Basis:** the author's twelve decisions, plus the follow-up decisions below, which override the twelve where they differ. Where a design choice had real alternatives, Appendix A gives the ruling and the reason. Anything the author hasn't decided is an open question (§11), never a rule.
@@ -13,6 +13,7 @@
 - **F5. API toolchain:** huma/OpenAPI on a **trial** basis. The transport layer stays thin and isolated, so switching back to protobuf/Connect rewrites only that layer (§8.6).
 - **F6. Extras:** keep Undo last change, View as player and Record cargo. **Cut hex map history entirely:** no edit log, attribution, stroke undo or revert. Keep the PWA manifest and data-defined resources and roles.
 - **F7. Process:** the author checks in after every milestone, trying it locally with its checklist and then approving it. The author makes every git commit; agents never commit.
+- **F8. Multi-campaign (M1.5).** The site hosts several campaigns, each sealed from the others: other DMs ask to run a campaign and the site owner (the author, `SITE_OWNER_DISCORD_ID`) approves it; players join each campaign by its invite link; one shared Beny Bot serves every linked server. The design, including the author's decisions C1–C6, is `docs/design/multi-campaign.md`; where it differs from this spec, it wins. This spec's single-campaign wording describes one campaign.
 
 ---
 
@@ -20,7 +21,7 @@
 
 ### 1.1 What it is
 
-Colony Planner is a private website for one D&D campaign: the author's **Colony Campaign**. It has one DM and about 4–6 players, who already play over Discord with the Beny Bot bot. The colony sits on a new world that has no map yet, and ships supply it from **Eldari, the mainland**. The site has two halves:
+Colony Planner is a private website for colony campaigns; the author's **Colony Campaign** is the first (F8). Each campaign has one DM and about 4–6 players, who already play over Discord with the Beny Bot bot. The colony sits on a new world that has no map yet, and ships supply it from **Eldari, the mainland**. The site has two halves:
 
 - **The DM's console.** The day clock, stockpile, shipments, workforce, quests, patrons and favor, NPCs, places, sessions, and who is let in.
 - **The players' board.** Players watch the colony change live, browse what their characters know, ask patrons for help, and chart the new world themselves on a shared hex map.
@@ -46,7 +47,7 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
 
 ### 1.3 Design principles
 
-1. **One campaign, one DM, one colony.** These are singletons. There is no `campaign_id`, tenancy, switcher or invite system.
+1. **Many campaigns, each sealed (F8).** One DM and one colony per campaign; every campaign-owned row carries `campaign_id`; the site owner manages campaigns but can't read them.
 2. **The server is the only gatekeeper, and it fails closed.**
    - Every route declares who may call it, and the server won't start if one doesn't.
    - A response carries only what the viewer may see. Hiding something in the UI doesn't count.
@@ -65,10 +66,12 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
    - Nothing is defined twice by hand.
 7. **Nothing polls the database on a timer, and an idle open tab doesn't touch it.** So once the site is hosted (M6), Neon can scale to zero between sessions (§8.8).
 8. **Phone-first for players.** They are on Discord during the game, often on a phone. Every player screen works one-handed at 360 px wide.
-9. **Every dependency must earn its place** at the scale of 1 DM and 6 players.
+9. **Every dependency must earn its place** at the scale of a few campaigns of 1 DM and about 6 players.
 
 **Non-goals for v1:**
-- multiple campaigns or DMs;
+- co-DMs or handing a campaign to another DM (C1);
+- a public campaign directory;
+- campaign export or copy;
 - a public marketing site;
 - AI features;
 - Foundry sync;
@@ -88,30 +91,38 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
 | Identity | How it is established | Can do |
 |---|---|---|
 | **Visitor** | Not signed in | See `/login` only |
-| **Pending** | Signed in with Discord, `member.status = PENDING` | See `/pending` ("Waiting for the DM"), which opens live when approved; sign out |
-| **Player** | `member.status = ACTIVE` | The Player column in §2.3 |
-| **DM** | `member.discord_user_id == DM_DISCORD_ID` (env var), always ACTIVE | Everything |
-| **Removed** | `member.status = REMOVED` (removed or denied) | Removal deletes their sessions and closes their live streams, so they are signed out at once. If they sign in again, they get a `pending`-level session, and `/pending` shows "You don't have access". The DM can re-admit them. |
+| **Account** | Signed in with Discord (`account` row); may have no memberships | The picker `/`, invite links, ask to run a campaign (`/request`), sign out |
+| **Pending** (per campaign) | `campaign_member.status = PENDING` in that campaign | See `/c/{slug}/pending` ("Waiting for the DM"), which opens live when approved; stop waiting (leave) |
+| **Player** (per campaign) | `campaign_member.status = ACTIVE`, role PLAYER | The Player column in §2.3, in that campaign only |
+| **DM** (per campaign) | `campaign_member.role = DM` (stored; exactly one per campaign, always ACTIVE) | Everything in that campaign |
+| **Removed** (per campaign) | `campaign_member.status = REMOVED` (removed, denied, or left on their own) | That campaign's routes answer 403 and its tab shows "You don't have access" at once; their session and other campaigns keep working. Only the DM can re-admit them. |
+| **Site owner** | `account.discord_user_id == SITE_OWNER_DISCORD_ID` (env var, derived per request, never stored) | Approve or deny campaign requests; list, suspend, unsuspend and delete campaigns on `/admin`. Nothing inside a campaign they aren't a member of (404). |
 
-- **The DM role is never stored.** It is derived from one env var on every request, so nothing in the database can escalate a player.
-- **The DM decides who gets in (decision 3).**
-  - Anyone who signs in with Discord for the first time becomes Pending, and Beny Bot pings the DM channel.
-  - Pings are limited to 5 an hour. Requests beyond that still appear on `/players`.
-  - At most 20 requests can be pending at once. Past that, new sign-ins see "Not accepting new players right now".
+- **The DM role is stored per campaign** (F8). No API operation writes `role`: only campaign approval and the seed insert a DM membership, and a partial unique index keeps it to one.
+- **The DM decides who gets in (decision 3), per campaign.**
+  - Joining is by the campaign's invite link `/join/{inviteCode}`; asking makes a PENDING membership, and Beny Bot pings that campaign's DM channel. A first sign-in only creates the account.
+  - Pings are limited to 5 an hour per campaign. Requests beyond that still appear on `/c/{slug}/players`.
+  - At most 20 requests can be pending at once per campaign. Past that, joining answers "Not accepting new players right now".
   - Sign-in doesn't require membership in the Discord server (F4).
   - The DM approves or denies them on `/players`.
-  - A denied or removed member can't ask again from the site, and signing in again sends no ping. Only the DM can re-admit them, from `/players`.
+  - A denied or removed member can't ask again: the invite link changes nothing and sends no ping. Only the DM can re-admit them, from `/c/{slug}/players`.
+  - A player may leave on their own (C5), from PENDING or ACTIVE; that is REMOVED, shown as "Left".
 - **View as player.** The DM can turn this on from the profile menu.
   - While it is on, the server answers every request with the player projection and rejects DM-only writes.
   - A banner shows that it is on.
 
 ### 2.2 Server-side enforcement (one mechanism each)
 
-1. **Auth middleware.** On every request it resolves the `__Host-colony_session` cookie to a member, using the in-memory session cache (§8.5), and builds `Viewer{MemberID, Status, IsDM, ViewAsPlayer}`. The role is never cached in a cookie.
-2. **Fail-closed access.** There are three access levels:
-   - `pending`: any signed-in member, whatever their status;
-   - `member`: ACTIVE members;
-   - `dm`: the DM only.
+1. **Auth middleware.** On every request it resolves the `__Host-colony_session` cookie to an account, using the in-memory session cache (§8.5), and builds a `Caller{AccountID, DiscordUserID, IsSiteOwner, ViewAsPlayer}`. For a campaign route the access layer then reads the `{campaignId}` path parameter before huma validates input and calls `core.EnterCampaign`, one membership read, which builds the `Viewer` (proof of membership; no owner flag). No membership, an unknown or an unparsable ID all answer **404 "No such campaign."**, the site owner included. The role is never cached in a cookie.
+2. **Fail-closed access.** There are seven access levels (multi-campaign design §4.1):
+   - `public`, and `token` (a secret in the URL, M5);
+   - `account`: any signed-in account (the picker, invites, campaign requests, sign out);
+   - `owner`: the site owner, only under `/api/admin/` and on the docs routes;
+   - `pending`: any membership in this campaign, whatever its status;
+   - `member`: ACTIVE members of an ACTIVE campaign;
+   - `dm`: this campaign's DM, not viewing as player, campaign ACTIVE.
+
+   A route is `pending`, `member` or `dm` if and only if its path has `{campaignId}` and is outside `/api/admin/`; the server refuses to start otherwise.
 
    How each kind of route gets its level:
    - **huma operations** are registered through one helper that requires a level, stored as the operation's `x-access` OpenAPI extension.
@@ -125,7 +136,7 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
    Enforcement:
    - At startup the server walks the OpenAPI document and the route table, and **exits** if anything lacks a level.
    - One middleware enforces the level.
-   - Only `GET /api/me`, `GET /api/stream` and `/auth/logout` accept `pending`.
+   - Only `GET .../me`, `GET .../stream` and `POST .../leave` under `/api/campaigns/{campaignId}` accept `pending`.
 3. **Rows are filtered in SQL.**
    - Narrative tables have `revealed boolean`, and player-facing queries include `WHERE revealed OR @is_dm`. Archived patrons and actions are also excluded for players.
    - Timeline queries use `visibility = 'PUBLIC' AND undone_at IS NULL OR @is_dm`.
@@ -149,6 +160,7 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
      - every other response must contain no canary.
    - It also replays every SSE message and every Beny Bot command reply against the same canaries.
    - New endpoints are swept without editing the test, but their DM-only data is covered only once their feature plants canaries: plant one for every new `Dm` field or hidden row.
+   - **Across campaigns (M1.5):** fixtures plant into two campaigns (`canaryA`, `canaryB`, `canaryBdm`, plus invite and link codes as literals). The sweep adds players of B, a DM elsewhere playing here, non-members and the owner (404 everywhere), A's DM with B's real IDs and keys in every path and body field, a suspended campaign and the owner's routes; B's rows are fingerprinted and must not change (multi-campaign design §4.4).
 7. **CSRF.**
    - The mux is wrapped in Go's stdlib `http.CrossOriginProtection`.
    - The cookie is `SameSite=Lax` and `__Host-` prefixed.
@@ -172,6 +184,8 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
 | Members | active members' display and character names | approve, deny, remove, re-admit, set character names |
 | Settings | — | yes |
 | Own profile | character name, theme, sign out, sign out everywhere | same, plus view as player |
+
+The **site owner** (F8) has a third column: nothing inside a campaign they aren't a member of (404); ask to join through an invite link like anyone; their own campaign request is approved at once; see open campaign requests and approve or deny them; see every campaign's directory data (name, slug, DM, player and pending counts, Discord linked, status, created date); suspend, unsuspend, and delete a suspended campaign. A DM may also delete their own campaign (C3), and invite, reset the link, and link or unlink a Discord server in their own campaign. A player may leave a campaign (C5). Details: multi-campaign design §4.3.
 
 ---
 
@@ -275,20 +289,20 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
 | Discord | `/beny` | **Port** | "Boy!" |
 | Discord | `/npc view` | **Port + fix** | Revealed NPCs only, matched by display name; ephemeral; built from the player projection. |
 | Discord | `/npc set` | **Drop** | Editing belongs on the site. |
-| Discord | `/registercampaign` | **Drop** | One guild, set by env var. |
+| Discord | `/registercampaign` | **Redesign** (F8) | `/link` with a one-time code from the campaign's Settings. |
 | Discord | `/nextsession` | **Port + fix** | Rebuilt on `occurrences()`, using `<t:…>` timestamps. |
 | Discord | `/schedule` | **Drop** | Dead since #96. |
 | Integrations | Discord OAuth install + channel settings | **Redesign** | The bot is invited once by URL. Channel settings live on `/settings`, and every one has a consumer. |
 | Integrations | Google Calendar connect / conflicts / add series | **Drop** (Open Question 16) | An ICS subscription feed puts sessions in any calendar, with no OAuth and no stored tokens. **Lost:** the conflict warning (checking members' calendars for clashes while the DM schedules) and per-user calendar sync. |
 | Integrations | Foundry VTT card | **Drop** | Never built. |
-| Shell | Create campaign, multi-campaign, active-campaign cookie | **Drop** | Single campaign. |
-| Shell | Email invites → `/accept` → `/join` | **Drop** | Replaced by Discord sign-in and DM approval. No Resend. |
+| Shell | Create campaign, multi-campaign, active-campaign cookie | **Redesign** (F8) | Owner-approved campaigns, path-scoped URLs, no cookie. |
+| Shell | Email invites → `/accept` → `/join` | **Redesign** (F8) | An invite link per campaign, `/join/{inviteCode}`, then DM approval. No Resend. |
 | Shell | Campaign settings, members, kick, archive | **Redesign** | `/settings` (singleton) and `/players` (approve, remove, character names). |
-| Shell | "Join with code" | **Drop** | Dead button. |
-| Shell | Campaign switcher / role change | **Drop** | One campaign; the DM comes from an env var. |
+| Shell | "Join with code" | **Redesign** (F8) | The picker accepts a pasted invite link or code. |
+| Shell | Campaign switcher / role change | **Redesign** (F8) | A switcher in the top bar; no role change (one DM per campaign, C1). |
 | Shell | Profile menu, `/settings` (Google) | **Redesign** | Profile menu: character name, theme, view as player (DM), sign out, sign out everywhere. |
 | Public | Landing page | **Redesign** | A sign-in page over the Eldari art, with a one-line privacy note. |
-| Public | Beny Bot Terms / Privacy pages | **Drop** | The bot is private to one guild. The privacy line on `/login` covers what remains. |
+| Public | Beny Bot Terms / Privacy pages | **Drop**, reconsider at M6 | Locally the bot is private. M6 decides on a short privacy page now that friends' data could be hosted. |
 | (infra) | Clerk + webhook, RSA `planner_auth` cookie, oRPC BFF, Drizzle, Nx, `packages/*` | **Drop** | Replaced by the single binary (§8). |
 | (data) | The old app's campaign data in Neon | **Drop** | Throwaway test data; no importer (F2). Only the Eldari art carries over. |
 
@@ -300,32 +314,42 @@ All tables live in one Postgres database:
 
 - **Keys** are `uuid` unless noted.
 - **Timestamps** are `timestamptz`, in UTC.
-- **Singletons** use `id smallint PRIMARY KEY CHECK (id = 1)`.
+- **Campaign-owned tables** (F8) carry `campaign_id uuid NOT NULL REFERENCES campaign ON DELETE CASCADE`, first in the primary key or in `UNIQUE (campaign_id, id)` and first in every index; text keys are unique per campaign; a column that references another campaign row is a composite foreign key `(campaign_id, x_id)`; every query takes `@campaign_id` (`db/scope_test.go`); IDs and keys inside jsonb or request bodies are loaded by core with the Viewer's campaign. The tables below are written as for one campaign; each also has `campaign_id` (multi-campaign design §2.3, §2.6).
+- **One-row-per-campaign tables** (`settings`, `colony`) use `campaign_id` as their primary key.
 - **Closed sets** are Postgres `ENUM` types. sqlc turns each one into a Go string type with an `AllXValues()` function, which feeds the API schema and the TypeScript types (§8.4). So each set is written once, in a migration.
 - **Open-ended kinds** (timeline kind, request kind) are `text`, validated against one Go list. Adding one needs no migration.
 - **Colony-day columns** are `integer`.
+
+### 4.0 Directory tables (F8; global, read without a campaign by design)
+
+| Table | Key fields | Notes |
+|---|---|---|
+| `account` | `id`, `discord_user_id text UNIQUE`, `discord_username`, `display_name`, `avatar_url`, `created_at`, `last_seen_at` (written at most once a day) | One per Discord identity (M1's `member`, renamed by migration 0003). |
+| `campaign` | `id`, `slug` (3–40 of `a-z 0-9 -`, UNIQUE, fixed after approval, C2), `name`, `status campaign_status` (ACTIVE, SUSPENDED), `suspended_at`, `invite_code` UNIQUE, `created_at` | The invite code is served only to the DM. |
+| `campaign_request` | `id`, `account_id`, `campaign_name`, `slug`, `note`, `status campaign_request_status` (PENDING, APPROVED, DENIED, WITHDRAWN), `decided_at`, `campaign_id NULL`, `created_at` | One open request per account and per slug. |
+| `discord_guild_link` | `campaign_id PK`, `guild_id UNIQUE`, `guild_name`, `linked_by_discord_user_id`, `linked_at` | One server per campaign and one campaign per server. Link codes live in memory. |
 
 ### 4.1 Access
 
 | Table | Key fields | Notes |
 |---|---|---|
-| `member` | `id`, `discord_user_id text UNIQUE`, `discord_username`, `display_name`, `avatar_url`, `character_name NULL`, `status member_status` (PENDING, ACTIVE, REMOVED), `created_at`, `approved_at`, `last_seen_at` (written at most once a day) | No role column. The DM is derived from `DM_DISCORD_ID`. |
-| `web_session` | `token_hash bytea PK` (SHA-256 of a 32-byte random token), `member_id → member ON DELETE CASCADE`, `view_as_player bool`, `created_at`, `expires_at`, `last_seen_at` (written at most once a day) | Removal deletes the member's sessions. |
-| `settings` (singleton) | `campaign_name`, `timezone text` (IANA), `discord_announce_channel_id`, `discord_reminder_channel_id`, `discord_dm_channel_id`, `discord_event_location text DEFAULT 'Forge + Discord Voice'`, `ics_token` | Every column has a consumer. |
+| `campaign_member` | `id`, `campaign_id`, `account_id`, `role campaign_role` (DM, PLAYER), `status member_status` (PENDING, ACTIVE, REMOVED), `character_name NULL`, `left_on_own bool` (only when REMOVED, C5), `created_at`, `approved_at`; `UNIQUE (campaign_id, account_id)` | One DM per campaign (partial unique index), always ACTIVE. No API writes `role`. |
+| `web_session` | `token_hash bytea PK` (SHA-256 of a 32-byte random token), `account_id → account ON DELETE CASCADE`, `view_as_player bool`, `created_at`, `expires_at`, `last_seen_at` (written at most once a day) | Per account, so one sign-in serves every campaign. Removal from a campaign no longer touches sessions. |
+| `settings` (one per campaign) | `campaign_id PK` (the name is `campaign.name`), `timezone text` (IANA), `discord_announce_channel_id`, `discord_reminder_channel_id`, `discord_dm_channel_id`, `discord_event_location text DEFAULT 'Forge + Discord Voice'`, `ics_token` | Every column has a consumer. |
 
 ### 4.2 Colony
 
 | Table | Key fields | Notes |
 |---|---|---|
-| `colony` (singleton) | `name`, `day int ≥ 0`, `version bigint`, `shipment_interval_days int NULL CHECK (≥ 1)`, `next_shipment_day int NULL`, `last_change jsonb NULL`, `updated_at` | `CHECK ((shipment_interval_days IS NULL) = (next_shipment_day IS NULL))` and `CHECK (next_shipment_day > day)`, so the stall is impossible. `version` increments on every colony mutation. `last_change` holds the undo snapshot (§5.1). Every member reads `name` and the campaign name on the board; the DM edits both on `/settings`, which is not a colony mutation. |
-| `resource` | `key text PK`, `label`, `icon colony_icon` (a curated lucide list, as a Postgres enum), `amount int`, `min_amount int DEFAULT 0`, `max_amount int NULL`, `sort_order`, `is_system bool`, `archived bool` | `CHECK (amount >= min_amount AND (max_amount IS NULL OR amount <= max_amount))`. Seeds: `gold`, `food` (system; used by upkeep), `materials`, and `morale` (max 100, starts at 100). The DM adds resources with no code change. |
-| `role` | `key text PK`, `label`, `icon`, `sort_order`, `unnamed_count int CHECK (≥ 0)`, `is_system bool`, `archived bool` | Seeds use the old icons: FARMER (Wheat), HEALER (HeartPulse), BLACKSMITH (Hammer), SOLDIER (Sword), MINER (Pickaxe), BUILDER (HardHat), SCHOLAR (BookOpen), MAGE (Wand2, stored as `WandSparkles`, lucide's current name for it), plus the system role **UNASSIGNED** (Users). A role can be archived only when its headcount is 0. |
+| `colony` (one per campaign) | `campaign_id PK`, `name`, `day int ≥ 0`, `version bigint`, `shipment_interval_days int NULL CHECK (≥ 1)`, `next_shipment_day int NULL`, `last_change jsonb NULL`, `updated_at` | `CHECK ((shipment_interval_days IS NULL) = (next_shipment_day IS NULL))` and `CHECK (next_shipment_day > day)`, so the stall is impossible. `version` increments on every colony mutation. `last_change` holds the undo snapshot (§5.1). Every member reads `name` and the campaign name on the board; the DM edits both on `/settings`, which is not a colony mutation. |
+| `resource` | `PRIMARY KEY (campaign_id, key)`, `label`, `icon colony_icon` (a curated lucide list, as a Postgres enum), `amount int`, `min_amount int DEFAULT 0`, `max_amount int NULL`, `sort_order`, `is_system bool`, `archived bool` | `CHECK (amount >= min_amount AND (max_amount IS NULL OR amount <= max_amount))`. Seeds: `gold`, `food` (system; used by upkeep), `materials`, and `morale` (max 100, starts at 100). The DM adds resources with no code change. |
+| `role` | `PRIMARY KEY (campaign_id, key)`, `label`, `icon`, `sort_order`, `unnamed_count int CHECK (≥ 0)`, `is_system bool`, `archived bool` | Seeds use the old icons: FARMER (Wheat), HEALER (HeartPulse), BLACKSMITH (Hammer), SOLDIER (Sword), MINER (Pickaxe), BUILDER (HardHat), SCHOLAR (BookOpen), MAGE (Wand2, stored as `WandSparkles`, lucide's current name for it), plus the system role **UNASSIGNED** (Users). A role can be archived only when its headcount is 0. |
 
 The **colonist total is never stored**. `game.Colonists` and this query compute it:
 
 ```sql
-SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role)
-     + (SELECT COUNT(*) FROM npc WHERE colony_role_key IS NOT NULL)
+SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role WHERE campaign_id = @campaign_id)
+     + (SELECT COUNT(*) FROM npc WHERE campaign_id = @campaign_id AND colony_role_key IS NOT NULL)
 ```
 
 ### 4.3 Narrative
@@ -373,6 +397,7 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role)
 ### 4.6 Relationships
 
 ```
+campaign (1) ─ (n) everything below (campaign_id); account (1) ─ (n) campaign_member ─ (1) campaign
 colony (1) ─ day clock, version, shipments, last_change (undo slot)
 resource (n) ─ stockpile              role (n) ─ unnamed headcounts (UNASSIGNED included)
 npc.colony_role_key → role            (named colonists count toward their role)
@@ -383,7 +408,7 @@ timeline_event ─ group_id (one mutation) ─ optional links to quest / patron 
 map (1) ─ (n) place ← npc.current_place_id / origin_place_id
 hex (q,r)                               (player-drawn; linked to nothing, not even its painter)
 session_series (1) ─ (n) session (colony_day_start / colony_day_end)
-member (1) ─ (n) web_session, request, timeline_event.created_by, image.uploaded_by
+account (1) ─ (n) web_session      campaign_member (1) ─ (n) request, timeline_event.created_by, image.uploaded_by
 ```
 
 ---
@@ -409,7 +434,7 @@ Every **colony mutation** follows the same path. The colony mutations are:
 
 ```
 tx:
-  colony := SELECT … FROM colony WHERE id = 1 FOR UPDATE   -- always locked first: one lock order
+  colony := SELECT … FROM colony WHERE campaign_id = @campaign_id FOR UPDATE   -- per campaign; always locked first
   if op carries expectedVersion and colony.version != expectedVersion
       → 409 "The colony changed (now Day {day}). Review and retry."
   before := snapshot of every row this op will touch           -- amounts, counts, favor, day/shipments, quest or request status
@@ -805,6 +830,8 @@ Day 40, I = 7, D = 42, food 300, 20 colonists.
 
 ### 6.2 Routes
 
+Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`, `/c/{slug}/players`, and the board at `/c/{slug}/`), and `/pending` is `/c/{slug}/pending`. Outside campaigns: `/` (the picker of your campaigns, an invite-link box and "Run your own campaign"), `/join/{inviteCode}`, `/request` and `/admin` (site owner). These pages have no stream and refetch on focus. The top bar's title becomes a campaign switcher when you have more than one campaign, and the profile menu adds "All campaigns", "Leave this campaign…" (players) and "Site admin" (owner). Settings adds the Campaign name ("The site owner sees this name"), Invite link, Discord server (link code, linked server, channel pickers) and Danger zone (delete, C3) cards. Multi-campaign design §5 has the screens and flows.
+
 | Route | DM sees and does | Player sees and does |
 |---|---|---|
 | `/login` | "Sign in with Discord" over darkened Eldari art; one-line privacy note. Devauth builds add a **Dev sign-in** list of members (§8.5). | same |
@@ -924,9 +951,11 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
   - To try real sign-in and Beny Bot, the author puts Beny Bot Dev's values in the local `.env`. `docs/discord-dev-setup.md`, written in M0, walks through creating the application.
   - The production Beny Bot application and its token are never used by this project. The old bot keeps serving the real table, untouched.
 - **M6 (optional)** puts a production application in the real guild after the old bot is stopped for good (§10, Open Question 19). Beny Bot Dev is never promoted to production.
-- **One guild**, set by `DISCORD_GUILD_ID`. Invited once by URL:
+- **One shared bot, many servers (F8).** Each DM invites Beny Bot to their own server with the URL on Settings, and links that server to their campaign: Settings → **Get a link code** (`BENY-XXXXX-XXXXX`, 15 minutes, single use, kept in memory), then `/link code:` run in the server by a member with Manage Server. One server per campaign and one campaign per server. `/unlink`, Settings → Unlink…, or removing the bot (GuildDelete, or a server missing from Ready's list) unlinks. Invite:
   - scopes `bot applications.commands`;
-  - permissions: View Channel, Send Messages, Embed Links, Read Message History, Manage Events (today's bitfield).
+  - permissions: View Channel, Send Messages, Embed Links, Manage Events (8589954048). No Read Message History: no feature reads messages.
+- **Commands are global** (`ApplicationCommandBulkOverwrite(app, "", ...)` on Ready). M1's guild-scoped commands are cleared once while the legacy `DISCORD_GUILD_ID` is still set; then it is deleted.
+- **Routing.** Every interaction goes guild → linked campaign → membership (`core.ViewerForGuild`): a direct message, an unlinked server, a suspended campaign, a non-member and a not-yet-let-in member each get their own ephemeral line. Settings lists the linked server's text channels (`core.DiscordDirectory`), and every post goes through one function that checks the channel belongs to the linked server.
 - **Intents:** `Guilds | GuildScheduledEvents`.
 
 ### 7.2 Port, fix, add, drop
@@ -935,13 +964,13 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
 |---|---|---|
 | Bot core, interaction routing (`internal/bot/bot.go`) | **Port** | Simplified; commands receive a `Viewer` resolved from the caller's Discord ID. |
 | Per-user rate limiter (`ratelimit.go`) | **Port as is** | Burst 3, one token every 2 s. |
-| Command registration | **Fix** | On Ready: guild-scoped `ApplicationCommandBulkOverwrite`, **plus** a global overwrite with an empty list, so the application never carries stale global commands. The old application's global `/schedule`, `/registercampaign` and `/available` leave the real guild at M6, when that application is removed from it after the old bot is stopped for good. If the author keeps the existing application instead (Open Question 19), the empty global overwrite removes them, and nothing re-adds them because the old bot no longer runs. |
-| Caller identity | **Add** | Commands answer only ACTIVE members; others get an ephemeral "Sign in at <url> first". Commands from other guilds are ignored. |
+| Command registration | **Fix** | Since M1.5: global `ApplicationCommandBulkOverwrite` on Ready, and a one-time clear of the legacy guild's commands (§7.1). M1 did: guild-scoped `ApplicationCommandBulkOverwrite`, **plus** a global overwrite with an empty list, so the application never carries stale global commands. The old application's global `/schedule`, `/registercampaign` and `/available` leave the real guild at M6, when that application is removed from it after the old bot is stopped for good. If the author keeps the existing application instead (Open Question 19), the empty global overwrite removes them, and nothing re-adds them because the old bot no longer runs. |
+| Caller identity | **Add** | Commands answer only ACTIVE members of the server's linked campaign; others get an ephemeral line saying why (§7.1). |
 | `/beny` | **Port** | "Boy!" |
 | `/colony` | **Add** | Ephemeral embed: day, resources, colonists (with Unassigned), next shipment, next session, site link. Built from the player projection. |
 | `/nextsession` | **Port + fix** | The next SCHEDULED occurrence from `occurrences()`, shown with `<t:…:F>` and `<t:…:R>`. |
 | `/npc view name:` | **Port + fix** | Autocomplete and prefix search over revealed NPCs' display names. Ephemeral reply built from the player projection. A hidden true name finds nothing, and true names and DM notes never appear in Discord. |
-| Pending sign-in notice | **Add** | "<name> (@user) is waiting to join: <url>/players", posted to the DM channel and rate-limited (§2.1). |
+| Pending sign-in notice | **Add** | "<name> (@user) is waiting to join: <url>/c/<slug>/players", posted to that campaign's DM channel, 5 an hour per campaign (§2.1). A campaign request DMs the site owner, 5 an hour. |
 | Request prompt | **Add** | Posted to the DM channel with Grant and Decline buttons (§7.5). |
 | Discord scheduled events | **Redesign** | Rolling single events (§7.4). The old recurrence code, including its `end` field (which apps can't set), is **not** ported. |
 | Played-session auto-log | **Port + extend** | ACTIVE → PLAYED and `colony_day_start`; COMPLETED → `colony_day_end`. |
@@ -995,7 +1024,7 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
   - Custom IDs are `req:{id}:grant` and `req:{id}:decline`.
   - The message reads: "Thorin requests **Grain Barge** from Lady Vex (3 favor → Food +7). Favor now 5."
 - **Click handling.**
-  - The handler checks the clicker's Discord ID against `DM_DISCORD_ID`. Anyone else gets an ephemeral "Only the DM can decide".
+  - The handler routes the click through the server's linked campaign and checks the clicker is that campaign's DM; core loads the request with that campaign. Anyone else gets an ephemeral "Only the DM can decide".
   - It sends a **deferred update** within Discord's 3-second window.
   - It calls the same decide function as the website, applying the snapshot with no tweak and no note.
   - It then edits the message to show the outcome:
@@ -1018,7 +1047,7 @@ Browser ──http://localhost:5173──▶ Vite dev server (web/, hot reload)
                                      │ proxies /api, /auth, /img, /calendar, /healthz; keeps the Host header
                                      ▼
                                    colony serve (one Go binary, devauth build, localhost:8080)
-                                     ├─ /api/*        huma v2 JSON API (+ /api/stream SSE)
+                                     ├─ /api/*        huma v2 JSON API (+ /api/campaigns/{id}/stream SSE)
                                      ├─ /auth/*       dev sign-in; Discord OAuth2 through Beny Bot Dev (optional)
                                      ├─ /img/*        images from Postgres (members only)
                                      ├─ /calendar/*   ICS feed (token)
@@ -1128,7 +1157,7 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
   3. `bunx openapi-typescript web/src/api/openapi.json -o web/src/api/schema.d.ts`.
 
   `mise run check` runs it; CI, when the author pushes, also fails on any diff.
-- **Docs.** huma's default routes are off. Interactive API docs at `/api/docs` and the OpenAPI document at `/api/openapi.json` are registered as `dm` routes.
+- **Docs.** huma's default routes are off. Interactive API docs at `/api/docs` and the OpenAPI document at `/api/openapi.json` are registered as `owner` routes (were `dm` before M1.5).
 
 ### 8.5 Auth: direct Discord OAuth2 (confirmed, F3)
 
@@ -1152,10 +1181,7 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
    - exchanges the code;
    - reads `GET /users/@me`;
    - discards the Discord token.
-3. It upserts `member`.
-   - The DM is always ACTIVE.
-   - A new user starts PENDING, and Beny Bot pings the DM channel (limits in §2.1).
-   - Existing statuses are kept. A removed or denied member who signs in again stays REMOVED, gets a `pending`-level session, and sees "You don't have access".
+3. It upserts the `account` (since M1.5; memberships are made by invite links, §2.1, and nobody is pinged). A removed member who signs in again stays REMOVED in that campaign.
 4. It creates a session.
    - 32 random bytes go into **`__Host-colony_session`**: HttpOnly, Secure, SameSite=Lax, Path=/, 30 days.
    - Only the SHA-256 is stored.
@@ -1163,18 +1189,18 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
    - Plain-http local development uses `colony_session` without the prefix.
 
 **Session cache**
-- The middleware caches session lookups in memory (token hash → member, status and flags) for up to 24 hours.
-- Every write that changes a member's status or sessions evicts the affected entries: approve, deny, remove, re-admit, sign out, sign out everywhere, and the view-as-player toggle.
+- The middleware caches session lookups in memory (token hash → account, Discord ID and view-as-player) for up to 24 hours. Status is per campaign and read by `EnterCampaign` on each campaign request, so it is not cached.
+- Sign out, sign out everywhere and the view-as-player toggle evict the affected entries.
 - One replica keeps the cache coherent. During a deploy overlap, the old container lives only seconds.
 - So an ordinary request or SSE reconnect runs no session query.
 
 **Removal and sign-out**
-- Removing a member deletes their sessions, evicts them from the cache and closes their SSE streams.
-- "Sign out everywhere" does the same for the caller.
+- Removing a member from a campaign rescopes their streams in that campaign to `me`; their session survives, so their other campaigns keep working.
+- "Sign out everywhere" deletes the caller's sessions, evicts them and closes their streams.
 
 **Dev sign-in**
-- A `devauth` build tag adds `/auth/dev?as=dm|player|pending|<member id>`, and `/login` then lists every member under **Dev sign-in**. `mise run dev` always builds with it, so local work needs no Discord account. Integration tests use it too.
-- The seeded DM takes `DM_DISCORD_ID` when it is set, so real sign-in through Beny Bot Dev lands on the same account. When it is unset, a devauth build treats the seeded `seed:dm` member as the DM (§9).
+- A `devauth` build tag adds `/auth/dev?as=owner|dm|player|pending|<account id>` (dm, player and pending mean Sample Colony's) and `?as=new&name=`, and `/login` then lists every account once with its roles under **Dev sign-in**. `mise run dev` always builds with it, so local work needs no Discord account. Integration tests use it too.
+- The seeded Sample DM takes `SITE_OWNER_DISCORD_ID` when it is set, so real sign-in through Beny Bot Dev lands on the same account. When it is unset, a devauth build treats the seeded `seed:dm` account as the site owner (§9). `DM_DISCORD_ID` is gone: every `colony` command except `openapi` refuses to run while it is set, and `mise run env:upgrade` renames it.
 - The binary refuses to start with the tag when `APP_ENV=production`, and the M6 Dockerfile never sets it.
 
 **Secrets:** the app has no signing keys, so there is nothing like the old RSA keypair to leak.
@@ -1230,7 +1256,7 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
 
 ### 8.8 Live updates
 
-- **`GET /api/stream`** is a Server-Sent Events stream behind session auth, with an in-process broker.
+- **`GET /api/campaigns/{campaignId}/stream`** (`pending` level) is a Server-Sent Events stream behind session auth, with an in-process broker. There is one stream per open campaign tab; pages outside campaigns have none. Broadcasts reach only that campaign's ACTIVE streams, and sequence numbers and the 256-message ring are per campaign (F8).
 - **Messages are invalidate-only:** `event: invalidate` with `data: {"topics":["colony","timeline"]}`. They carry no data and no summaries.
   - Each message carries `id: <bootId>-<seq>`. `bootId` is random per process start, and `seq` increments with every published message.
   - Pending and removed sessions receive only their own `me` topic, which is how `/pending` opens live.
@@ -1242,7 +1268,7 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
   - same boot and same sequence: nothing happened, so it sends nothing;
   - same boot, an older sequence the remembered messages still reach back to: one invalidate for the topics this stream would have heard since then, or nothing when none of them was for it (a view-as-player switch in the DM's browser, a message to another member);
   - any other case (too far behind, a new boot, or no ID): one invalidate for everything.
-- **A reconnect touches no database.** The session comes from the in-memory cache (§8.5), and `last_seen_at` is written at most once a day. A tab left open between sessions therefore won't keep a hosted database awake (M6).
+- **A reconnect runs exactly one read**, the membership (`EnterCampaign`), and no write (since M1.5; there is no membership cache). The session comes from the in-memory cache (§8.5), and `last_seen_at` is written at most once a day. An idle open tab runs no query. A tab left open between sessions therefore won't keep a hosted database awake (M6).
 - **Client.**
   - Maps topics to query-key prefixes and invalidates them.
   - After a `timeline` invalidation, it fetches the newest PUBLIC entries and toasts them.
@@ -1273,7 +1299,8 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
   The author opens http://localhost:5173. Plain http uses the unprefixed `colony_session` cookie (§8.5).
 - **`mise run dev:phone`** does the same, but also listens on the Mac's Wi-Fi address and prints it, so a phone on the same network can test touch gestures and live updates. Dev sign-in works there, which means anyone on that network could use it: use it at home. Real Discord sign-in is tested on the Mac only.
 - **Sign-in.** Dev sign-in by default (§8.5). Real Discord sign-in and Beny Bot need Beny Bot Dev's values in `.env` (§7.1); without them, the Discord button is hidden and Beny Bot is off.
-- **`.env`** is gitignored. `.env.example` lists only the names: `DATABASE_URL`, `TEST_DATABASE_URL`, `POSTGRES_PASSWORD`, `PUBLIC_URL`, `APP_ENV`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DM_DISCORD_ID`.
+- **`.env`** is gitignored. `.env.example` lists only the names: `DATABASE_URL`, `TEST_DATABASE_URL`, `POSTGRES_PASSWORD`, `PUBLIC_URL`, `APP_ENV`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `SITE_OWNER_DISCORD_ID` (M1.5 removed `DISCORD_GUILD_ID` and `DM_DISCORD_ID`).
+  - Logs carry IDs, kinds, counts and statuses, never campaign content or message text.
   - Locally, `PUBLIC_URL` is `http://localhost:5173` and `APP_ENV` is `development`.
   - Discord values, when set, are Beny Bot Dev's and the private test server's.
   - No production credential ever goes in it, and nothing is copied from the old repo's `.env` or `.pem` files.
@@ -1288,7 +1315,8 @@ Deployment (Dockerfile, Railway, Neon, environment and cost) is designed under M
 |---|---|
 | `internal/game` | §5.12 examples A–I verbatim. Property and fuzz tests: span engine = day-by-day reference; `Advance(a+b) == Advance(Advance(a), b)`; bounds; `D > day`; colonist derivation; the overflow guard on day and next shipment day. CLAMP vs STRICT; transfer below 0 rejected; undo snapshot round-trip. `occurrences()` across both DST changes in America/New_York, biweekly parity, multi-weekday, one-offs, cancelled dates. |
 | `internal/core` and `internal/app` (real Postgres via `TEST_DATABASE_URL`: the compose `colony_test` database, fresh schema per test, `devauth` sessions) | **Access + secrecy test** over every OpenAPI operation, every route-table route, SSE payloads and Beny Bot replies (§2.2). Double Complete pays once. Two concurrent advances with the same `expectedVersion` give exactly one 409. Request → approve applies the snapshot; a tweak lands in `applied_effects`; a short approval gives 409 and writes nothing. Undo restores, and is refused once something newer exists. A removed member is locked out, their stream closes, and signing in again yields only `pending` access. A reconnect with an up-to-date last ID sends nothing and runs no query. Two concurrent paint calls both land, and a refetch after their invalidations shows both. Repainting keeps a hex's label. Deleting an NPC colonist is refused. Reminder claim is single-send. `colony seed` succeeds on a fresh database and refuses a used one; `seed` and `reset` refuse `APP_ENV=production` and a non-local `DATABASE_URL`. |
-| `internal/bot` | Button DM check, deferred reply then edit, status-guard no-op on a second click; planner due-time computation (fake clock); event lease expiry and orphan adoption. |
+| Migrations and SQL (M1.5) | `db/migrations_test.go`: 0003 turns an M1 database into one campaign owned by `SITE_OWNER_DISCORD_ID`, leaves an empty database with no campaign, and refuses a lone or mismatched `DM_DISCORD_ID` or a missing owner without changing anything. `db/scope_test.go`: the SQL scope lint and its bad-query cases. |
+| `internal/bot` | Guild routing (every refusal), `/link` and `/unlink` refusals, unlinking on GuildDelete and Ready, posting only into the linked server; button DM check, deferred reply then edit, status-guard no-op on a second click; planner due-time computation (fake clock); event lease expiry and orphan adoption. |
 | Web | `tsc`, `biome ci`, `vite build`; `bun test` for hex math and the topic → query-key map. An optional Playwright smoke run (dev sign-in, advance, paint, request then grant). |
 
 ### 8.12 Checks (`mise run check`)
@@ -1335,14 +1363,14 @@ There is one root `CLAUDE.md` of at most 150 lines; `AGENTS.md` is a symlink to 
 
 There is no importer (F2). The old app holds only throwaway test data, so nothing is read from its database and no old credential is needed. The one asset carried over is the Eldari art (§8.9). If the site is ever deployed (M6), production starts fresh.
 
-**`colony seed`** (`mise run seed`) fills the local database with a believable, clearly fictional sample campaign, so every screen has something to show and every checklist in §10 has something to act on.
+**`colony seed`** (`mise run seed`) fills the local database with believable, clearly fictional sample campaigns (two since M1.5: Sample Colony, `/c/sample-colony`, with M1's numbers, and Second Sample, `/c/second-sample`, DM'd by Hollis, who also plays Pell in Sample Colony; Ana plays in both; plus the site owner and Wren's pending campaign request), so every screen has something to show and every checklist in §10 has something to act on.
 - It grows with each milestone: each one adds the sample rows its screens need (table below).
 - Wherever an operation exists, the seed plays its sample history through the same `internal/core` operations the API uses (advancing days, recording cargo, completing a quest, granting a request). Timeline entries, versions and the undo slot are therefore exactly what real play produces. Rows with no operation, such as members, are inserted directly.
-- It is fictional on its face. The campaign is called "Sample Colony", the cast reuses this spec's example names (Lady Vex, Brannoc, Thorin, the Grain Barge, Clear the Wolf Den), and seeded members have Discord IDs like `seed:ana`, which no real account can have. The seeded DM is the one exception: it takes `DM_DISCORD_ID` when that is set (§8.5).
+- It is fictional on its face. The campaign is called "Sample Colony", the cast reuses this spec's example names (Lady Vex, Brannoc, Thorin, the Grain Barge, Clear the Wolf Den), and seeded members have Discord IDs like `seed:ana`, which no real account can have. The seeded Sample DM is the one exception: it takes `SITE_OWNER_DISCORD_ID` when that is set (§8.5).
 - It runs only on a freshly migrated database. Otherwise it stops with "This database already has data. Run `mise run reset` first."
 - `--hexes N` paints N sample hexes instead of the default handful, for the 5,000-hex check in M4.
 
-**`colony reset`** (`mise run reset`) drops everything and re-runs the migrations. The result is a fresh install: the singleton colony, resources, roles, settings and the Eldari map row that the migrations seed.
+**`colony reset`** (`mise run reset`) drops everything and re-runs the migrations. The result is a fresh install with no campaign: a campaign's colony, settings, resources and roles are created when the owner approves it.
 
 **`mise run fresh`** runs reset, then seed. Every checklist starts from it.
 
@@ -1416,8 +1444,13 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
   - [ ] In view-as-player, I see no Advance, Adjust or Undo buttons and no DM-only timeline entries.
   - [ ] `mise run check` ends with "All checks passed". It runs examples A–I from §5.12 verbatim, and checks that an idle open tab and a reconnect run no database query.
 
+**M1.5: Multi-campaign.**
+- **Scope:** `docs/design/multi-campaign.md` with the author's decisions C1–C6: accounts and per-campaign memberships, owner-approved campaigns, invite links, path-scoped URLs, the seven access levels, per-campaign broadcasts, the cross-campaign secrecy sweep, one shared Beny Bot with `/link`, suspend and delete (the DM's own delete, C3), leaving (C5), migration 0003 and two sample campaigns.
+- **Acceptance:** `docs/checklists/M1.5.md` (multi-campaign design §10 plus the C3 and C5 steps).
+
 **M2: People and secrecy.**
 - **Scope:**
+  - per campaign (F8): `npc` and `place` carry `campaign_id`; the role-key join includes `campaign_id`; the colonist count filters both tables; `/npc view` routes by the server's campaign; fixtures plant into both campaigns;
   - roles + Unassigned, transfers, named colonists;
   - NPC roster and detail with server-side secrecy and the first-encountered session;
   - places (unpinned);
@@ -1435,6 +1468,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
 
 **M3: Quests, patrons, requests.**
 - **Scope:**
+  - per campaign (F8): quests, patrons, actions and requests carry `campaign_id`; request IDs in bodies and buttons are loaded with the Viewer's campaign; Grant and Decline check the server's campaign and its DM; prompts go through `postToCampaign`;
   - quests with Effects rewards, favor and givers; QUEST_POSTED when a quest becomes visible; complete (preview), fail, reopen a failed quest;
   - patrons, favor, actions, archiving;
   - requests with the approval sheet;
@@ -1451,6 +1485,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
 
 **M4: World maps.**
 - **Scope:**
+  - per campaign (F8): maps, pins, hexes and images carry `campaign_id`; images are served under `/api/campaigns/{campaignId}/images/`; 50 MB of images and 50,000 hexes per campaign. **The Eldari art belongs to the author's campaign only (C6):** it is not seeded or offered to other campaigns as a starting map; other DMs upload their own mainland art;
   - Explore (canvas layer; Look and Paint modes; batched strokes; frontier; patterns; label search; live), starting with the two-finger gesture check on a real phone;
   - Mainland (Eldari) with pins; image uploads;
   - PWA manifest;
@@ -1468,6 +1503,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
 
 **M5: Sessions and Beny Bot.**
 - **Scope:**
+  - per campaign (F8): series, sessions and the ICS token per campaign; one planner across ACTIVE, linked campaigns (its queries `-- unscoped: planner`); events in each campaign's linked server; reminders through `postToCampaign`;
   - series with the timezone; `occurrences()`; cancel and restore;
   - rolling Discord events; timer-driven reminders; played auto-log with day stamps and timeline bands;
   - recaps; ICS;
@@ -1488,6 +1524,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
 Nothing here happens unless, after approving M5, the author says the app meets their standards and asks for the cutover. Until then nothing is deployed, and the old site and the old Beny Bot keep serving the table.
 
 - **Scope:**
+  - **Multi-campaign (F8):** one production Discord application shared by every DM; `SITE_OWNER_DISCORD_ID` in Railway; budget for several campaigns on Neon; decide row-level security and whether a membership cache is worth it; a short privacy page now that friends' data is hosted;
   - **Hosting:** add the deployment files below; create the Railway service and a new Neon database `colony` (Postgres 17). The author enters the environment variables in Railway.
   - **A fresh start (F2):** production starts from the migrations alone, and `colony seed` refuses to run there. The DM enters the colony's real state through the normal screens: Correct day, Adjust, the shipment schedule, workforce, NPCs, quests, patrons, places and series.
   - **Domain:** move the author's existing domain from party-planner to the new service; `PUBLIC_URL` becomes that address.
@@ -1593,6 +1630,15 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 
     *Default: decided in the store design; nothing in v1 depends on the answers.*
 
+**Multi-campaign (M1.5), all resolved on 2026-10-11 (multi-campaign design, last section)**
+
+20. **Co-DMs or hand-off.** **Resolved (C1):** no. One DM per campaign, no hand-off.
+21. **Changing a campaign's address.** **Resolved (C2):** no. The owner can adjust the slug at approval; then it is fixed.
+22. **A DM deleting their own campaign.** **Resolved (C3):** yes, at any time, after typing its slug; it cascades like the owner's delete. The owner can still suspend any campaign and delete a suspended one.
+23. **A denied requester asking again.** **Resolved (C4):** yes, one open request at a time.
+24. **A player leaving on their own.** **Resolved (C5):** yes, only themselves, from PENDING or ACTIVE, never the DM. Leaving is REMOVED, recorded as their own choice so `/players` shows "Left"; the invite link can't bring them back and pings nobody; only the DM re-admits.
+25. **The Eldari art for other campaigns.** **Resolved (C6):** no. It belongs to the author's campaign; M4 must not offer it to other campaigns.
+
 **Before M6 (only if you go ahead)**
 
 19. **Production Discord application.** F3 keeps the production Beny Bot token out of this project. So by default M6 creates a new production application (it can still be called Beny Bot), invites it to the real guild, and removes the old Beny Bot application once the old bot is stopped. Players then see a new bot account; the old bot's past messages stay. Would you rather the deployed site take over the existing Beny Bot application, with you entering its credentials in Railway yourself? *Default: a new production application.*
@@ -1619,6 +1665,12 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 | Game design keeps changing (buildings, sickness, events, store) | High / medium | Rules isolated in `internal/game` with spec-example tests; resources, roles, actions and effects are data; the `Step` pipeline; open timeline kinds; generic request snapshots; "do not invent mechanics" in CLAUDE.md. |
 | Old and new Beny Bot answering the same interactions | Low / medium | No two processes share a token: development uses only Beny Bot Dev in a private test server, and the production Beny Bot token is never used by this project (F3); at M6 the old bot is stopped for good before the production application goes live; command-cleanup check in M6 acceptance. |
 | TypeScript 7 tooling gaps | Low / low | Pin 6.0.3 instead; it is used only for `tsc --noEmit`. |
+| A query misses its campaign filter (a leak, or an update to every campaign's `gold`) (F8) | Medium / high | The Viewer type; the SQL scope lint; composite foreign keys; tokens in every value of the second campaign; its fingerprint after the DM and mixed-ID passes. |
+| A body or jsonb ID from another campaign is accepted (F8) | Medium / high | Core loads every body and jsonb ID and key with the Viewer's campaign; sweep pass 4 puts the other campaign's real IDs and keys into every body field. |
+| Roles judged against the wrong membership (a DM of B gets DM powers in A) (F8) | Low / high | A Viewer is built per campaign with no owner flag; a DM elsewhere is swept as a player; the owner-flag table test. |
+| "The owner can't read" is only an app promise (F8) | Known / medium | Said on the request form; owner routes read directory tables only; no Read Message History; logs carry no content; row-level security decided at M6. |
+| Beny Bot posts into the wrong server, or a server that removed it (F8) | Low / medium | Channels picked from the linked server; every post checks the channel's server; GuildDelete and Ready unlink. |
+| Migration 0003 makes the wrong account DM (F8) | Low / high | Every command except `openapi` refuses `DM_DISCORD_ID`; the migration refuses mismatched or missing variables and a missing owner account; tested. |
 
 ---
 
@@ -1643,3 +1695,9 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 | 15 | DM notes on hexes, a landing hex | **None.** | Decision 9: only the players map the new world. `colony seed` paints sample hexes in local development only. |
 | 16 | The old app's data: import it, or start fresh? | **Start fresh (F2).** No importer: `colony seed` loads fictional sample data locally, and `colony reset` wipes and re-migrates. Only the Eldari art carries over. | The old app holds only throwaway test data. Dropping the importer also drops the `import_mark` table, nullable "Imported" attribution, the shipment-countdown mapping and population reconciliation. |
 | 17 | Which Discord application does the new site run as during development? | **Beny Bot Dev, in a private test server, for all of M0–M5; the production Beny Bot token is never used by this project (F3).** At M6 a production application goes live only after the old bot is stopped for good (Open Question 19). | Two processes on one token would both answer every interaction, and the old bot re-registers its global commands on every start. Keeping the old bot whole means the table never loses reminders or its event, and keeping production credentials out of development removes a way to leak them. |
+| 18 | Multi-campaign: how does a request know its campaign? (F8) | **Path-scoped URLs** (`/c/{slug}` in the SPA, `/api/campaigns/{campaignId}` in the API); no active-campaign cookie or header. | Explicit in every request, linkable from Discord, two tabs can sit in two campaigns, cache keys separate by themselves, and the secrecy sweep fills it like any path parameter. |
+| 19 | One DM or several per campaign? (F8) | **One, stored**, with a partial unique index; no API writes `role` (C1). | Keeps "the DM" unambiguous; co-DMs later mean dropping one index and adding a promote operation. |
+| 20 | Row-level security? (F8) | **Not now**; the Viewer type, the SQL scope lint, composite keys and the fingerprinted sweep instead. Decided at M6. | RLS needs a second login role and a transaction per read (four round trips to Neon), and still misses jsonb and body IDs. |
+| 21 | A membership cache? (F8) | **No**: one indexed membership read per campaign request. | No stale grant to evict; a reconnect costs one read. Revisit at M6 only if Neon wake-ups show up in the bill. |
+| 22 | Where do link codes live? (F8) | **In memory**, 15 minutes, single use, one per campaign. | Single replica (Invariant 8); a restart just means a new code. |
+| 23 | Guild or global Beny Bot commands? (F8) | **Global**, with a one-time clear of M1's guild commands. | One shared bot serves every linked server; routing goes through the server's campaign. |

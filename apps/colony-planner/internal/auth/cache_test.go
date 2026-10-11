@@ -9,10 +9,9 @@ import (
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
-func cachedFor(memberID uuid.UUID, now time.Time) cachedSession {
+func cachedFor(accountID uuid.UUID, now time.Time) cachedSession {
 	return cachedSession{
-		memberID:  memberID,
-		status:    core.MemberStatusActive,
+		accountID: accountID,
 		expiresAt: now.Add(core.SessionLifetime),
 		cachedAt:  now,
 	}
@@ -40,12 +39,12 @@ func TestSessionCacheEviction(t *testing.T) {
 		t.Fatal("EvictSession dropped another session of the same member")
 	}
 
-	cache.EvictMember(member)
+	cache.EvictAccount(member)
 	if _, found := cache.lookup(secondSession, now); found {
-		t.Fatal("EvictMember left one of the member's sessions cached")
+		t.Fatal("EvictAccount left one of the member's sessions cached")
 	}
 	if _, found := cache.lookup(otherSession, now); !found {
-		t.Fatal("EvictMember dropped another member's session")
+		t.Fatal("EvictAccount dropped another member's session")
 	}
 }
 
@@ -58,7 +57,7 @@ func TestSessionCacheRefusesLookupsThatStartedBeforeAnEviction(t *testing.T) {
 	session := []byte("session")
 
 	generation := cache.currentGeneration()
-	cache.EvictMember(member)
+	cache.EvictAccount(member)
 	cache.store(session, cachedFor(member, now), generation)
 	if _, found := cache.lookup(session, now); found {
 		t.Fatal("a lookup that raced an eviction was cached")

@@ -1,5 +1,5 @@
-// Package seed loads the fictional sample campaign that `colony seed` puts in a local database (spec
-// §9). It grows with each milestone, and plays history through internal/core wherever an operation
+// Package seed loads the fictional sample campaigns that `colony seed` puts in a local database (spec
+// §9; docs/design/multi-campaign.md §7.4). It grows with each milestone, and plays history through internal/core wherever an operation
 // exists, so seeded timelines look exactly like real play.
 package seed
 
@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,8 +21,9 @@ import (
 type Options struct {
 	Pool *pgxpool.Pool
 	Core *core.Service
-	// DmDiscordID is DM_DISCORD_ID when set, so real Discord sign-in lands on the seeded DM.
-	DmDiscordID string
+	// OwnerDiscordID is SITE_OWNER_DISCORD_ID when set, so real Discord sign-in lands on the seeded
+	// owner (Sample DM); otherwise core.SeedDmDiscordID.
+	OwnerDiscordID string
 	// Hexes is how many sample hexes to paint (M4); zero means the default handful.
 	Hexes int
 }
@@ -41,84 +43,201 @@ func RequireLocalDevelopment(appEnvironment string, databaseURL string) error {
 	return nil
 }
 
-// sampleMember is one fictional person. Their Discord IDs start with "seed:", which no real account
+// sampleAccount is one fictional person. Their Discord IDs start with "seed:", which no real account
 // can have.
-type sampleMember struct {
+type sampleAccount struct {
 	discordUserID   string
 	discordUsername string
 	displayName     string
-	characterName   string
-	status          store.MemberStatus
 	joinedDaysAgo   int
 	// lastSeenDaysAgo is negative for someone who hasn't been seen since joining.
 	lastSeenDaysAgo int
 }
 
-func sampleMembers(dmDiscordID string) []sampleMember {
-	return []sampleMember{
-		{dmDiscordID, "sample.dm", "Sample DM", "", store.MemberStatusACTIVE, 60, 0},
-		{"seed:ana", "ana.sample", "Ana", "Thorin", store.MemberStatusACTIVE, 52, 1},
-		{"seed:bram", "bram.sample", "Bram", "Sela Windmere", store.MemberStatusACTIVE, 51, 2},
-		{"seed:cass", "cass.sample", "Cass", "Pip Thistledown", store.MemberStatusACTIVE, 49, 6},
-		{"seed:dov", "dov.sample", "Dov", "Maren Ashgrove", store.MemberStatusACTIVE, 45, 3},
-		{"seed:emil", "emil.sample", "Emil", "", store.MemberStatusPENDING, 2, 2},
-		{"seed:fen", "fen.sample", "Fen", "", store.MemberStatusPENDING, 1, 1},
-		{"seed:gus", "gus.sample", "Gus", "Old Rusk", store.MemberStatusREMOVED, 40, 30},
+func sampleAccounts(ownerDiscordID string) []sampleAccount {
+	return []sampleAccount{
+		{ownerDiscordID, "sample.dm", "Sample DM", 60, 0},
+		{"seed:ana", "ana.sample", "Ana", 52, 1},
+		{"seed:bram", "bram.sample", "Bram", 51, 2},
+		{"seed:cass", "cass.sample", "Cass", 49, 6},
+		{"seed:dov", "dov.sample", "Dov", 45, 3},
+		{"seed:emil", "emil.sample", "Emil", 2, 2},
+		{"seed:fen", "fen.sample", "Fen", 1, 1},
+		{"seed:gus", "gus.sample", "Gus", 40, 30},
+		{"seed:hollis", "hollis.sample", "Hollis", 30, 0},
+		{"seed:iko", "iko.sample", "Iko", 25, 4},
+		{"seed:jun", "jun.sample", "Jun", 3, 3},
+		{"seed:wren", "wren.sample", "Wren", 5, 1},
 	}
 }
 
-// Run fills a freshly migrated database. On a database that already has data it stops with
+// sampleMembership is one place in a sample campaign.
+type sampleMembership struct {
+	discordUserID string
+	characterName string
+	status        store.MemberStatus
+	joinedDaysAgo int
+}
+
+// Sample Colony's players are M1's (so the M1 checklist's numbers hold), plus Hollis, who DMs Second
+// Sample and plays Pell here.
+var sampleColonyPlayers = []sampleMembership{
+	{"seed:ana", "Thorin", store.MemberStatusACTIVE, 52},
+	{"seed:bram", "Sela Windmere", store.MemberStatusACTIVE, 51},
+	{"seed:cass", "Pip Thistledown", store.MemberStatusACTIVE, 49},
+	{"seed:dov", "Maren Ashgrove", store.MemberStatusACTIVE, 45},
+	{"seed:emil", "", store.MemberStatusPENDING, 2},
+	{"seed:fen", "", store.MemberStatusPENDING, 1},
+	{"seed:gus", "Old Rusk", store.MemberStatusREMOVED, 40},
+	{"seed:hollis", "Pell", store.MemberStatusACTIVE, 28},
+}
+
+var secondSamplePlayers = []sampleMembership{
+	{"seed:ana", "Brisa", store.MemberStatusACTIVE, 20},
+	{"seed:iko", "Tamsin Vale", store.MemberStatusACTIVE, 24},
+	{"seed:jun", "", store.MemberStatusPENDING, 3},
+}
+
+// Run fills a freshly migrated database with two sample campaigns that share players, the site owner
+// and a pending campaign request. On a database that already has accounts it stops with
 // ErrDatabaseInUse.
 func Run(requestContext context.Context, options Options) error {
 	if options.Hexes > 0 {
 		return errors.New("--hexes needs the hex map, which arrives in M4")
 	}
-	if options.DmDiscordID == "" {
-		return errors.New("seed: the DM needs a Discord ID (DM_DISCORD_ID or core.SeedDmDiscordID)")
+	if options.OwnerDiscordID == "" {
+		return errors.New("seed: the site owner needs a Discord ID (SITE_OWNER_DISCORD_ID or core.SeedDmDiscordID)")
 	}
 	queries := store.New(options.Pool)
-	memberCount, err := queries.CountMembers(requestContext)
+	accountCount, err := queries.CountAccounts(requestContext)
 	if err != nil {
 		return err
 	}
-	if memberCount > 0 {
+	if accountCount > 0 {
 		return ErrDatabaseInUse
 	}
 
-	// Members have no create operation (they arrive through sign-in), so they are inserted directly.
-	var dm store.Member
+	// Accounts arrive through sign-in, which can't backdate them, so they are inserted directly.
+	now := time.Now().UTC()
+	accounts := map[string]store.Account{}
 	err = pgx.BeginFunc(requestContext, options.Pool, func(transaction pgx.Tx) error {
 		transactionQueries := queries.WithTx(transaction)
-		now := time.Now().UTC()
-		for _, sample := range sampleMembers(options.DmDiscordID) {
-			member, err := transactionQueries.CreateMember(requestContext, sampleMemberParameters(sample, now))
+		for _, sample := range sampleAccounts(options.OwnerDiscordID) {
+			account, err := transactionQueries.CreateAccount(requestContext, sampleAccountParameters(sample, now))
 			if err != nil {
-				return fmt.Errorf("seed member %s: %w", sample.displayName, err)
+				return fmt.Errorf("seed account %s: %w", sample.displayName, err)
 			}
-			if sample.discordUserID == options.DmDiscordID {
-				dm = member
-			}
+			accounts[sample.discordUserID] = account
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	callerOf := func(discordUserID string) core.Caller {
+		account := accounts[discordUserID]
+		return core.Caller{AccountID: account.ID, DiscordUserID: account.DiscordUserID, IsSiteOwner: discordUserID == options.OwnerDiscordID}
+	}
+	owner := callerOf(options.OwnerDiscordID)
 
-	dmViewer := options.Core.NewViewer(core.ViewerIdentity{
-		MemberID:      dm.ID,
-		DiscordUserID: dm.DiscordUserID,
-		Status:        dm.Status,
-	})
-	if _, err := options.Core.UpdateSettings(requestContext, dmViewer, core.SettingsInput{
+	// Sample Colony: the owner's own request is approved on submit.
+	sampleColony, err := createCampaign(requestContext, options.Core, owner, owner, "Sample Colony", "sample-colony")
+	if err != nil {
+		return err
+	}
+	if err := addMemberships(requestContext, queries, sampleColony, accounts, sampleColonyPlayers, now); err != nil {
+		return err
+	}
+	dm, err := options.Core.EnterCampaign(requestContext, owner, sampleColony)
+	if err != nil {
+		return err
+	}
+	if _, err := options.Core.UpdateSettings(requestContext, dm, core.SettingsInput{
 		CampaignName: "Sample Colony",
 		ColonyName:   "Port Eldari",
 		Timezone:     "America/New_York",
 	}); err != nil {
 		return fmt.Errorf("seed settings: %w", err)
 	}
-	if err := seedColony(requestContext, options.Core, queries, dmViewer); err != nil {
+	if err := seedColony(requestContext, options.Core, queries, dm); err != nil {
 		return fmt.Errorf("seed the colony: %w", err)
+	}
+
+	// Second Sample, through the real request and approval path: DM Hollis.
+	hollis := callerOf("seed:hollis")
+	secondSample, err := createCampaign(requestContext, options.Core, owner, hollis, "Second Sample", "second-sample")
+	if err != nil {
+		return err
+	}
+	if err := addMemberships(requestContext, queries, secondSample, accounts, secondSamplePlayers, now); err != nil {
+		return err
+	}
+	secondDm, err := options.Core.EnterCampaign(requestContext, hollis, secondSample)
+	if err != nil {
+		return err
+	}
+	if err := seedSecondColony(requestContext, options.Core, queries, secondDm); err != nil {
+		return fmt.Errorf("seed the second colony: %w", err)
+	}
+
+	// Wren asks to run a campaign; the owner hasn't decided.
+	if _, err := options.Core.RequestCampaign(requestContext, callerOf("seed:wren"), core.CampaignRequestInput{
+		CampaignName: "Sample Sky Isles",
+		Slug:         "sample-sky-isles",
+		Note:         "My Thursday group wants a sky-island colony. Could I run it here?",
+	}); err != nil {
+		return fmt.Errorf("seed Wren's request: %w", err)
+	}
+	return nil
+}
+
+// createCampaign asks for a campaign as dm and approves it as the owner (the owner's own request is
+// approved on submit), returning the new campaign's ID.
+func createCampaign(requestContext context.Context, service *core.Service, owner core.Caller, dm core.Caller, name string, slug string) (uuid.UUID, error) {
+	request, err := service.RequestCampaign(requestContext, dm, core.CampaignRequestInput{CampaignName: name, Slug: slug})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("request %s: %w", name, err)
+	}
+	if request.Status == core.CampaignRequestStatusPending {
+		approved, err := service.ApproveCampaignRequest(requestContext, owner, request.ID, core.ApproveCampaignRequestInput{})
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("approve %s: %w", name, err)
+		}
+		return approved.ID, nil
+	}
+	mine, err := service.MyCampaignRequest(requestContext, dm)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if mine.Request == nil || mine.Request.Campaign == nil {
+		return uuid.Nil, fmt.Errorf("request %s: approved without a campaign", name)
+	}
+	return mine.Request.Campaign.ID, nil
+}
+
+// addMemberships inserts the sample players directly: joining through an invite can't backdate them.
+func addMemberships(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, accounts map[string]store.Account, memberships []sampleMembership, now time.Time) error {
+	day := 24 * time.Hour
+	for _, sample := range memberships {
+		createdAt := now.Add(-time.Duration(sample.joinedDaysAgo) * day)
+		parameters := store.CreateCampaignMemberParams{
+			CampaignID: campaignID,
+			AccountID:  accounts[sample.discordUserID].ID,
+			Role:       store.CampaignRolePLAYER,
+			Status:     sample.status,
+			CreatedAt:  &createdAt,
+		}
+		if sample.characterName != "" {
+			characterName := sample.characterName
+			parameters.CharacterName = &characterName
+		}
+		if sample.status != store.MemberStatusPENDING {
+			approvedAt := createdAt.Add(day)
+			parameters.ApprovedAt = &approvedAt
+		}
+		if _, err := queries.CreateCampaignMember(requestContext, parameters); err != nil {
+			return fmt.Errorf("seed membership %s: %w", sample.discordUserID, err)
+		}
 	}
 	return nil
 }
@@ -142,7 +261,7 @@ var sampleHeadcounts = map[string]int32{
 // the last advance still in the undo slot.
 func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer) error {
 	for key, count := range sampleHeadcounts {
-		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{Key: key, UnnamedCount: count}); err != nil {
+		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{CampaignID: dm.CampaignID(), Key: key, UnnamedCount: count}); err != nil {
 			return fmt.Errorf("headcount %s: %w", key, err)
 		}
 	}
@@ -242,27 +361,88 @@ func advanceBy(requestContext context.Context, service *core.Service, dm core.Vi
 	}
 }
 
-func sampleMemberParameters(sample sampleMember, now time.Time) store.CreateMemberParams {
+func sampleAccountParameters(sample sampleAccount, now time.Time) store.CreateAccountParams {
 	day := 24 * time.Hour
 	createdAt := now.Add(-time.Duration(sample.joinedDaysAgo) * day)
-	parameters := store.CreateMemberParams{
+	parameters := store.CreateAccountParams{
 		DiscordUserID:   sample.discordUserID,
 		DiscordUsername: sample.discordUsername,
 		DisplayName:     sample.displayName,
-		Status:          sample.status,
 		CreatedAt:       &createdAt,
-	}
-	if sample.characterName != "" {
-		characterName := sample.characterName
-		parameters.CharacterName = &characterName
-	}
-	if sample.status != store.MemberStatusPENDING {
-		approvedAt := createdAt.Add(day)
-		parameters.ApprovedAt = &approvedAt
 	}
 	if sample.lastSeenDaysAgo >= 0 {
 		lastSeenAt := now.Add(-time.Duration(sample.lastSeenDaysAgo) * day)
 		parameters.LastSeenAt = &lastSeenAt
 	}
 	return parameters
+}
+
+// secondSampleHeadcounts: six colonists on a ridge.
+var secondSampleHeadcounts = map[string]int32{
+	"FARMER":     2,
+	"MINER":      3,
+	"UNASSIGNED": 1,
+}
+
+// seedSecondColony gives Second Sample its own short history on different numbers, so isolation is
+// easy to see: Ridgehold, Day 9, Food 140, an extra Timber resource and one DM-only adjustment.
+func seedSecondColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer) error {
+	if _, err := service.UpdateSettings(requestContext, dm, core.SettingsInput{
+		CampaignName: "Second Sample",
+		ColonyName:   "Ridgehold",
+		Timezone:     "Europe/London",
+	}); err != nil {
+		return fmt.Errorf("settings: %w", err)
+	}
+	for key, count := range secondSampleHeadcounts {
+		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{CampaignID: dm.CampaignID(), Key: key, UnnamedCount: count}); err != nil {
+			return fmt.Errorf("headcount %s: %w", key, err)
+		}
+	}
+	if _, err := service.CreateResource(requestContext, dm, core.NewResourceInput{Label: "Timber", Icon: core.ColonyIconTrees}); err != nil {
+		return fmt.Errorf("timber: %w", err)
+	}
+	if _, err := service.CreateCustomEntry(requestContext, dm, core.TimelineEntryInput{
+		Day:        0,
+		Title:      "Ridgehold is founded",
+		Body:       "Six settlers climb to the ridge above the old mine.",
+		Visibility: core.TimelineVisibilityPublic,
+	}); err != nil {
+		return fmt.Errorf("founding entry: %w", err)
+	}
+	steps := []struct {
+		name string
+		run  func(expectedVersion int64) (core.ColonyChange, error)
+	}{
+		{"founding stores", func(expectedVersion int64) (core.ColonyChange, error) {
+			return service.AdjustStock(requestContext, dm, core.AdjustInput{
+				ExpectedVersion: expectedVersion,
+				Source:          core.AdjustSourceAdjustment,
+				Deltas:          map[string]int64{},
+				SetTo:           map[string]int64{"gold": 90, "food": 194, "materials": 40, "timber": 25},
+				Reason:          "What the mule train carried up",
+				Public:          true,
+			})
+		}},
+		{"nine days", advanceBy(requestContext, service, dm, 9)},
+		{"DM-only adjustment", func(expectedVersion int64) (core.ColonyChange, error) {
+			return service.AdjustStock(requestContext, dm, core.AdjustInput{
+				ExpectedVersion: expectedVersion,
+				Source:          core.AdjustSourceAdjustment,
+				Deltas:          map[string]int64{"materials": -10},
+				SetTo:           map[string]int64{},
+				Reason:          "The ridge mine is empty",
+			})
+		}},
+	}
+	for _, step := range steps {
+		board, err := service.GetColonyBoard(requestContext, dm)
+		if err != nil {
+			return err
+		}
+		if _, err := step.run(board.Version); err != nil {
+			return fmt.Errorf("%s: %w", step.name, err)
+		}
+	}
+	return nil
 }

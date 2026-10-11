@@ -14,10 +14,10 @@ func (handlers *handlers) registerMembers(api huma.API) {
 	Register(api, AccessDm, huma.Operation{
 		OperationID: "listMembers",
 		Method:      http.MethodGet,
-		Path:        "/api/members",
+		Path:        "/api/campaigns/{campaignId}/members",
 		Summary:     "Pending, active and removed members",
 		Tags:        []string{"members"},
-	}, func(requestContext context.Context, _ *struct{}) (*bodyOutput[core.MemberGroups], error) {
+	}, func(requestContext context.Context, _ *campaignPath) (*bodyOutput[core.MemberGroups], error) {
 		groups, err := handlers.core.ListMembers(requestContext, viewerFrom(requestContext))
 		if err != nil {
 			return nil, handlers.fail(requestContext, err)
@@ -33,14 +33,14 @@ func (handlers *handlers) registerMembers(api huma.API) {
 	}{
 		{"approveMember", "approve", "Let a pending member in", (*core.Service).ApproveMember},
 		{"denyMember", "deny", "Turn a pending member away", (*core.Service).DenyMember},
-		{"removeMember", "remove", "Remove an active member and sign them out everywhere", (*core.Service).RemoveMember},
+		{"removeMember", "remove", "Remove an active member from this campaign; their other campaigns are untouched", (*core.Service).RemoveMember},
 		{"readmitMember", "readmit", "Let a removed or denied member back in", (*core.Service).ReadmitMember},
 	}
 	for _, memberAction := range memberActions {
 		Register(api, AccessDm, huma.Operation{
 			OperationID: memberAction.operationID,
 			Method:      http.MethodPost,
-			Path:        "/api/members/{memberId}/" + memberAction.action,
+			Path:        "/api/campaigns/{campaignId}/members/{memberId}/" + memberAction.action,
 			Summary:     memberAction.summary,
 			Tags:        []string{"members"},
 		}, func(requestContext context.Context, input *memberPath) (*bodyOutput[core.Member], error) {
@@ -55,7 +55,7 @@ func (handlers *handlers) registerMembers(api huma.API) {
 	Register(api, AccessDm, huma.Operation{
 		OperationID: "setMemberCharacterName",
 		Method:      http.MethodPut,
-		Path:        "/api/members/{memberId}/character-name",
+		Path:        "/api/campaigns/{campaignId}/members/{memberId}/character-name",
 		Summary:     "Set a member's character name",
 		Tags:        []string{"members"},
 	}, func(requestContext context.Context, input *memberBodyInput[core.CharacterNameInput]) (*bodyOutput[core.Member], error) {

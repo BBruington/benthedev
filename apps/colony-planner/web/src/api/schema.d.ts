@@ -4,7 +4,194 @@
  */
 
 export interface paths {
-    "/api/colony": {
+    "/api/admin/campaign-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open requests to run a campaign */
+        get: operations["listCampaignRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/campaign-requests/{campaignRequestId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create the campaign with the requester as its DM; the address may be changed here, then never */
+        post: operations["approveCampaignRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/campaign-requests/{campaignRequestId}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Say no to a request; the requester may ask again */
+        post: operations["denyCampaignRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every campaign's directory data: name, address, DM, counts, Discord linked, status */
+        get: operations["listCampaigns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/campaigns/{campaignId}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete a suspended campaign and everything in it, after typing its slug */
+        post: operations["deleteCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/campaigns/{campaignId}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close the campaign to everyone, data intact */
+        post: operations["suspendCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/campaigns/{campaignId}/unsuspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open a suspended campaign again */
+        post: operations["unsuspendCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaign-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask the site owner to run a campaign (one open request at a time) */
+        post: operations["requestCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaign-requests/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's newest request to run a campaign, or null */
+        get: operations["getMyCampaignRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaign-requests/{campaignRequestId}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw the caller's own open request */
+        post: operations["withdrawCampaignRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every campaign the caller has a membership in, whatever its status (the picker; slug to ID) */
+        get: operations["listMyCampaigns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/colony": {
         parameters: {
             query?: never;
             header?: never;
@@ -21,7 +208,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/adjust": {
+    "/api/campaigns/{campaignId}/colony/adjust": {
         parameters: {
             query?: never;
             header?: never;
@@ -38,7 +225,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/adjust-preview": {
+    "/api/campaigns/{campaignId}/colony/adjust-preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -55,7 +242,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/advance": {
+    "/api/campaigns/{campaignId}/colony/advance": {
         parameters: {
             query?: never;
             header?: never;
@@ -72,7 +259,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/advance-preview": {
+    "/api/campaigns/{campaignId}/colony/advance-preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -89,7 +276,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/correct-day": {
+    "/api/campaigns/{campaignId}/colony/correct-day": {
         parameters: {
             query?: never;
             header?: never;
@@ -106,7 +293,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/shipments": {
+    "/api/campaigns/{campaignId}/colony/shipments": {
         parameters: {
             query?: never;
             header?: never;
@@ -123,7 +310,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/shipments/clear": {
+    "/api/campaigns/{campaignId}/colony/shipments/clear": {
         parameters: {
             query?: never;
             header?: never;
@@ -140,7 +327,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/colony/undo": {
+    "/api/campaigns/{campaignId}/colony/undo": {
         parameters: {
             query?: never;
             header?: never;
@@ -151,6 +338,418 @@ export interface paths {
         put?: never;
         /** Undo the last colony change */
         post: operations["undoLastChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete this campaign and everything in it, after typing its slug; accounts stay */
+        post: operations["deleteOwnCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/discord/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The linked server's text channels, for the channel picker; empty when none is linked or Beny Bot is off */
+        get: operations["listDiscordChannels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/discord/link-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A 15-minute, single-use code for /link in the campaign's Discord server; replaces any older one */
+        post: operations["createLinkCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/discord/unlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unlink the campaign's Discord server and clear its channels */
+        post: operations["unlinkDiscordServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The campaign's invite code, for /join/<code> (the only read that returns it) */
+        get: operations["getInviteLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/invite/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace the invite code; the old link stops working at once */
+        post: operations["resetInviteLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Leave this campaign (players only, from waiting or active); only its DM can let you back in */
+        post: operations["leaveCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's membership in this campaign: status, whether they are its DM, and the campaign's status */
+        get: operations["getCampaignMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/me/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the caller's profile in this campaign (character name) */
+        put: operations["updateProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/me/view-as-player": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn view as player on or off (this campaign's DM only); then read .../me again */
+        post: operations["setViewAsPlayer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pending, active and removed members */
+        get: operations["listMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/members/{memberId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Let a pending member in */
+        post: operations["approveMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/members/{memberId}/character-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set a member's character name */
+        put: operations["setMemberCharacterName"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/members/{memberId}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn a pending member away */
+        post: operations["denyMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/members/{memberId}/readmit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Let a removed or denied member back in */
+        post: operations["readmitMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/members/{memberId}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove an active member from this campaign; their other campaigns are untouched */
+        post: operations["removeMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every resource, archived ones included, for settings */
+        get: operations["listResources"];
+        put?: never;
+        /** Add a resource */
+        post: operations["createResource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/resources/{resourceKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a resource's label, icon, bounds, order and archived flag */
+        put: operations["updateResource"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Campaign settings */
+        get: operations["getSettings"];
+        /** Replace the campaign settings */
+        put: operations["updateSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Timeline entries for a range of days, in the viewer's projection */
+        get: operations["listTimeline"];
+        put?: never;
+        /** Add a custom timeline entry on any day */
+        post: operations["createTimelineEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/timeline/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest timeline entries in write order, for the board and live toasts */
+        get: operations["listRecentTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/timeline/{timelineEntryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a timeline entry's text and visibility (and a custom entry's day) */
+        put: operations["updateTimelineEntry"];
+        post?: never;
+        /** Delete a custom timeline entry */
+        delete: operations["deleteTimelineEntry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/{inviteCode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who runs the invite's campaign, its status, and the caller's membership there */
+        get: operations["getInvite"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/{inviteCode}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask to join the invite's campaign; an existing membership comes back unchanged */
+        post: operations["joinByInvite"];
         delete?: never;
         options?: never;
         head?: never;
@@ -181,7 +780,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The signed-in member, their status and whether they are the DM */
+        /** The signed-in account, before any campaign */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -191,252 +790,19 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/me/profile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Replace the caller's profile (character name) */
-        put: operations["updateProfile"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/me/view-as-player": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Turn view as player on or off (DM only); then read /api/me again */
-        post: operations["setViewAsPlayer"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Pending, active and removed members */
-        get: operations["listMembers"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/members/{memberId}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Let a pending member in */
-        post: operations["approveMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/members/{memberId}/character-name": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Set a member's character name */
-        put: operations["setMemberCharacterName"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/members/{memberId}/deny": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Turn a pending member away */
-        post: operations["denyMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/members/{memberId}/readmit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Let a removed or denied member back in */
-        post: operations["readmitMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/members/{memberId}/remove": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Remove an active member and sign them out everywhere */
-        post: operations["removeMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/resources": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Every resource, archived ones included, for settings */
-        get: operations["listResources"];
-        put?: never;
-        /** Add a resource */
-        post: operations["createResource"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/resources/{resourceKey}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Replace a resource's label, icon, bounds, order and archived flag */
-        put: operations["updateResource"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Campaign settings */
-        get: operations["getSettings"];
-        /** Replace the campaign settings */
-        put: operations["updateSettings"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/timeline": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Timeline entries for a range of days, in the viewer's projection */
-        get: operations["listTimeline"];
-        put?: never;
-        /** Add a custom timeline entry on any day */
-        post: operations["createTimelineEntry"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/timeline/recent": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The newest timeline entries in write order, for the board and live toasts */
-        get: operations["listRecentTimeline"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/timeline/{timelineEntryId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Replace a timeline entry's text and visibility (and a custom entry's day) */
-        put: operations["updateTimelineEntry"];
-        post?: never;
-        /** Delete a custom timeline entry */
-        delete: operations["deleteTimelineEntry"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccountMe: {
+            /** Format: uuid */
+            accountId: string;
+            avatarUrl: string | null;
+            discordUsername: string;
+            displayName: string;
+            isSiteOwner: boolean;
+            viewAsPlayer: boolean;
+        };
         AdjustInput: {
             /**
              * Format: uuid
@@ -480,6 +846,34 @@ export interface components {
         };
         /** @enum {string} */
         AdjustSource: "ADJUSTMENT" | "SHIPMENT";
+        AdminCampaign: {
+            /** Format: date-time */
+            createdAt: string;
+            discordLinked: boolean;
+            dmDiscordUsername: string;
+            dmDisplayName: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: int64 */
+            pendingCount: number;
+            /** Format: int64 */
+            playerCount: number;
+            slug: string;
+            status: components["schemas"]["CampaignStatus"];
+        };
+        AdminCampaignList: {
+            campaigns: components["schemas"]["AdminCampaign"][];
+        };
+        AdminCampaignRequest: {
+            avatarUrl: string | null;
+            discordUsername: string;
+            displayName: string;
+            request: components["schemas"]["CampaignRequestView"];
+        };
+        AdminCampaignRequestList: {
+            requests: components["schemas"]["AdminCampaignRequest"][];
+        };
         AdvanceInput: {
             /**
              * Format: int64
@@ -513,6 +907,10 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        ApproveCampaignRequestInput: {
+            /** @description null keeps the requested address */
+            slug: string | null;
+        };
         ArrivalRun: {
             /** Format: int64 */
             count: number;
@@ -522,6 +920,49 @@ export interface components {
             first: number;
             /** Format: int64 */
             last: number;
+        };
+        CampaignMe: {
+            campaign: components["schemas"]["CampaignSummary"];
+            dmDisplayName: string;
+            isDm: boolean;
+            member: components["schemas"]["Member"];
+            status: components["schemas"]["MemberStatus"];
+            viewAsPlayer: boolean;
+        };
+        CampaignRequestInput: {
+            /** @description 1 to 80 characters after trimming */
+            campaignName: string;
+            /** @description To the site owner; at most 500 characters */
+            note: string;
+            /** @description The address /c/<slug>: 3 to 40 of a-z, 0-9 and single dashes */
+            slug: string;
+        };
+        /** @enum {string} */
+        CampaignRequestStatus: "PENDING" | "APPROVED" | "DENIED" | "WITHDRAWN";
+        CampaignRequestView: {
+            /** @description null until approved */
+            campaign: components["schemas"]["CampaignSummary"];
+            campaignName: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            decidedAt: string | null;
+            /** Format: uuid */
+            id: string;
+            note: string;
+            slug: string;
+            status: components["schemas"]["CampaignRequestStatus"];
+        };
+        /** @enum {string} */
+        CampaignRole: "DM" | "PLAYER";
+        /** @enum {string} */
+        CampaignStatus: "ACTIVE" | "SUSPENDED";
+        CampaignSummary: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+            status: components["schemas"]["CampaignStatus"];
         };
         CharacterNameInput: {
             /** @description At most 60 characters after trimming; blank or null clears it */
@@ -588,13 +1029,28 @@ export interface components {
             /** Format: int64 */
             expectedVersion: number;
         };
-        DevSignInMember: {
-            characterName: string | null;
-            displayName: string;
-            isDm: boolean;
+        DeleteCampaignInput: {
+            /** @description The campaign's address, typed to confirm */
+            confirmSlug: string;
+        };
+        DevSignInAccount: {
             /** Format: uuid */
-            memberId: string;
+            accountId: string;
+            askingToRunCampaign: boolean;
+            displayName: string;
+            isSiteOwner: boolean;
+            memberships: components["schemas"]["DevSignInMembership"][];
+        };
+        DevSignInMembership: {
+            campaignName: string;
+            campaignSlug: string;
+            characterName: string | null;
+            role: components["schemas"]["CampaignRole"];
             status: components["schemas"]["MemberStatus"];
+        };
+        DiscordChannel: {
+            id: string;
+            name: string;
         };
         Effects: {
             /** Format: int64 */
@@ -647,6 +1103,16 @@ export interface components {
         InvalidateMessage: {
             topics: components["schemas"]["Topic"][];
         };
+        InviteInfo: {
+            campaignName: string;
+            campaignStatus: components["schemas"]["CampaignStatus"];
+            dmDisplayName: string;
+            /** @description null when the caller has not asked to join */
+            membership: components["schemas"]["MyCampaign"];
+        };
+        InviteLink: {
+            inviteCode: string;
+        };
         LastChange: {
             /** Format: date-time */
             changedAt: string;
@@ -660,16 +1126,22 @@ export interface components {
             /** @description What the change did, e.g. 3 days pass · Day 44 */
             label: string;
         } | null;
+        LinkCode: {
+            /** @description Shown as BENY-XXXXX-XXXXX; run /link code:<it> in the server */
+            code: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        LinkedDiscordServer: {
+            guildId: string;
+            guildName: string;
+            /** Format: date-time */
+            linkedAt: string;
+        } | null;
         LoginOptions: {
             /** @description Present only in devauth builds */
-            devSignIn?: components["schemas"]["DevSignInMember"][];
+            devSignIn?: components["schemas"]["DevSignInAccount"][];
             discordEnabled: boolean;
-        };
-        Me: {
-            isDm: boolean;
-            member: components["schemas"]["Member"];
-            status: components["schemas"]["MemberStatus"];
-            viewAsPlayer: boolean;
         };
         Member: {
             avatarUrl: string | null;
@@ -689,6 +1161,7 @@ export interface components {
             isDm: boolean;
             /** Format: date-time */
             lastSeenAt: string | null;
+            leftOnOwn: boolean;
             status: components["schemas"]["MemberStatus"];
         };
         MemberGroups: {
@@ -698,6 +1171,21 @@ export interface components {
         };
         /** @enum {string} */
         MemberStatus: "PENDING" | "ACTIVE" | "REMOVED";
+        MyCampaign: {
+            campaign: components["schemas"]["CampaignSummary"];
+            characterName: string | null;
+            /** Format: uuid */
+            memberId: string;
+            role: components["schemas"]["CampaignRole"];
+            status: components["schemas"]["MemberStatus"];
+        };
+        MyCampaignRequest: {
+            /** @description null when the caller has never asked */
+            request: components["schemas"]["CampaignRequestView"];
+        };
+        MyCampaigns: {
+            campaigns: components["schemas"]["MyCampaign"][];
+        };
         NewResourceInput: {
             icon: components["schemas"]["ColonyIcon"];
             /** @description 1 to 40 characters after trimming */
@@ -791,19 +1279,21 @@ export interface components {
             discordAnnounceChannelId: string | null;
             discordDmChannelId: string | null;
             discordReminderChannelId: string | null;
+            /** @description null when no Discord server is linked */
+            discordServer: components["schemas"]["LinkedDiscordServer"];
             /** @description IANA time zone, e.g. America/New_York */
             timezone: string;
         };
         SettingsInput: {
-            /** @description 1 to 80 characters after trimming */
+            /** @description 1 to 80 characters after trimming; the site owner sees it */
             campaignName: string;
             /** @description 1 to 80 characters after trimming */
             colonyName: string;
-            /** @description Discord channel ID: 17 to 20 digits */
+            /** @description A text channel of the linked Discord server */
             discordAnnounceChannelId: string | null;
-            /** @description Discord channel ID: 17 to 20 digits */
+            /** @description A text channel of the linked Discord server */
             discordDmChannelId: string | null;
-            /** @description Discord channel ID: 17 to 20 digits */
+            /** @description A text channel of the linked Discord server */
             discordReminderChannelId: string | null;
             /** @description IANA time zone, e.g. America/New_York */
             timezone: string;
@@ -921,11 +1411,355 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    getColonyBoard: {
+    listCampaignRequests: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCampaignRequestList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    approveCampaignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaignRequestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveCampaignRequestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCampaign"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    denyCampaignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaignRequestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignRequestView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listCampaigns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCampaignList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteCampaignInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    suspendCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCampaign"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    unsuspendCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCampaign"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    requestCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignRequestInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignRequestView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getMyCampaignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyCampaignRequest"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    withdrawCampaignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaignRequestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignRequestView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listMyCampaigns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyCampaigns"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getColonyBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -954,7 +1788,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -987,7 +1824,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1020,7 +1860,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1056,7 +1899,10 @@ export interface operations {
                 days: number;
             };
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1085,7 +1931,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1118,7 +1967,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1151,7 +2003,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1184,7 +2039,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1200,6 +2058,943 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteOwnCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteCampaignInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listDiscordChannels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscordChannel"][];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createLinkCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkCode"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    unlinkDiscordServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getInviteLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteLink"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    resetInviteLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteLink"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    leaveCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignMe"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getCampaignMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignMe"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignMe"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setViewAsPlayer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewAsPlayerInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberGroups"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    approveMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                memberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setMemberCharacterName: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                memberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CharacterNameInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    denyMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                memberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    readmitMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                memberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                memberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listResources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewResourceInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceSettings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                resourceKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceSettings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listTimeline: {
+        parameters: {
+            query: {
+                /** @description First day shown, inclusive */
+                fromDay: number;
+                /** @description Last day shown, inclusive; at most 365 days after fromDay */
+                toDay: number;
+            };
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelinePage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createTimelineEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimelineEntryInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineEntry"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listRecentTimeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecentTimeline"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateTimelineEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                timelineEntryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimelineEntryInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineEntry"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteTimelineEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                timelineEntryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The code from an invite link /join/<code> */
+                inviteCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteInfo"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    joinByInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The code from an invite link /join/<code> */
+                inviteCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyCampaign"];
                 };
             };
             /** @description Error */
@@ -1257,579 +3052,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Me"];
+                    "application/json": components["schemas"]["AccountMe"];
                 };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    updateProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProfileInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Me"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    setViewAsPlayer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ViewAsPlayerInput"];
-            };
-        };
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    listMembers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemberGroups"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    approveMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                memberId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    setMemberCharacterName: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                memberId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CharacterNameInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    denyMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                memberId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    readmitMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                memberId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    removeMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                memberId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    listResources: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResourceList"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    createResource: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewResourceInput"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResourceSettings"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    updateResource: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                resourceKey: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResourceInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResourceSettings"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    getSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Settings"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    updateSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SettingsInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Settings"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    listTimeline: {
-        parameters: {
-            query: {
-                /** @description First day shown, inclusive */
-                fromDay: number;
-                /** @description Last day shown, inclusive; at most 365 days after fromDay */
-                toDay: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TimelinePage"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    createTimelineEntry: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TimelineEntryInput"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TimelineEntry"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    listRecentTimeline: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecentTimeline"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    updateTimelineEntry: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                timelineEntryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TimelineEntryInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TimelineEntry"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    deleteTimelineEntry: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                timelineEntryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Error */
             default: {

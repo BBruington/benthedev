@@ -9,25 +9,32 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/__root"
-import { Route as AppRouteImport } from "./routes/_app"
+import { Route as SignedInRouteImport } from "./routes/_signedIn"
 import { Route as LoginRouteImport } from "./routes/login"
-import { Route as PendingRouteImport } from "./routes/pending"
-import { Route as AppIndexRouteImport } from "./routes/_app/index"
-import { Route as AppExploreRouteImport } from "./routes/_app/explore"
-import { Route as AppMapsRouteImport } from "./routes/_app/maps"
-import { Route as AppNpcsRouteImport } from "./routes/_app/npcs"
-import { Route as AppPatronsRouteImport } from "./routes/_app/patrons"
-import { Route as AppPeopleRouteImport } from "./routes/_app/people"
-import { Route as AppPlacesRouteImport } from "./routes/_app/places"
-import { Route as AppPlayersRouteImport } from "./routes/_app/players"
-import { Route as AppQuestsRouteImport } from "./routes/_app/quests"
-import { Route as AppRequestsRouteImport } from "./routes/_app/requests"
-import { Route as AppSessionsRouteImport } from "./routes/_app/sessions"
-import { Route as AppSettingsRouteImport } from "./routes/_app/settings"
-import { Route as AppTimelineRouteImport } from "./routes/_app/timeline"
+import { Route as SignedInAccountRouteImport } from "./routes/_signedIn/_account"
+import { Route as SignedInAccountIndexRouteImport } from "./routes/_signedIn/_account/index"
+import { Route as SignedInAccountAdminRouteImport } from "./routes/_signedIn/_account/admin"
+import { Route as SignedInAccountRequestRouteImport } from "./routes/_signedIn/_account/request"
+import { Route as SignedInCCampaignSlugRouteImport } from "./routes/_signedIn/c.$campaignSlug"
+import { Route as SignedInAccountJoinInviteCodeRouteImport } from "./routes/_signedIn/_account/join.$inviteCode"
+import { Route as SignedInCCampaignSlugShellRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell"
+import { Route as SignedInCCampaignSlugPendingRouteImport } from "./routes/_signedIn/c.$campaignSlug/pending"
+import { Route as SignedInCCampaignSlugShellIndexRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/index"
+import { Route as SignedInCCampaignSlugShellExploreRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/explore"
+import { Route as SignedInCCampaignSlugShellMapsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/maps"
+import { Route as SignedInCCampaignSlugShellNpcsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/npcs"
+import { Route as SignedInCCampaignSlugShellPatronsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/patrons"
+import { Route as SignedInCCampaignSlugShellPeopleRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/people"
+import { Route as SignedInCCampaignSlugShellPlacesRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/places"
+import { Route as SignedInCCampaignSlugShellPlayersRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/players"
+import { Route as SignedInCCampaignSlugShellQuestsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/quests"
+import { Route as SignedInCCampaignSlugShellRequestsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/requests"
+import { Route as SignedInCCampaignSlugShellSessionsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/sessions"
+import { Route as SignedInCCampaignSlugShellSettingsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/settings"
+import { Route as SignedInCCampaignSlugShellTimelineRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/timeline"
 
-const AppRoute = AppRouteImport.update({
-  id: "/_app",
+const SignedInRoute = SignedInRouteImport.update({
+  id: "/_signedIn",
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -35,198 +42,278 @@ const LoginRoute = LoginRouteImport.update({
   path: "/login",
   getParentRoute: () => rootRouteImport,
 } as any)
-const PendingRoute = PendingRouteImport.update({
-  id: "/pending",
-  path: "/pending",
-  getParentRoute: () => rootRouteImport,
+const SignedInAccountRoute = SignedInAccountRouteImport.update({
+  id: "/_account",
+  getParentRoute: () => SignedInRoute,
 } as any)
-const AppIndexRoute = AppIndexRouteImport.update({
+const SignedInAccountIndexRoute = SignedInAccountIndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => AppRoute,
+  getParentRoute: () => SignedInAccountRoute,
 } as any)
-const AppExploreRoute = AppExploreRouteImport.update({
-  id: "/explore",
-  path: "/explore",
-  getParentRoute: () => AppRoute,
+const SignedInAccountAdminRoute = SignedInAccountAdminRouteImport.update({
+  id: "/admin",
+  path: "/admin",
+  getParentRoute: () => SignedInAccountRoute,
 } as any)
-const AppMapsRoute = AppMapsRouteImport.update({
-  id: "/maps",
-  path: "/maps",
-  getParentRoute: () => AppRoute,
+const SignedInAccountRequestRoute = SignedInAccountRequestRouteImport.update({
+  id: "/request",
+  path: "/request",
+  getParentRoute: () => SignedInAccountRoute,
 } as any)
-const AppNpcsRoute = AppNpcsRouteImport.update({
-  id: "/npcs",
-  path: "/npcs",
-  getParentRoute: () => AppRoute,
+const SignedInCCampaignSlugRoute = SignedInCCampaignSlugRouteImport.update({
+  id: "/c/$campaignSlug",
+  path: "/c/$campaignSlug",
+  getParentRoute: () => SignedInRoute,
 } as any)
-const AppPatronsRoute = AppPatronsRouteImport.update({
-  id: "/patrons",
-  path: "/patrons",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPeopleRoute = AppPeopleRouteImport.update({
-  id: "/people",
-  path: "/people",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPlacesRoute = AppPlacesRouteImport.update({
-  id: "/places",
-  path: "/places",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPlayersRoute = AppPlayersRouteImport.update({
-  id: "/players",
-  path: "/players",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppQuestsRoute = AppQuestsRouteImport.update({
-  id: "/quests",
-  path: "/quests",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppRequestsRoute = AppRequestsRouteImport.update({
-  id: "/requests",
-  path: "/requests",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSessionsRoute = AppSessionsRouteImport.update({
-  id: "/sessions",
-  path: "/sessions",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsRoute = AppSettingsRouteImport.update({
-  id: "/settings",
-  path: "/settings",
-  getParentRoute: () => AppRoute,
-} as any)
-const AppTimelineRoute = AppTimelineRouteImport.update({
-  id: "/timeline",
-  path: "/timeline",
-  getParentRoute: () => AppRoute,
-} as any)
+const SignedInAccountJoinInviteCodeRoute =
+  SignedInAccountJoinInviteCodeRouteImport.update({
+    id: "/join/$inviteCode",
+    path: "/join/$inviteCode",
+    getParentRoute: () => SignedInAccountRoute,
+  } as any)
+const SignedInCCampaignSlugShellRoute =
+  SignedInCCampaignSlugShellRouteImport.update({
+    id: "/_shell",
+    getParentRoute: () => SignedInCCampaignSlugRoute,
+  } as any)
+const SignedInCCampaignSlugPendingRoute =
+  SignedInCCampaignSlugPendingRouteImport.update({
+    id: "/pending",
+    path: "/pending",
+    getParentRoute: () => SignedInCCampaignSlugRoute,
+  } as any)
+const SignedInCCampaignSlugShellIndexRoute =
+  SignedInCCampaignSlugShellIndexRouteImport.update({
+    id: "/",
+    path: "/",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellExploreRoute =
+  SignedInCCampaignSlugShellExploreRouteImport.update({
+    id: "/explore",
+    path: "/explore",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellMapsRoute =
+  SignedInCCampaignSlugShellMapsRouteImport.update({
+    id: "/maps",
+    path: "/maps",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellNpcsRoute =
+  SignedInCCampaignSlugShellNpcsRouteImport.update({
+    id: "/npcs",
+    path: "/npcs",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellPatronsRoute =
+  SignedInCCampaignSlugShellPatronsRouteImport.update({
+    id: "/patrons",
+    path: "/patrons",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellPeopleRoute =
+  SignedInCCampaignSlugShellPeopleRouteImport.update({
+    id: "/people",
+    path: "/people",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellPlacesRoute =
+  SignedInCCampaignSlugShellPlacesRouteImport.update({
+    id: "/places",
+    path: "/places",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellPlayersRoute =
+  SignedInCCampaignSlugShellPlayersRouteImport.update({
+    id: "/players",
+    path: "/players",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellQuestsRoute =
+  SignedInCCampaignSlugShellQuestsRouteImport.update({
+    id: "/quests",
+    path: "/quests",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellRequestsRoute =
+  SignedInCCampaignSlugShellRequestsRouteImport.update({
+    id: "/requests",
+    path: "/requests",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellSessionsRoute =
+  SignedInCCampaignSlugShellSessionsRouteImport.update({
+    id: "/sessions",
+    path: "/sessions",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellSettingsRoute =
+  SignedInCCampaignSlugShellSettingsRouteImport.update({
+    id: "/settings",
+    path: "/settings",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellTimelineRoute =
+  SignedInCCampaignSlugShellTimelineRouteImport.update({
+    id: "/timeline",
+    path: "/timeline",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof AppIndexRoute
+  "/": typeof SignedInAccountIndexRoute
   "/login": typeof LoginRoute
-  "/pending": typeof PendingRoute
-  "/explore": typeof AppExploreRoute
-  "/maps": typeof AppMapsRoute
-  "/npcs": typeof AppNpcsRoute
-  "/patrons": typeof AppPatronsRoute
-  "/people": typeof AppPeopleRoute
-  "/places": typeof AppPlacesRoute
-  "/players": typeof AppPlayersRoute
-  "/quests": typeof AppQuestsRoute
-  "/requests": typeof AppRequestsRoute
-  "/sessions": typeof AppSessionsRoute
-  "/settings": typeof AppSettingsRoute
-  "/timeline": typeof AppTimelineRoute
+  "/admin": typeof SignedInAccountAdminRoute
+  "/request": typeof SignedInAccountRequestRoute
+  "/c/$campaignSlug": typeof SignedInCCampaignSlugRouteWithChildren
+  "/join/$inviteCode": typeof SignedInAccountJoinInviteCodeRoute
+  "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
+  "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
+  "/c/$campaignSlug/maps": typeof SignedInCCampaignSlugShellMapsRoute
+  "/c/$campaignSlug/npcs": typeof SignedInCCampaignSlugShellNpcsRoute
+  "/c/$campaignSlug/patrons": typeof SignedInCCampaignSlugShellPatronsRoute
+  "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
+  "/c/$campaignSlug/places": typeof SignedInCCampaignSlugShellPlacesRoute
+  "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
+  "/c/$campaignSlug/quests": typeof SignedInCCampaignSlugShellQuestsRoute
+  "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
+  "/c/$campaignSlug/sessions": typeof SignedInCCampaignSlugShellSessionsRoute
+  "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
+  "/c/$campaignSlug/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
+  "/c/$campaignSlug/": typeof SignedInCCampaignSlugShellIndexRoute
 }
 export interface FileRoutesByTo {
+  "/": typeof SignedInAccountIndexRoute
   "/login": typeof LoginRoute
-  "/pending": typeof PendingRoute
-  "/explore": typeof AppExploreRoute
-  "/maps": typeof AppMapsRoute
-  "/npcs": typeof AppNpcsRoute
-  "/patrons": typeof AppPatronsRoute
-  "/people": typeof AppPeopleRoute
-  "/places": typeof AppPlacesRoute
-  "/players": typeof AppPlayersRoute
-  "/quests": typeof AppQuestsRoute
-  "/requests": typeof AppRequestsRoute
-  "/sessions": typeof AppSessionsRoute
-  "/settings": typeof AppSettingsRoute
-  "/timeline": typeof AppTimelineRoute
-  "/": typeof AppIndexRoute
+  "/admin": typeof SignedInAccountAdminRoute
+  "/request": typeof SignedInAccountRequestRoute
+  "/c/$campaignSlug": typeof SignedInCCampaignSlugShellIndexRoute
+  "/join/$inviteCode": typeof SignedInAccountJoinInviteCodeRoute
+  "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
+  "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
+  "/c/$campaignSlug/maps": typeof SignedInCCampaignSlugShellMapsRoute
+  "/c/$campaignSlug/npcs": typeof SignedInCCampaignSlugShellNpcsRoute
+  "/c/$campaignSlug/patrons": typeof SignedInCCampaignSlugShellPatronsRoute
+  "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
+  "/c/$campaignSlug/places": typeof SignedInCCampaignSlugShellPlacesRoute
+  "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
+  "/c/$campaignSlug/quests": typeof SignedInCCampaignSlugShellQuestsRoute
+  "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
+  "/c/$campaignSlug/sessions": typeof SignedInCCampaignSlugShellSessionsRoute
+  "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
+  "/c/$campaignSlug/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/_app": typeof AppRouteWithChildren
+  "/_signedIn": typeof SignedInRouteWithChildren
   "/login": typeof LoginRoute
-  "/pending": typeof PendingRoute
-  "/_app/explore": typeof AppExploreRoute
-  "/_app/maps": typeof AppMapsRoute
-  "/_app/npcs": typeof AppNpcsRoute
-  "/_app/patrons": typeof AppPatronsRoute
-  "/_app/people": typeof AppPeopleRoute
-  "/_app/places": typeof AppPlacesRoute
-  "/_app/players": typeof AppPlayersRoute
-  "/_app/quests": typeof AppQuestsRoute
-  "/_app/requests": typeof AppRequestsRoute
-  "/_app/sessions": typeof AppSessionsRoute
-  "/_app/settings": typeof AppSettingsRoute
-  "/_app/timeline": typeof AppTimelineRoute
-  "/_app/": typeof AppIndexRoute
+  "/_signedIn/_account": typeof SignedInAccountRouteWithChildren
+  "/_signedIn/_account/admin": typeof SignedInAccountAdminRoute
+  "/_signedIn/_account/request": typeof SignedInAccountRequestRoute
+  "/_signedIn/c/$campaignSlug": typeof SignedInCCampaignSlugRouteWithChildren
+  "/_signedIn/_account/": typeof SignedInAccountIndexRoute
+  "/_signedIn/_account/join/$inviteCode": typeof SignedInAccountJoinInviteCodeRoute
+  "/_signedIn/c/$campaignSlug/_shell": typeof SignedInCCampaignSlugShellRouteWithChildren
+  "/_signedIn/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
+  "/_signedIn/c/$campaignSlug/_shell/explore": typeof SignedInCCampaignSlugShellExploreRoute
+  "/_signedIn/c/$campaignSlug/_shell/maps": typeof SignedInCCampaignSlugShellMapsRoute
+  "/_signedIn/c/$campaignSlug/_shell/npcs": typeof SignedInCCampaignSlugShellNpcsRoute
+  "/_signedIn/c/$campaignSlug/_shell/patrons": typeof SignedInCCampaignSlugShellPatronsRoute
+  "/_signedIn/c/$campaignSlug/_shell/people": typeof SignedInCCampaignSlugShellPeopleRoute
+  "/_signedIn/c/$campaignSlug/_shell/places": typeof SignedInCCampaignSlugShellPlacesRoute
+  "/_signedIn/c/$campaignSlug/_shell/players": typeof SignedInCCampaignSlugShellPlayersRoute
+  "/_signedIn/c/$campaignSlug/_shell/quests": typeof SignedInCCampaignSlugShellQuestsRoute
+  "/_signedIn/c/$campaignSlug/_shell/requests": typeof SignedInCCampaignSlugShellRequestsRoute
+  "/_signedIn/c/$campaignSlug/_shell/sessions": typeof SignedInCCampaignSlugShellSessionsRoute
+  "/_signedIn/c/$campaignSlug/_shell/settings": typeof SignedInCCampaignSlugShellSettingsRoute
+  "/_signedIn/c/$campaignSlug/_shell/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
+  "/_signedIn/c/$campaignSlug/_shell/": typeof SignedInCCampaignSlugShellIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
     | "/login"
-    | "/pending"
-    | "/explore"
-    | "/maps"
-    | "/npcs"
-    | "/patrons"
-    | "/people"
-    | "/places"
-    | "/players"
-    | "/quests"
-    | "/requests"
-    | "/sessions"
-    | "/settings"
-    | "/timeline"
+    | "/admin"
+    | "/request"
+    | "/c/$campaignSlug"
+    | "/join/$inviteCode"
+    | "/c/$campaignSlug/pending"
+    | "/c/$campaignSlug/explore"
+    | "/c/$campaignSlug/maps"
+    | "/c/$campaignSlug/npcs"
+    | "/c/$campaignSlug/patrons"
+    | "/c/$campaignSlug/people"
+    | "/c/$campaignSlug/places"
+    | "/c/$campaignSlug/players"
+    | "/c/$campaignSlug/quests"
+    | "/c/$campaignSlug/requests"
+    | "/c/$campaignSlug/sessions"
+    | "/c/$campaignSlug/settings"
+    | "/c/$campaignSlug/timeline"
+    | "/c/$campaignSlug/"
   fileRoutesByTo: FileRoutesByTo
   to:
-    | "/login"
-    | "/pending"
-    | "/explore"
-    | "/maps"
-    | "/npcs"
-    | "/patrons"
-    | "/people"
-    | "/places"
-    | "/players"
-    | "/quests"
-    | "/requests"
-    | "/sessions"
-    | "/settings"
-    | "/timeline"
     | "/"
+    | "/login"
+    | "/admin"
+    | "/request"
+    | "/c/$campaignSlug"
+    | "/join/$inviteCode"
+    | "/c/$campaignSlug/pending"
+    | "/c/$campaignSlug/explore"
+    | "/c/$campaignSlug/maps"
+    | "/c/$campaignSlug/npcs"
+    | "/c/$campaignSlug/patrons"
+    | "/c/$campaignSlug/people"
+    | "/c/$campaignSlug/places"
+    | "/c/$campaignSlug/players"
+    | "/c/$campaignSlug/quests"
+    | "/c/$campaignSlug/requests"
+    | "/c/$campaignSlug/sessions"
+    | "/c/$campaignSlug/settings"
+    | "/c/$campaignSlug/timeline"
   id:
     | "__root__"
-    | "/_app"
+    | "/_signedIn"
     | "/login"
-    | "/pending"
-    | "/_app/explore"
-    | "/_app/maps"
-    | "/_app/npcs"
-    | "/_app/patrons"
-    | "/_app/people"
-    | "/_app/places"
-    | "/_app/players"
-    | "/_app/quests"
-    | "/_app/requests"
-    | "/_app/sessions"
-    | "/_app/settings"
-    | "/_app/timeline"
-    | "/_app/"
+    | "/_signedIn/_account"
+    | "/_signedIn/_account/admin"
+    | "/_signedIn/_account/request"
+    | "/_signedIn/c/$campaignSlug"
+    | "/_signedIn/_account/"
+    | "/_signedIn/_account/join/$inviteCode"
+    | "/_signedIn/c/$campaignSlug/_shell"
+    | "/_signedIn/c/$campaignSlug/pending"
+    | "/_signedIn/c/$campaignSlug/_shell/explore"
+    | "/_signedIn/c/$campaignSlug/_shell/maps"
+    | "/_signedIn/c/$campaignSlug/_shell/npcs"
+    | "/_signedIn/c/$campaignSlug/_shell/patrons"
+    | "/_signedIn/c/$campaignSlug/_shell/people"
+    | "/_signedIn/c/$campaignSlug/_shell/places"
+    | "/_signedIn/c/$campaignSlug/_shell/players"
+    | "/_signedIn/c/$campaignSlug/_shell/quests"
+    | "/_signedIn/c/$campaignSlug/_shell/requests"
+    | "/_signedIn/c/$campaignSlug/_shell/sessions"
+    | "/_signedIn/c/$campaignSlug/_shell/settings"
+    | "/_signedIn/c/$campaignSlug/_shell/timeline"
+    | "/_signedIn/c/$campaignSlug/_shell/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  AppRoute: typeof AppRouteWithChildren
+  SignedInRoute: typeof SignedInRouteWithChildren
   LoginRoute: typeof LoginRoute
-  PendingRoute: typeof PendingRoute
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    "/_app": {
-      id: "/_app"
+    "/_signedIn": {
+      id: "/_signedIn"
       path: ""
       fullPath: "/"
-      preLoaderRoute: typeof AppRouteImport
+      preLoaderRoute: typeof SignedInRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/login": {
@@ -236,145 +323,254 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/pending": {
-      id: "/pending"
-      path: "/pending"
-      fullPath: "/pending"
-      preLoaderRoute: typeof PendingRouteImport
-      parentRoute: typeof rootRouteImport
+    "/_signedIn/_account": {
+      id: "/_signedIn/_account"
+      path: ""
+      fullPath: "/"
+      preLoaderRoute: typeof SignedInAccountRouteImport
+      parentRoute: typeof SignedInRoute
     }
-    "/_app/": {
-      id: "/_app/"
+    "/_signedIn/_account/": {
+      id: "/_signedIn/_account/"
       path: "/"
       fullPath: "/"
-      preLoaderRoute: typeof AppIndexRouteImport
-      parentRoute: typeof AppRoute
+      preLoaderRoute: typeof SignedInAccountIndexRouteImport
+      parentRoute: typeof SignedInAccountRoute
     }
-    "/_app/explore": {
-      id: "/_app/explore"
+    "/_signedIn/_account/admin": {
+      id: "/_signedIn/_account/admin"
+      path: "/admin"
+      fullPath: "/admin"
+      preLoaderRoute: typeof SignedInAccountAdminRouteImport
+      parentRoute: typeof SignedInAccountRoute
+    }
+    "/_signedIn/_account/request": {
+      id: "/_signedIn/_account/request"
+      path: "/request"
+      fullPath: "/request"
+      preLoaderRoute: typeof SignedInAccountRequestRouteImport
+      parentRoute: typeof SignedInAccountRoute
+    }
+    "/_signedIn/c/$campaignSlug": {
+      id: "/_signedIn/c/$campaignSlug"
+      path: "/c/$campaignSlug"
+      fullPath: "/c/$campaignSlug"
+      preLoaderRoute: typeof SignedInCCampaignSlugRouteImport
+      parentRoute: typeof SignedInRoute
+    }
+    "/_signedIn/_account/join/$inviteCode": {
+      id: "/_signedIn/_account/join/$inviteCode"
+      path: "/join/$inviteCode"
+      fullPath: "/join/$inviteCode"
+      preLoaderRoute: typeof SignedInAccountJoinInviteCodeRouteImport
+      parentRoute: typeof SignedInAccountRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell": {
+      id: "/_signedIn/c/$campaignSlug/_shell"
+      path: ""
+      fullPath: "/c/$campaignSlug"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellRouteImport
+      parentRoute: typeof SignedInCCampaignSlugRoute
+    }
+    "/_signedIn/c/$campaignSlug/pending": {
+      id: "/_signedIn/c/$campaignSlug/pending"
+      path: "/pending"
+      fullPath: "/c/$campaignSlug/pending"
+      preLoaderRoute: typeof SignedInCCampaignSlugPendingRouteImport
+      parentRoute: typeof SignedInCCampaignSlugRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/": {
+      id: "/_signedIn/c/$campaignSlug/_shell/"
+      path: "/"
+      fullPath: "/c/$campaignSlug/"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellIndexRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/explore": {
+      id: "/_signedIn/c/$campaignSlug/_shell/explore"
       path: "/explore"
-      fullPath: "/explore"
-      preLoaderRoute: typeof AppExploreRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/explore"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellExploreRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/maps": {
-      id: "/_app/maps"
+    "/_signedIn/c/$campaignSlug/_shell/maps": {
+      id: "/_signedIn/c/$campaignSlug/_shell/maps"
       path: "/maps"
-      fullPath: "/maps"
-      preLoaderRoute: typeof AppMapsRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/maps"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellMapsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/npcs": {
-      id: "/_app/npcs"
+    "/_signedIn/c/$campaignSlug/_shell/npcs": {
+      id: "/_signedIn/c/$campaignSlug/_shell/npcs"
       path: "/npcs"
-      fullPath: "/npcs"
-      preLoaderRoute: typeof AppNpcsRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/npcs"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellNpcsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/patrons": {
-      id: "/_app/patrons"
+    "/_signedIn/c/$campaignSlug/_shell/patrons": {
+      id: "/_signedIn/c/$campaignSlug/_shell/patrons"
       path: "/patrons"
-      fullPath: "/patrons"
-      preLoaderRoute: typeof AppPatronsRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/patrons"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellPatronsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/people": {
-      id: "/_app/people"
+    "/_signedIn/c/$campaignSlug/_shell/people": {
+      id: "/_signedIn/c/$campaignSlug/_shell/people"
       path: "/people"
-      fullPath: "/people"
-      preLoaderRoute: typeof AppPeopleRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/people"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellPeopleRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/places": {
-      id: "/_app/places"
+    "/_signedIn/c/$campaignSlug/_shell/places": {
+      id: "/_signedIn/c/$campaignSlug/_shell/places"
       path: "/places"
-      fullPath: "/places"
-      preLoaderRoute: typeof AppPlacesRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/places"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellPlacesRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/players": {
-      id: "/_app/players"
+    "/_signedIn/c/$campaignSlug/_shell/players": {
+      id: "/_signedIn/c/$campaignSlug/_shell/players"
       path: "/players"
-      fullPath: "/players"
-      preLoaderRoute: typeof AppPlayersRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/players"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellPlayersRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/quests": {
-      id: "/_app/quests"
+    "/_signedIn/c/$campaignSlug/_shell/quests": {
+      id: "/_signedIn/c/$campaignSlug/_shell/quests"
       path: "/quests"
-      fullPath: "/quests"
-      preLoaderRoute: typeof AppQuestsRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/quests"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellQuestsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/requests": {
-      id: "/_app/requests"
+    "/_signedIn/c/$campaignSlug/_shell/requests": {
+      id: "/_signedIn/c/$campaignSlug/_shell/requests"
       path: "/requests"
-      fullPath: "/requests"
-      preLoaderRoute: typeof AppRequestsRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/requests"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellRequestsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/sessions": {
-      id: "/_app/sessions"
+    "/_signedIn/c/$campaignSlug/_shell/sessions": {
+      id: "/_signedIn/c/$campaignSlug/_shell/sessions"
       path: "/sessions"
-      fullPath: "/sessions"
-      preLoaderRoute: typeof AppSessionsRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/sessions"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellSessionsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/settings": {
-      id: "/_app/settings"
+    "/_signedIn/c/$campaignSlug/_shell/settings": {
+      id: "/_signedIn/c/$campaignSlug/_shell/settings"
       path: "/settings"
-      fullPath: "/settings"
-      preLoaderRoute: typeof AppSettingsRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/settings"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellSettingsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_app/timeline": {
-      id: "/_app/timeline"
+    "/_signedIn/c/$campaignSlug/_shell/timeline": {
+      id: "/_signedIn/c/$campaignSlug/_shell/timeline"
       path: "/timeline"
-      fullPath: "/timeline"
-      preLoaderRoute: typeof AppTimelineRouteImport
-      parentRoute: typeof AppRoute
+      fullPath: "/c/$campaignSlug/timeline"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellTimelineRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
   }
 }
 
-interface AppRouteChildren {
-  AppExploreRoute: typeof AppExploreRoute
-  AppMapsRoute: typeof AppMapsRoute
-  AppNpcsRoute: typeof AppNpcsRoute
-  AppPatronsRoute: typeof AppPatronsRoute
-  AppPeopleRoute: typeof AppPeopleRoute
-  AppPlacesRoute: typeof AppPlacesRoute
-  AppPlayersRoute: typeof AppPlayersRoute
-  AppQuestsRoute: typeof AppQuestsRoute
-  AppRequestsRoute: typeof AppRequestsRoute
-  AppSessionsRoute: typeof AppSessionsRoute
-  AppSettingsRoute: typeof AppSettingsRoute
-  AppTimelineRoute: typeof AppTimelineRoute
-  AppIndexRoute: typeof AppIndexRoute
+interface SignedInAccountRouteChildren {
+  SignedInAccountAdminRoute: typeof SignedInAccountAdminRoute
+  SignedInAccountRequestRoute: typeof SignedInAccountRequestRoute
+  SignedInAccountIndexRoute: typeof SignedInAccountIndexRoute
+  SignedInAccountJoinInviteCodeRoute: typeof SignedInAccountJoinInviteCodeRoute
 }
 
-const AppRouteChildren: AppRouteChildren = {
-  AppExploreRoute: AppExploreRoute,
-  AppMapsRoute: AppMapsRoute,
-  AppNpcsRoute: AppNpcsRoute,
-  AppPatronsRoute: AppPatronsRoute,
-  AppPeopleRoute: AppPeopleRoute,
-  AppPlacesRoute: AppPlacesRoute,
-  AppPlayersRoute: AppPlayersRoute,
-  AppQuestsRoute: AppQuestsRoute,
-  AppRequestsRoute: AppRequestsRoute,
-  AppSessionsRoute: AppSessionsRoute,
-  AppSettingsRoute: AppSettingsRoute,
-  AppTimelineRoute: AppTimelineRoute,
-  AppIndexRoute: AppIndexRoute,
+const SignedInAccountRouteChildren: SignedInAccountRouteChildren = {
+  SignedInAccountAdminRoute: SignedInAccountAdminRoute,
+  SignedInAccountRequestRoute: SignedInAccountRequestRoute,
+  SignedInAccountIndexRoute: SignedInAccountIndexRoute,
+  SignedInAccountJoinInviteCodeRoute: SignedInAccountJoinInviteCodeRoute,
 }
 
-const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+const SignedInAccountRouteWithChildren = SignedInAccountRoute._addFileChildren(
+  SignedInAccountRouteChildren,
+)
+
+interface SignedInCCampaignSlugShellRouteChildren {
+  SignedInCCampaignSlugShellExploreRoute: typeof SignedInCCampaignSlugShellExploreRoute
+  SignedInCCampaignSlugShellMapsRoute: typeof SignedInCCampaignSlugShellMapsRoute
+  SignedInCCampaignSlugShellNpcsRoute: typeof SignedInCCampaignSlugShellNpcsRoute
+  SignedInCCampaignSlugShellPatronsRoute: typeof SignedInCCampaignSlugShellPatronsRoute
+  SignedInCCampaignSlugShellPeopleRoute: typeof SignedInCCampaignSlugShellPeopleRoute
+  SignedInCCampaignSlugShellPlacesRoute: typeof SignedInCCampaignSlugShellPlacesRoute
+  SignedInCCampaignSlugShellPlayersRoute: typeof SignedInCCampaignSlugShellPlayersRoute
+  SignedInCCampaignSlugShellQuestsRoute: typeof SignedInCCampaignSlugShellQuestsRoute
+  SignedInCCampaignSlugShellRequestsRoute: typeof SignedInCCampaignSlugShellRequestsRoute
+  SignedInCCampaignSlugShellSessionsRoute: typeof SignedInCCampaignSlugShellSessionsRoute
+  SignedInCCampaignSlugShellSettingsRoute: typeof SignedInCCampaignSlugShellSettingsRoute
+  SignedInCCampaignSlugShellTimelineRoute: typeof SignedInCCampaignSlugShellTimelineRoute
+  SignedInCCampaignSlugShellIndexRoute: typeof SignedInCCampaignSlugShellIndexRoute
+}
+
+const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteChildren =
+  {
+    SignedInCCampaignSlugShellExploreRoute:
+      SignedInCCampaignSlugShellExploreRoute,
+    SignedInCCampaignSlugShellMapsRoute: SignedInCCampaignSlugShellMapsRoute,
+    SignedInCCampaignSlugShellNpcsRoute: SignedInCCampaignSlugShellNpcsRoute,
+    SignedInCCampaignSlugShellPatronsRoute:
+      SignedInCCampaignSlugShellPatronsRoute,
+    SignedInCCampaignSlugShellPeopleRoute:
+      SignedInCCampaignSlugShellPeopleRoute,
+    SignedInCCampaignSlugShellPlacesRoute:
+      SignedInCCampaignSlugShellPlacesRoute,
+    SignedInCCampaignSlugShellPlayersRoute:
+      SignedInCCampaignSlugShellPlayersRoute,
+    SignedInCCampaignSlugShellQuestsRoute:
+      SignedInCCampaignSlugShellQuestsRoute,
+    SignedInCCampaignSlugShellRequestsRoute:
+      SignedInCCampaignSlugShellRequestsRoute,
+    SignedInCCampaignSlugShellSessionsRoute:
+      SignedInCCampaignSlugShellSessionsRoute,
+    SignedInCCampaignSlugShellSettingsRoute:
+      SignedInCCampaignSlugShellSettingsRoute,
+    SignedInCCampaignSlugShellTimelineRoute:
+      SignedInCCampaignSlugShellTimelineRoute,
+    SignedInCCampaignSlugShellIndexRoute: SignedInCCampaignSlugShellIndexRoute,
+  }
+
+const SignedInCCampaignSlugShellRouteWithChildren =
+  SignedInCCampaignSlugShellRoute._addFileChildren(
+    SignedInCCampaignSlugShellRouteChildren,
+  )
+
+interface SignedInCCampaignSlugRouteChildren {
+  SignedInCCampaignSlugShellRoute: typeof SignedInCCampaignSlugShellRouteWithChildren
+  SignedInCCampaignSlugPendingRoute: typeof SignedInCCampaignSlugPendingRoute
+}
+
+const SignedInCCampaignSlugRouteChildren: SignedInCCampaignSlugRouteChildren = {
+  SignedInCCampaignSlugShellRoute: SignedInCCampaignSlugShellRouteWithChildren,
+  SignedInCCampaignSlugPendingRoute: SignedInCCampaignSlugPendingRoute,
+}
+
+const SignedInCCampaignSlugRouteWithChildren =
+  SignedInCCampaignSlugRoute._addFileChildren(
+    SignedInCCampaignSlugRouteChildren,
+  )
+
+interface SignedInRouteChildren {
+  SignedInAccountRoute: typeof SignedInAccountRouteWithChildren
+  SignedInCCampaignSlugRoute: typeof SignedInCCampaignSlugRouteWithChildren
+}
+
+const SignedInRouteChildren: SignedInRouteChildren = {
+  SignedInAccountRoute: SignedInAccountRouteWithChildren,
+  SignedInCCampaignSlugRoute: SignedInCCampaignSlugRouteWithChildren,
+}
+
+const SignedInRouteWithChildren = SignedInRoute._addFileChildren(
+  SignedInRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
-  AppRoute: AppRouteWithChildren,
+  SignedInRoute: SignedInRouteWithChildren,
   LoginRoute: LoginRoute,
-  PendingRoute: PendingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -7,16 +7,18 @@ package store
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const listRoles = `-- name: ListRoles :many
-SELECT key, label, icon, sort_order, unnamed_count, is_system, archived FROM role ORDER BY sort_order, key
+SELECT key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id FROM role WHERE campaign_id = $1 ORDER BY sort_order, key
 `
 
 // Every role, archived ones included, in display order. Colonists = the sum of the headcounts (spec
 // §4.2); from M2 the named NPC colonists of each role are added by their own query.
-func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
-	rows, err := q.db.Query(ctx, listRoles)
+func (q *Queries) ListRoles(ctx context.Context, campaignID uuid.UUID) ([]Role, error) {
+	rows, err := q.db.Query(ctx, listRoles, campaignID)
 	if err != nil {
 		return nil, err
 	}
@@ -32,6 +34,7 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 			&i.UnnamedCount,
 			&i.IsSystem,
 			&i.Archived,
+			&i.CampaignID,
 		); err != nil {
 			return nil, err
 		}
@@ -44,16 +47,17 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 }
 
 const setRoleUnnamedCount = `-- name: SetRoleUnnamedCount :exec
-UPDATE role SET unnamed_count = $1 WHERE key = $2
+UPDATE role SET unnamed_count = $1 WHERE campaign_id = $2 AND key = $3
 `
 
 type SetRoleUnnamedCountParams struct {
 	UnnamedCount int32
+	CampaignID   uuid.UUID
 	Key          string
 }
 
 // A colony mutation saves each changed headcount (new colonists land in UNASSIGNED; undo restores).
 func (q *Queries) SetRoleUnnamedCount(ctx context.Context, arg SetRoleUnnamedCountParams) error {
-	_, err := q.db.Exec(ctx, setRoleUnnamedCount, arg.UnnamedCount, arg.Key)
+	_, err := q.db.Exec(ctx, setRoleUnnamedCount, arg.UnnamedCount, arg.CampaignID, arg.Key)
 	return err
 }

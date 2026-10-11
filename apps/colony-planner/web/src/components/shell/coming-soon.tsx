@@ -3,7 +3,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { StatusPanel } from "@/components/status-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { fallbackCampaignName, useCampaignName } from "@/hooks/use-campaign";
+import { fallbackCampaignName, useCampaign, useCampaignName } from "@/hooks/use-campaign";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { type Milestone, type NavigationItemId, navigationItems } from "./navigation";
 
@@ -19,11 +19,12 @@ const milestoneNames: Record<Milestone, string> = {
 export function ComingSoon({ itemId }: { itemId: NavigationItemId }) {
 	const item = navigationItems[itemId];
 	useDocumentTitle(item.label, useCampaignName() ?? fallbackCampaignName);
+	const { slug } = useCampaign();
 	return (
 		<StatusPanel
 			actions={
 				<Button asChild variant="outline">
-					<Link to="/">
+					<Link params={{ campaignSlug: slug }} to="/c/$campaignSlug">
 						<ArrowLeftIcon />
 						Back to the colony
 					</Link>

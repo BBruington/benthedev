@@ -33,6 +33,9 @@ func newEnumType[Value ~string](name string, allValues func() []Value) enumType 
 // enumTypes lists every closed set the API exposes. Add one line per new Postgres enum.
 var enumTypes = []enumType{
 	newEnumType("MemberStatus", core.AllMemberStatusValues),
+	newEnumType("CampaignRole", core.AllCampaignRoleValues),
+	newEnumType("CampaignStatus", core.AllCampaignStatusValues),
+	newEnumType("CampaignRequestStatus", core.AllCampaignRequestStatusValues),
 	newEnumType("Topic", core.AllTopics),
 	newEnumType("ColonyIcon", core.AllColonyIconValues),
 	newEnumType("TimelineVisibility", core.AllTimelineVisibilityValues),

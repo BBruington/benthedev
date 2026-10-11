@@ -11,8 +11,9 @@ import { applyThemePreference, readThemePreference } from "./lib/theme";
 import { routeTree } from "./routeTree.gen";
 
 // A 401 outside navigation means the session ended underneath the page: signed out elsewhere, or
-// removed by the DM (spec §2.1: "signed out at once"). A full page load leaves nothing behind.
-// During navigation the route guards redirect on their own.
+// everywhere. (Removal from a campaign no longer ends the session: that campaign's screens close and
+// the others keep working.) A full page load leaves nothing behind. During navigation the route
+// guards redirect on their own.
 function handleSessionEnded(error: unknown) {
 	if (!isUnauthorized(error) || router.state.status !== "idle") {
 		return;
@@ -31,8 +32,9 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
 	return failureCount < 2;
 }
 
-// Live updates arrive as invalidations over /api/stream (spec §8.8), so data stays fresh until the
-// server says otherwise and nothing refetches on a timer or on focus.
+// Inside a campaign, live updates arrive as invalidations over that campaign's stream (spec §8.8),
+// so data stays fresh until the server says otherwise and nothing refetches on a timer or on focus.
+// Reads outside every campaign opt back into refetching on focus (src/api/queries.ts).
 const queryClient = new QueryClient({
 	defaultOptions: {
 		mutations: {

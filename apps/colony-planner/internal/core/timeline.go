@@ -49,7 +49,7 @@ type TimelineEntryDm struct {
 	CanRecordCargo bool `json:"canRecordCargo"`
 }
 
-// TimelineRangeInput is GET /api/timeline?fromDay=&toDay= (both inclusive).
+// TimelineRangeInput is GET /api/campaigns/{campaignId}/timeline?fromDay=&toDay= (both inclusive).
 type TimelineRangeInput struct {
 	FromDay int64
 	ToDay   int64
@@ -119,11 +119,12 @@ func (service *Service) ListTimeline(requestContext context.Context, viewer View
 	// Clamped after validation so a range ending past the last storable day still reads.
 	toDay := min(input.ToDay, int64(game.MaxStored))
 	dmProjection := viewer.SeesDmFields()
-	colony, err := service.queries.GetColony(requestContext)
+	colony, err := service.queries.GetColony(requestContext, viewer.campaignID)
 	if err != nil {
-		return TimelinePage{}, err
+		return TimelinePage{}, campaignGone(err)
 	}
 	rows, err := service.queries.ListTimelineEvents(requestContext, store.ListTimelineEventsParams{
+		CampaignID:   viewer.campaignID,
 		FromDay:      int32(input.FromDay),
 		ToDay:        int32(toDay),
 		DmProjection: dmProjection,
@@ -136,6 +137,7 @@ func (service *Service) ListTimeline(requestContext context.Context, viewer View
 		return TimelinePage{}, err
 	}
 	earlierDay, err := optionalDay(service.queries.PreviousTimelineDay(requestContext, store.PreviousTimelineDayParams{
+		CampaignID:   viewer.campaignID,
 		BeforeDay:    int32(input.FromDay),
 		DmProjection: dmProjection,
 	}))
@@ -143,6 +145,7 @@ func (service *Service) ListTimeline(requestContext context.Context, viewer View
 		return TimelinePage{}, err
 	}
 	laterDay, err := optionalDay(service.queries.NextTimelineDay(requestContext, store.NextTimelineDayParams{
+		CampaignID:   viewer.campaignID,
 		AfterDay:     int32(toDay),
 		DmProjection: dmProjection,
 	}))
@@ -164,6 +167,7 @@ func (service *Service) RecentTimeline(requestContext context.Context, viewer Vi
 		return RecentTimeline{}, err
 	}
 	rows, err := service.queries.ListRecentTimelineEvents(requestContext, store.ListRecentTimelineEventsParams{
+		CampaignID:   viewer.campaignID,
 		DmProjection: viewer.SeesDmFields(),
 		EntryLimit:   recentTimelineLimit,
 	})
@@ -196,10 +200,11 @@ func (service *Service) CreateCustomEntry(requestContext context.Context, viewer
 		// Not a colony mutation, but every timeline insert waits for the colony lock, so a note can't
 		// commit ahead of an advance that began before it and leave that advance's entries looking
 		// older than news the players have already seen (their toasts would be skipped).
-		if _, err := queries.GetColonyForUpdate(requestContext); err != nil {
-			return err
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
 		}
 		row, err = queries.CreateTimelineEvent(requestContext, store.CreateTimelineEventParams{
+			CampaignID: viewer.campaignID,
 			Day:        int32(cleaned.Day),
 			Kind:       string(TimelineKindCustom),
 			Title:      cleaned.Title,
@@ -214,7 +219,7 @@ func (service *Service) CreateCustomEntry(requestContext context.Context, viewer
 	if err != nil {
 		return TimelineEntry{}, err
 	}
-	service.broker.Publish(TopicTimeline)
+	service.broker.Publish(viewer.campaignID, TopicTimeline)
 	return toTimelineEntry(row)
 }
 
@@ -230,7 +235,7 @@ func (service *Service) UpdateTimelineEntry(requestContext context.Context, view
 	}
 	var row store.TimelineEvent
 	err = service.inTransaction(requestContext, func(queries *store.Queries) error {
-		existing, err := queries.GetTimelineEvent(requestContext, timelineEntryID)
+		existing, err := queries.GetTimelineEvent(requestContext, store.GetTimelineEventParams{CampaignID: viewer.campaignID, ID: timelineEntryID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return NotFound("That timeline entry doesn't exist.")
 		}
@@ -242,6 +247,7 @@ func (service *Service) UpdateTimelineEntry(requestContext context.Context, view
 			return Invalid(message, FieldError{Field: "day", Message: message})
 		}
 		row, err = queries.UpdateTimelineEvent(requestContext, store.UpdateTimelineEventParams{
+			CampaignID: viewer.campaignID,
 			ID:         timelineEntryID,
 			Day:        int32(cleaned.Day),
 			Title:      cleaned.Title,
@@ -253,7 +259,7 @@ func (service *Service) UpdateTimelineEntry(requestContext context.Context, view
 	if err != nil {
 		return TimelineEntry{}, err
 	}
-	service.broker.Publish(TopicTimeline)
+	service.broker.Publish(viewer.campaignID, TopicTimeline)
 	return toTimelineEntry(row)
 }
 
@@ -262,7 +268,7 @@ func (service *Service) DeleteCustomEntry(requestContext context.Context, viewer
 	if err := requireDm(viewer); err != nil {
 		return err
 	}
-	existing, err := service.queries.GetTimelineEvent(requestContext, timelineEntryID)
+	existing, err := service.queries.GetTimelineEvent(requestContext, store.GetTimelineEventParams{CampaignID: viewer.campaignID, ID: timelineEntryID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return NotFound("That timeline entry doesn't exist.")
 	}
@@ -272,10 +278,10 @@ func (service *Service) DeleteCustomEntry(requestContext context.Context, viewer
 	if TimelineKind(existing.Kind) != TimelineKindCustom {
 		return Conflict("Only custom entries can be deleted. Edit this one, or hide it from players, instead.")
 	}
-	if _, err := service.queries.DeleteCustomTimelineEvent(requestContext, timelineEntryID); err != nil {
+	if _, err := service.queries.DeleteCustomTimelineEvent(requestContext, store.DeleteCustomTimelineEventParams{CampaignID: viewer.campaignID, ID: timelineEntryID}); err != nil {
 		return err
 	}
-	service.broker.Publish(TopicTimeline)
+	service.broker.Publish(viewer.campaignID, TopicTimeline)
 	return nil
 }
 

@@ -1,178 +1,129 @@
 package core_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 
-	"github.com/google/uuid"
-
-	"github.com/BBruington/colony-planner/db/dbtest"
 	"github.com/BBruington/colony-planner/internal/core"
-	"github.com/BBruington/colony-planner/internal/store"
 )
 
-const testDmDiscordID = "500000000000000005"
-
-type countingNotifier struct {
-	mutex sync.Mutex
-	pings int
-}
-
-func (notifier *countingNotifier) MemberWaiting(context.Context, core.WaitingMember) {
-	notifier.mutex.Lock()
-	defer notifier.mutex.Unlock()
-	notifier.pings++
-}
-
-type recordingEvictor struct {
-	mutex   sync.Mutex
-	members []uuid.UUID
-}
-
-func (evictor *recordingEvictor) EvictSession([]byte) {}
-
-func (evictor *recordingEvictor) EvictAll() {}
-
-func (evictor *recordingEvictor) EvictMember(memberID uuid.UUID) {
-	evictor.mutex.Lock()
-	defer evictor.mutex.Unlock()
-	evictor.members = append(evictor.members, memberID)
-}
-
-func newService(t *testing.T) (*core.Service, *dbtest.Database, *countingNotifier, *recordingEvictor) {
-	t.Helper()
-	database := dbtest.New(t)
-	notifier := &countingNotifier{}
-	evictor := &recordingEvictor{}
-	service := core.New(core.Options{
-		Pool:        database.Pool,
-		Notifier:    notifier,
-		Logger:      slog.New(slog.DiscardHandler),
-		DmDiscordID: testDmDiscordID,
-		Sessions:    evictor,
-	})
-	return service, database, notifier, evictor
-}
-
-func createPending(t *testing.T, database *dbtest.Database, count int) {
-	t.Helper()
-	for index := range count {
-		if _, err := store.New(database.Pool).CreateMember(context.Background(), store.CreateMemberParams{
-			DiscordUserID:   fmt.Sprintf("seed:waiting-%d", index),
-			DiscordUsername: fmt.Sprintf("waiting%d", index),
-			DisplayName:     fmt.Sprintf("Waiting %d", index),
-			Status:          store.MemberStatusPENDING,
-		}); err != nil {
-			t.Fatalf("create pending member: %v", err)
-		}
+func TestConcurrentJoinsCannotPassThePendingCap(t *testing.T) {
+	test := newFixture(t)
+	_, dm := test.campaign(test.caller(discordID(1), "dm"), "Sample", "sample")
+	for index := range core.PendingMemberLimit - 1 {
+		test.player(dm, discordID(100+index), fmt.Sprintf("waiting%d", index), false)
 	}
-}
-
-func TestConcurrentSignInsCannotPassThePendingCap(t *testing.T) {
-	service, database, notifier, _ := newService(t)
-	createPending(t, database, core.PendingMemberLimit-1)
-
-	results := make(chan error, 2)
-	for index := range 2 {
+	pingsBefore := test.notifier.pings()
+	inviteCode := test.inviteCode(dm)
+	racers := []core.Caller{test.caller(discordID(200), "racer0"), test.caller(discordID(201), "racer1")}
+	results := make(chan error, len(racers))
+	for _, racer := range racers {
 		go func() {
-			_, err := service.SignIn(context.Background(), core.DiscordIdentity{
-				UserID:   fmt.Sprintf("60000000000000000%d", index),
-				Username: fmt.Sprintf("racer%d", index),
-			})
+			_, err := test.service.JoinByInvite(test.context, racer, inviteCode)
 			results <- err
 		}()
 	}
 	var admitted, refused int
-	for range 2 {
+	for range racers {
 		err := <-results
 		switch {
 		case err == nil:
 			admitted++
-		case errors.Is(err, core.ErrSignUpsFull):
+		case errors.Is(err, core.ErrJoinsFull):
 			refused++
 		default:
-			t.Fatalf("sign in: %v", err)
+			t.Fatalf("join: %v", err)
 		}
 	}
 	if admitted != 1 || refused != 1 {
 		t.Fatalf("admitted %d and refused %d; the cap should let exactly one in", admitted, refused)
 	}
-	if notifier.pings != 1 {
-		t.Fatalf("pings = %d, want 1", notifier.pings)
+	if test.notifier.pings()-pingsBefore != 1 {
+		t.Fatalf("pings = %d, want 1", test.notifier.pings()-pingsBefore)
 	}
+	// The cap is per campaign: another campaign still takes joiners.
+	_, otherDm := test.campaign(test.caller(discordID(2), "other-dm"), "Other", "other")
+	test.player(otherDm, discordID(300), "elsewhere", false)
 }
 
-func TestSignInValidatesTheIdentity(t *testing.T) {
-	service, _, _, _ := newService(t)
-	if _, err := service.SignIn(context.Background(), core.DiscordIdentity{UserID: " ", Username: "x"}); err == nil {
+func TestSignInOnlyCreatesTheAccount(t *testing.T) {
+	test := newFixture(t)
+	if _, err := test.service.SignIn(test.context, core.DiscordIdentity{UserID: " ", Username: "x"}); err == nil {
 		t.Fatal("a sign-in without a Discord ID was accepted")
+	}
+	first := test.caller(discordID(1), "ana")
+	again := test.caller(discordID(1), "ana-renamed")
+	if first.AccountID != again.AccountID {
+		t.Fatal("signing in again made a second account")
+	}
+	campaigns, err := test.service.MyCampaigns(test.context, first)
+	if err != nil || len(campaigns.Campaigns) != 0 {
+		t.Fatalf("a first sign-in joined something: %+v, %v", campaigns, err)
+	}
+	if test.notifier.pings() != 0 {
+		t.Fatal("a sign-in pinged someone")
+	}
+	me, err := test.service.AccountMe(test.context, again)
+	if err != nil || me.DiscordUsername != "ana-renamed" || me.IsSiteOwner {
+		t.Fatalf("account me = %+v, %v", me, err)
+	}
+	ownerMe, err := test.service.AccountMe(test.context, test.owner)
+	if err != nil || !ownerMe.IsSiteOwner {
+		t.Fatalf("the owner's account me = %+v, %v", ownerMe, err)
 	}
 }
 
 func TestOperationsRefusePlayersAndViewAsPlayer(t *testing.T) {
-	service, _, _, evictor := newService(t)
-	testContext := context.Background()
-	dmID, err := service.SignIn(testContext, core.DiscordIdentity{UserID: testDmDiscordID, Username: "dm"})
-	if err != nil {
-		t.Fatalf("sign in the DM: %v", err)
+	test := newFixture(t)
+	dmCaller := test.caller(discordID(1), "dm")
+	campaignID, dm := test.campaign(dmCaller, "Sample", "sample")
+	if !dm.IsDM() || !dm.IsActive() || dm.CampaignID() != campaignID {
+		t.Fatalf("the DM's viewer is wrong: dm=%v active=%v", dm.IsDM(), dm.IsActive())
 	}
-	playerID, err := service.SignIn(testContext, core.DiscordIdentity{UserID: "700000000000000007", Username: "ana"})
-	if err != nil {
-		t.Fatalf("sign in a player: %v", err)
-	}
-	dm := service.NewViewer(core.ViewerIdentity{MemberID: dmID, DiscordUserID: testDmDiscordID, Status: store.MemberStatusPENDING})
-	if !dm.IsDM || !dm.IsActive() {
-		t.Fatalf("the DM's viewer = %+v; the DM is always ACTIVE", dm)
-	}
-	dmAsPlayer := dm
-	dmAsPlayer.ViewAsPlayer = true
-	pending := service.NewViewer(core.ViewerIdentity{MemberID: playerID, DiscordUserID: "700000000000000007", Status: store.MemberStatusPENDING})
+	viewingAsPlayer := dmCaller
+	viewingAsPlayer.ViewAsPlayer = true
+	dmAsPlayer := test.enter(viewingAsPlayer, campaignID)
+	_, pending := test.player(dm, discordID(2), "ana", false)
 
-	for name, viewer := range map[string]core.Viewer{"a pending member": pending, "the DM viewing as player": dmAsPlayer} {
-		if _, err := service.ListMembers(testContext, viewer); !isKind(err, core.KindForbidden) {
-			t.Errorf("%s listed members: %v", name, err)
+	for name, viewer := range map[string]core.Viewer{"a pending member": pending, "the DM viewing as player": dmAsPlayer, "the zero Viewer": {}} {
+		if _, err := test.service.ListMembers(test.context, viewer); err == nil {
+			t.Errorf("%s listed members", name)
 		}
-		if _, err := service.ApproveMember(testContext, viewer, playerID); !isKind(err, core.KindForbidden) {
-			t.Errorf("%s approved a member: %v", name, err)
+		if _, err := test.service.ApproveMember(test.context, viewer, pending.MemberID()); err == nil {
+			t.Errorf("%s approved a member", name)
 		}
-		if _, err := service.GetSettings(testContext, viewer); !isKind(err, core.KindForbidden) {
-			t.Errorf("%s read settings: %v", name, err)
+		if _, err := test.service.GetSettings(test.context, viewer); err == nil {
+			t.Errorf("%s read settings", name)
+		}
+		if _, err := test.service.Invite(test.context, viewer); err == nil {
+			t.Errorf("%s read the invite code", name)
 		}
 	}
-	if _, err := service.UpdateProfile(testContext, pending, core.ProfileInput{}); !isKind(err, core.KindForbidden) {
+	if _, err := test.service.UpdateProfile(test.context, pending, core.ProfileInput{}); !isKind(err, core.KindForbidden) {
 		t.Errorf("a pending member edited their profile: %v", err)
 	}
-
-	if _, err := service.ApproveMember(testContext, dm, playerID); err != nil {
+	if _, err := test.service.ApproveMember(test.context, dm, pending.MemberID()); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	if len(evictor.members) != 1 || evictor.members[0] != playerID {
-		t.Fatalf("approval evicted %v; want exactly the approved member", evictor.members)
-	}
-	if _, err := service.ApproveMember(testContext, dm, playerID); err != nil {
+	if _, err := test.service.ApproveMember(test.context, dm, pending.MemberID()); err != nil {
 		t.Fatalf("approving twice: %v", err)
 	}
-	if len(evictor.members) != 1 {
-		t.Fatal("a no-op approval evicted sessions again")
+	if _, err := test.service.RemoveMember(test.context, dm, dm.MemberID()); !isKind(err, core.KindForbidden) {
+		t.Fatalf("the DM removed themselves: %v", err)
+	}
+	if len(test.evictor.accounts) != 0 {
+		t.Fatalf("membership changes evicted sessions: %v", test.evictor.accounts)
 	}
 }
 
 func TestUpdateSettingsValidates(t *testing.T) {
-	service, _, _, _ := newService(t)
-	testContext := context.Background()
-	dmID, err := service.SignIn(testContext, core.DiscordIdentity{UserID: testDmDiscordID, Username: "dm"})
-	if err != nil {
-		t.Fatalf("sign in the DM: %v", err)
-	}
-	dm := service.NewViewer(core.ViewerIdentity{MemberID: dmID, DiscordUserID: testDmDiscordID})
+	test := newFixture(t)
+	_, dm := test.campaign(test.caller(discordID(1), "dm"), "Sample", "sample")
 
 	for _, timezone := range []string{"Mars/Olympus", "Local", ""} {
-		_, err := service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "Sample", ColonyName: "Sample", Timezone: timezone})
+		_, err := test.service.UpdateSettings(test.context, dm, core.SettingsInput{CampaignName: "Sample", ColonyName: "Sample", Timezone: timezone})
 		operationError, typed := core.AsError(err)
 		if !typed || operationError.Kind != core.KindInvalid || len(operationError.Fields) != 1 || operationError.Fields[0].Field != "timezone" {
 			t.Errorf("timezone %q: %v", timezone, err)
@@ -181,33 +132,42 @@ func TestUpdateSettingsValidates(t *testing.T) {
 
 	blank := "  "
 	channel := "123456789012345678"
-	settings, err := service.UpdateSettings(testContext, dm, core.SettingsInput{
+	_, err := test.service.UpdateSettings(test.context, dm, core.SettingsInput{
+		CampaignName: "Sample", ColonyName: "Sample", Timezone: "UTC", DiscordDmChannelID: &channel,
+	})
+	if operationError, typed := core.AsError(err); !typed || len(operationError.Fields) != 1 || !strings.Contains(operationError.Fields[0].Message, "Link a Discord server first") {
+		t.Fatalf("a channel without a linked server: %v", err)
+	}
+	settings, err := test.service.UpdateSettings(test.context, dm, core.SettingsInput{
 		CampaignName:             "  Sample Colony ",
 		ColonyName:               " Port Eldari  ",
 		Timezone:                 "America/New_York",
 		DiscordAnnounceChannelID: &blank,
-		DiscordDmChannelID:       &channel,
 	})
 	if err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
-	if settings.CampaignName != "Sample Colony" || settings.ColonyName != "Port Eldari" || settings.DiscordAnnounceChannelID != nil || settings.DiscordDmChannelID == nil {
+	if settings.CampaignName != "Sample Colony" || settings.ColonyName != "Port Eldari" || settings.DiscordAnnounceChannelID != nil || settings.DiscordServer != nil {
 		t.Fatalf("settings = %+v", settings)
 	}
-	channels, err := service.DiscordChannels(testContext)
-	if err != nil || channels.DmChannelID == nil || *channels.DmChannelID != channel {
-		t.Fatalf("Beny Bot's channels = %+v, %v", channels, err)
+	board, err := test.service.GetColonyBoard(test.context, dm)
+	if err != nil || board.CampaignName != "Sample Colony" || board.ColonyName != "Port Eldari" {
+		t.Fatalf("the board's names = %+v, %v", board, err)
 	}
 }
 
 func TestSettingsShowBenyBotsInviteLinkOnlyWhenConfigured(t *testing.T) {
-	database := dbtest.New(t)
-	testContext := context.Background()
+	test := newFixture(t)
+	dmCaller := test.caller(discordID(1), "dm")
+	campaignID, _ := test.campaign(dmCaller, "Sample", "sample")
 	inviteURL := "https://discord.com/oauth2/authorize?client_id=123456789012345678&scope=bot+applications.commands&permissions=8590019584"
 	for _, configured := range []string{"", inviteURL} {
-		service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), DmDiscordID: testDmDiscordID, BotInviteURL: configured})
-		dm := service.NewViewer(core.ViewerIdentity{MemberID: uuid.New(), DiscordUserID: testDmDiscordID})
-		settings, err := service.GetSettings(testContext, dm)
+		service := core.New(core.Options{Pool: test.database.Pool, SiteOwnerDiscordID: testOwnerDiscordID, BotInviteURL: configured})
+		dm, err := service.EnterCampaign(test.context, dmCaller, campaignID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings, err := service.GetSettings(test.context, dm)
 		if err != nil {
 			t.Fatalf("read settings: %v", err)
 		}
@@ -220,21 +180,11 @@ func TestSettingsShowBenyBotsInviteLinkOnlyWhenConfigured(t *testing.T) {
 	}
 }
 
-func isKind(err error, kind core.ErrorKind) bool {
-	operationError, typed := core.AsError(err)
-	return typed && operationError.Kind == kind
-}
-
 // Free text is checked in core: a NUL byte would otherwise reach Postgres and come back as a 500, and
 // lengths count after trimming.
 func TestFreeTextRefusesControlCharactersAndCountsAfterTrimming(t *testing.T) {
-	service, _, _, _ := newService(t)
-	testContext := context.Background()
-	dmID, err := service.SignIn(testContext, core.DiscordIdentity{UserID: testDmDiscordID, Username: "dm"})
-	if err != nil {
-		t.Fatalf("sign in the DM: %v", err)
-	}
-	dm := service.NewViewer(core.ViewerIdentity{MemberID: dmID, DiscordUserID: testDmDiscordID})
+	test := newFixture(t)
+	_, dm := test.campaign(test.caller(discordID(1), "dm"), "Sample", "sample")
 
 	expectFieldError := func(label string, err error, field string) {
 		t.Helper()
@@ -245,23 +195,23 @@ func TestFreeTextRefusesControlCharactersAndCountsAfterTrimming(t *testing.T) {
 	}
 
 	for _, characterName := range []string{"x\x00y", "line\nbreak", "tab\there", strings.Repeat("a", 61)} {
-		_, err := service.SetCharacterName(testContext, dm, dmID, core.CharacterNameInput{CharacterName: &characterName})
+		_, err := test.service.SetCharacterName(test.context, dm, dm.MemberID(), core.CharacterNameInput{CharacterName: &characterName})
 		expectFieldError(fmt.Sprintf("character name %q", characterName), err, "characterName")
 	}
 	padded := "  " + strings.Repeat("a", 60) + "  "
-	if member, err := service.SetCharacterName(testContext, dm, dmID, core.CharacterNameInput{CharacterName: &padded}); err != nil || member.CharacterName == nil || *member.CharacterName != strings.Repeat("a", 60) {
+	if member, err := test.service.SetCharacterName(test.context, dm, dm.MemberID(), core.CharacterNameInput{CharacterName: &padded}); err != nil || member.CharacterName == nil || *member.CharacterName != strings.Repeat("a", 60) {
 		t.Errorf("a 60-character name with spaces around it: %+v, %v", member, err)
 	}
 
-	_, err = service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "Bad\x00Name", ColonyName: "Sample", Timezone: "UTC"})
+	_, err := test.service.UpdateSettings(test.context, dm, core.SettingsInput{CampaignName: "Bad\x00Name", ColonyName: "Sample", Timezone: "UTC"})
 	expectFieldError("campaign name with NUL", err, "campaignName")
-	_, err = service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "   ", ColonyName: "Sample", Timezone: "UTC"})
+	_, err = test.service.UpdateSettings(test.context, dm, core.SettingsInput{CampaignName: "   ", ColonyName: "Sample", Timezone: "UTC"})
 	expectFieldError("blank campaign name", err, "campaignName")
 	for _, channel := range []string{"12345", "12345678901234567a", "123456789012345678901"} {
-		_, err = service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "Sample", ColonyName: "Sample", Timezone: "UTC", DiscordReminderChannelID: &channel})
+		_, err = test.service.UpdateSettings(test.context, dm, core.SettingsInput{CampaignName: "Sample", ColonyName: "Sample", Timezone: "UTC", DiscordReminderChannelID: &channel})
 		expectFieldError(fmt.Sprintf("channel %q", channel), err, "discordReminderChannelId")
 	}
 
-	_, err = service.SignIn(testContext, core.DiscordIdentity{UserID: "100000000000000099", Username: "nul", DisplayName: "Nul\x00Name"})
+	_, err = test.service.SignIn(test.context, core.DiscordIdentity{UserID: "100000000000000099", Username: "nul", DisplayName: "Nul\x00Name"})
 	expectFieldError("sign-in display name with NUL", err, "displayName")
 }

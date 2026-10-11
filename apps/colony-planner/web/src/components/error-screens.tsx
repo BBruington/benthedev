@@ -124,7 +124,7 @@ export function NotFoundScreen() {
 				<StatusPanel
 					actions={
 						<Button asChild>
-							<Link to="/">Back to the colony</Link>
+							<Link to="/">All your campaigns</Link>
 						</Button>
 					}
 					className="py-8 md:py-10"

@@ -50,7 +50,7 @@ export function AdvanceSheet({
 		initialDays === days ? 0 : previewDelayInMilliseconds,
 	);
 	const preview = useQuery({
-		...advancePreviewQuery(previewDays ?? 1),
+		...advancePreviewQuery(changes.inCampaign.params.path.campaignId, previewDays ?? 1),
 		enabled: open && previewDays !== null,
 	});
 	const mutation = changes.advance;
@@ -70,7 +70,7 @@ export function AdvanceSheet({
 			return;
 		}
 		mutation.mutate(
-			{ body: { days, expectedVersion: preview.data.version } },
+			{ body: { days, expectedVersion: preview.data.version }, ...changes.inCampaign },
 			{
 				onSuccess: () => {
 					onOpenChange(false);

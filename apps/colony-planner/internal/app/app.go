@@ -59,7 +59,8 @@ func New(options Options) (*Server, error) {
 	}
 	serveMux := http.NewServeMux()
 	api := humago.New(serveMux, humaConfig())
-	api.UseMiddleware(operationAccessMiddleware(api))
+	gate := accessGate{core: options.Core, logger: logger}
+	api.UseMiddleware(operationAccessMiddleware(api, gate))
 	registerSchemas(api)
 
 	featureHandlers := &handlers{
@@ -76,6 +77,10 @@ func New(options Options) (*Server, error) {
 		featureHandlers.streamLifetime = defaultStreamLifetime
 	}
 	featureHandlers.registerLogin(api)
+	featureHandlers.registerAccount(api)
+	featureHandlers.registerAdmin(api)
+	featureHandlers.registerCampaign(api)
+	featureHandlers.registerDiscord(api)
 	featureHandlers.registerMe(api)
 	featureHandlers.registerMembers(api)
 	featureHandlers.registerSettings(api)
@@ -92,11 +97,11 @@ func New(options Options) (*Server, error) {
 		{Pattern: "GET /healthz", Access: AccessPublic, Handler: http.HandlerFunc(serveHealth)},
 		{Pattern: "GET /auth/discord/login", Access: AccessPublic, Handler: options.Auth.DiscordLogin()},
 		{Pattern: "GET /auth/discord/callback", Access: AccessPublic, Handler: options.Auth.DiscordCallback()},
-		{Pattern: "POST /auth/logout", Access: AccessPending, Handler: options.Auth.Logout()},
-		{Pattern: "POST /auth/logout-everywhere", Access: AccessMember, Handler: options.Auth.LogoutEverywhere()},
-		{Pattern: "GET /api/stream", Access: AccessPending, Handler: featureHandlers.stream()},
-		{Pattern: "GET /api/openapi.json", Access: AccessDm, Handler: serveOpenAPI(openAPIJSON)},
-		{Pattern: "GET /api/docs", Access: AccessDm, Handler: http.HandlerFunc(serveDocs)},
+		{Pattern: "POST /auth/logout", Access: AccessAccount, Handler: options.Auth.Logout()},
+		{Pattern: "POST /auth/logout-everywhere", Access: AccessAccount, Handler: options.Auth.LogoutEverywhere()},
+		{Pattern: "GET /api/campaigns/{campaignId}/stream", Access: AccessPending, Handler: featureHandlers.stream()},
+		{Pattern: "GET /api/openapi.json", Access: AccessOwner, Handler: serveOpenAPI(openAPIJSON)},
+		{Pattern: "GET /api/docs", Access: AccessOwner, Handler: http.HandlerFunc(serveDocs)},
 		{Pattern: "GET /", Access: AccessPublic, Handler: spaHandler()},
 	}
 	if devSignIn := options.Auth.DevSignIn(); devSignIn != nil {
@@ -107,7 +112,7 @@ func New(options Options) (*Server, error) {
 		return nil, err
 	}
 	for _, route := range routes {
-		serveMux.Handle(route.Pattern, guardRoute(route))
+		serveMux.Handle(route.Pattern, guardRoute(route, gate))
 	}
 
 	var handler http.Handler = serveMux
@@ -137,7 +142,7 @@ func init() {
 func humaConfig() huma.Config {
 	config := huma.DefaultConfig("Colony Planner", "1.0.0")
 	// huma's built-in /openapi, /docs and /schemas routes would bypass the access check, so they are
-	// off; the document and docs page are served again as dm routes.
+	// off; the document and docs page are served again as owner routes.
 	config.OpenAPIPath = ""
 	config.DocsPath = ""
 	config.SchemasPath = ""
@@ -205,9 +210,29 @@ func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 		next.ServeHTTP(recorder, request)
 		logger.LogAttrs(request.Context(), slog.LevelInfo, "request",
 			slog.String("method", request.Method),
-			slog.String("path", request.URL.Path),
+			slog.String("path", loggedPath(request.URL.Path)),
 			slog.Int("status", recorder.status),
 			slog.Duration("duration", time.Since(started).Round(time.Microsecond)),
 		)
 	})
+}
+
+// invitePathPrefixes are the paths that carry an invite code: the API's invite routes and the SPA's
+// join page.
+var invitePathPrefixes = []string{"/api/invites/", "/join/"}
+
+// loggedPath keeps invite codes out of the log (Invariant 14): a code lets anyone ask to join a
+// campaign, and only its DM may read it, while the log is the operator's.
+func loggedPath(path string) string {
+	for _, prefix := range invitePathPrefixes {
+		rest, found := strings.CutPrefix(path, prefix)
+		if !found || rest == "" {
+			continue
+		}
+		if _, suffix, hasSuffix := strings.Cut(rest, "/"); hasSuffix {
+			return prefix + "{inviteCode}/" + suffix
+		}
+		return prefix + "{inviteCode}"
+	}
+	return path
 }

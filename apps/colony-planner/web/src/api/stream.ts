@@ -1,15 +1,16 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useSyncExternalStore } from "react";
-import { meQuery } from "./queries";
+import { campaignMeQuery, meQuery } from "./queries";
 import { isInvalidateMessage, queryKeysForTopics } from "./topics";
 
 /**
- * Live updates over GET /api/stream (spec §8.8). Messages only name topics; the client turns each
- * topic into query keys and lets TanStack Query refetch what is on screen.
+ * Live updates over GET /api/campaigns/{campaignId}/stream (docs/design/multi-campaign.md §7.1): one
+ * stream per campaign, open while a screen inside that campaign is mounted. Messages only name topics;
+ * the client turns each topic into that campaign's query keys and lets TanStack Query refetch what is
+ * on screen. Pages outside a campaign have no stream.
  */
 export type LiveState = "connecting" | "live" | "reconnecting";
 
-const streamPath = "/api/stream";
 const retryDelaysInMilliseconds = [1000, 2000, 5000, 10_000, 30_000];
 // The server rotates every stream about every ten minutes and asks the browser to reconnect after
 // two seconds; the dot only turns grey if reconnecting takes longer than this.
@@ -17,9 +18,10 @@ const reconnectingGraceInMilliseconds = 3500;
 
 let liveState: LiveState = "connecting";
 const liveStateListeners = new Set<() => void>();
-// Kept outside any one stream so a stream reopened after the tab was hidden, or after moving from
-// /pending into the app, resumes from the last message it saw instead of refetching everything.
-let lastEventId: string | undefined;
+// Kept per stream URL, outside any one stream, so a stream reopened after the tab was hidden, or after
+// moving from the waiting page into the campaign, resumes from the last message it saw instead of
+// refetching everything. Stream IDs count one campaign's messages, so they never mix across campaigns.
+const lastEventIds = new Map<string, string>();
 
 function setLiveState(nextState: LiveState) {
 	if (nextState === liveState) {
@@ -46,15 +48,23 @@ export function useLiveState(): LiveState {
 	return useSyncExternalStore(subscribeToLiveState, readLiveState, readLiveState);
 }
 
-export function streamUrl(resumeFrom: string | undefined): string {
-	if (!resumeFrom) {
-		return streamPath;
-	}
-	return `${streamPath}?${new URLSearchParams({ last: resumeFrom }).toString()}`;
+export function streamPath(campaignId: string): string {
+	return `/api/campaigns/${encodeURIComponent(campaignId)}/stream`;
 }
 
-/** Opens the stream and keeps it open while the tab is visible; returns a function that stops it. */
-export function startLiveStream(queryClient: QueryClient): () => void {
+export function streamUrl(campaignId: string, resumeFrom: string | undefined): string {
+	const path = streamPath(campaignId);
+	if (!resumeFrom) {
+		return path;
+	}
+	return `${path}?${new URLSearchParams({ last: resumeFrom }).toString()}`;
+}
+
+/**
+ * Opens one campaign's stream and keeps it open while the tab is visible; returns a function that
+ * stops it.
+ */
+export function startLiveStream(queryClient: QueryClient, campaignId: string): () => void {
 	let source: EventSource | undefined;
 	let retryTimer: ReturnType<typeof setTimeout> | undefined;
 	let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -84,7 +94,9 @@ export function startLiveStream(queryClient: QueryClient): () => void {
 		if (stopped || source || document.hidden) {
 			return;
 		}
-		const eventSource = new EventSource(streamUrl(lastEventId));
+		const eventSource = new EventSource(
+			streamUrl(campaignId, lastEventIds.get(streamPath(campaignId))),
+		);
 		source = eventSource;
 		eventSource.addEventListener("open", () => {
 			failureCount = 0;
@@ -102,7 +114,7 @@ export function startLiveStream(queryClient: QueryClient): () => void {
 
 	function handleInvalidate(event: MessageEvent<unknown>) {
 		if (event.lastEventId) {
-			lastEventId = event.lastEventId;
+			lastEventIds.set(streamPath(campaignId), event.lastEventId);
 		}
 		let message: unknown;
 		try {
@@ -113,7 +125,7 @@ export function startLiveStream(queryClient: QueryClient): () => void {
 		if (!isInvalidateMessage(message)) {
 			return;
 		}
-		const queryKeys = queryKeysForTopics(message.topics);
+		const queryKeys = queryKeysForTopics(campaignId, message.topics);
 		if (queryKeys === "everything") {
 			queryClient.invalidateQueries();
 			return;
@@ -139,9 +151,11 @@ export function startLiveStream(queryClient: QueryClient): () => void {
 		failureCount += 1;
 		setLiveState("reconnecting");
 		if (failureCount === 1) {
-			// The most common refusal is an ended session (removed, or signed out elsewhere). Refetching
-			// /api/me finds out; a 401 there signs this tab out.
+			// The common refusals are an ended session (signed out elsewhere) and a campaign that is gone
+			// (deleted, 404). Refetching /api/me and this campaign's .../me finds out which; a 401 there
+			// signs this tab out.
 			queryClient.invalidateQueries({ queryKey: meQuery.queryKey });
+			queryClient.invalidateQueries({ queryKey: campaignMeQuery(campaignId).queryKey });
 		}
 		const delayIndex = Math.min(failureCount, retryDelaysInMilliseconds.length) - 1;
 		retryTimer = setTimeout(open, retryDelaysInMilliseconds[delayIndex]);
@@ -182,8 +196,8 @@ export function startLiveStream(queryClient: QueryClient): () => void {
 	};
 }
 
-/** Keeps the live stream open for as long as the calling screen is mounted. */
-export function useLiveUpdates() {
+/** Keeps the campaign's live stream open for as long as the calling screen is mounted. */
+export function useLiveUpdates(campaignId: string) {
 	const queryClient = useQueryClient();
-	useEffect(() => startLiveStream(queryClient), [queryClient]);
+	useEffect(() => startLiveStream(queryClient, campaignId), [queryClient, campaignId]);
 }

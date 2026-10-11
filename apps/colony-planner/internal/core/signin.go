@@ -2,23 +2,13 @@ package core
 
 import (
 	"context"
-	"errors"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/BBruington/colony-planner/internal/store"
 )
-
-// PendingMemberLimit caps how many people can wait at once; past it, new sign-ins are turned away so
-// a leaked link can't flood /players (spec §2.1).
-const PendingMemberLimit = 20
-
-// ErrSignUpsFull is returned to a first-time sign-in while PendingMemberLimit people are waiting.
-var ErrSignUpsFull = &Error{Kind: KindConflict, Message: "Not accepting new players right now."}
 
 // DiscordIdentity is what Discord's GET /users/@me says about the person signing in (or what dev
 // sign-in makes up).
@@ -35,85 +25,23 @@ const (
 	usernameMaxLength = 100
 )
 
-// SignIn records a Discord sign-in and returns the member it belongs to. The DM is always ACTIVE; a
-// first-time sign-in becomes PENDING (and Beny Bot pings the DM); everyone else keeps their status, so a
-// removed or denied member stays REMOVED and is not announced again (spec §8.5).
+// SignIn records a Discord sign-in and returns the account it belongs to. It only creates or refreshes
+// the account: nobody becomes a member of anything, and nobody is pinged. Joining is by invite link.
 func (service *Service) SignIn(requestContext context.Context, identity DiscordIdentity) (uuid.UUID, error) {
 	identity, err := normalizeIdentity(identity)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	isDM := service.isDM(identity.UserID)
-	var member store.Member
-	created := false
-	becameActive := false
-	err = service.inTransaction(requestContext, func(queries *store.Queries) error {
-		if err := queries.LockMemberSignIns(requestContext); err != nil {
-			return err
-		}
-		existing, err := queries.GetMemberByDiscordUserID(requestContext, identity.UserID)
-		if err == nil {
-			becameActive = isDM && existing.Status != store.MemberStatusACTIVE
-			member, err = queries.UpdateMemberFromDiscord(requestContext, store.UpdateMemberFromDiscordParams{
-				DiscordUsername: identity.Username,
-				DisplayName:     identity.DisplayName,
-				AvatarUrl:       identity.AvatarURL,
-				MakeActive:      isDM,
-				ID:              existing.ID,
-			})
-			return err
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-
-		signedInAt := time.Now().UTC()
-		parameters := store.CreateMemberParams{
-			DiscordUserID:   identity.UserID,
-			DiscordUsername: identity.Username,
-			DisplayName:     identity.DisplayName,
-			AvatarUrl:       identity.AvatarURL,
-			Status:          store.MemberStatusPENDING,
-			LastSeenAt:      &signedInAt,
-		}
-		if isDM {
-			parameters.Status = store.MemberStatusACTIVE
-			parameters.ApprovedAt = &signedInAt
-		} else {
-			pending, err := queries.CountPendingMembers(requestContext)
-			if err != nil {
-				return err
-			}
-			if pending >= PendingMemberLimit {
-				return ErrSignUpsFull
-			}
-		}
-		member, err = queries.CreateMember(requestContext, parameters)
-		if err != nil {
-			return err
-		}
-		created = true
-		return nil
+	account, err := service.queries.UpsertAccountFromDiscord(requestContext, store.UpsertAccountFromDiscordParams{
+		DiscordUserID:   identity.UserID,
+		DiscordUsername: identity.Username,
+		DisplayName:     identity.DisplayName,
+		AvatarUrl:       identity.AvatarURL,
 	})
 	if err != nil {
 		return uuid.Nil, err
 	}
-
-	if becameActive {
-		service.sessions.EvictMember(member.ID)
-	}
-	if created || becameActive {
-		service.broker.Publish(TopicMembers)
-	}
-	if created && member.Status == store.MemberStatusPENDING {
-		// The request may end before Discord answers; the ping is best-effort and must not be cut short.
-		service.notifier.MemberWaiting(context.WithoutCancel(requestContext), WaitingMember{
-			MemberID:        member.ID,
-			DisplayName:     member.DisplayName,
-			DiscordUsername: member.DiscordUsername,
-		})
-	}
-	return member.ID, nil
+	return account.ID, nil
 }
 
 func normalizeIdentity(identity DiscordIdentity) (DiscordIdentity, error) {
@@ -144,25 +72,29 @@ func truncateRunes(value string, maxLength int) string {
 	return string([]rune(value)[:maxLength])
 }
 
-// SignOut ends the caller's current web session and closes its live streams.
-func (service *Service) SignOut(requestContext context.Context, viewer Viewer) error {
-	if len(viewer.SessionTokenHash) == 0 {
+// SignOut ends the caller's current web session and closes its live streams in every campaign.
+func (service *Service) SignOut(requestContext context.Context, caller Caller) error {
+	if len(caller.SessionTokenHash) == 0 {
 		return nil
 	}
-	if err := service.queries.DeleteSession(requestContext, viewer.SessionTokenHash); err != nil {
+	if err := service.queries.DeleteSession(requestContext, caller.SessionTokenHash); err != nil {
 		return err
 	}
-	service.sessions.EvictSession(viewer.SessionTokenHash)
-	service.broker.CloseSession(viewer.SessionTokenHash)
+	service.sessions.EvictSession(caller.SessionTokenHash)
+	service.broker.CloseSession(caller.SessionTokenHash)
 	return nil
 }
 
-// SignOutEverywhere ends every web session of the caller, on every device, and closes their streams.
-func (service *Service) SignOutEverywhere(requestContext context.Context, viewer Viewer) error {
-	if err := service.queries.DeleteMemberSessions(requestContext, viewer.MemberID); err != nil {
+// SignOutEverywhere ends every web session of the caller's account, on every device, and closes their
+// streams.
+func (service *Service) SignOutEverywhere(requestContext context.Context, caller Caller) error {
+	if err := requireSignedIn(caller); err != nil {
 		return err
 	}
-	service.sessions.EvictMember(viewer.MemberID)
-	service.broker.CloseMember(viewer.MemberID)
+	if err := service.queries.DeleteAccountSessions(requestContext, caller.AccountID); err != nil {
+		return err
+	}
+	service.sessions.EvictAccount(caller.AccountID)
+	service.broker.CloseAccount(caller.AccountID)
 	return nil
 }

@@ -1,5 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
+	CrownIcon,
+	DoorOpenIcon,
 	EyeIcon,
+	LayoutGridIcon,
 	LogOutIcon,
 	MonitorIcon,
 	MoonIcon,
@@ -9,6 +14,7 @@ import {
 	UsersRoundIcon,
 } from "lucide-react";
 import { useState } from "react";
+import { adminCampaignRequestsQuery } from "@/api/queries";
 import { MemberAvatar } from "@/components/member-avatar";
 import {
 	AlertDialog,
@@ -34,16 +40,20 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useViewAsPlayer } from "@/hooks/use-view-as-player";
-import { type Me, tableName } from "@/lib/access";
+import { type AccountMe, type Me, tableName } from "@/lib/access";
 import { signOutAndLeave } from "@/lib/sign-out";
 import { setThemePreference, type ThemePreference, useThemePreference } from "@/lib/theme";
 import { CharacterNameSheet } from "./character-name-sheet";
+import { LeaveCampaignDialog } from "./leave-campaign-dialog";
 
 function isThemePreference(value: string): value is ThemePreference {
 	return value === "device" || value === "light" || value === "dark";
 }
 
-function profileHeading(me: Me): string {
+function profileHeading(account: AccountMe, me: Me | undefined): string {
+	if (!me) {
+		return account.displayName;
+	}
 	if (me.member.characterName) {
 		return me.member.characterName;
 	}
@@ -53,12 +63,17 @@ function profileHeading(me: Me): string {
 	return "No character yet";
 }
 
-export function ProfileMenu({ me }: { me: Me }) {
+/**
+ * The profile menu, inside a campaign (character name, view as player, leave) or outside every
+ * campaign. Both reach every campaign, Site admin for the owner, the theme and sign-out.
+ */
+export function ProfileMenu({ account, me }: { account: AccountMe; me?: Me }) {
 	const theme = useThemePreference();
-	const { setViewAsPlayer, isSwitching } = useViewAsPlayer();
 	const [isCharacterSheetOpen, setCharacterSheetOpen] = useState(false);
+	const [isLeaveOpen, setLeaveOpen] = useState(false);
 	const [isSignOutEverywhereOpen, setSignOutEverywhereOpen] = useState(false);
-	const name = tableName(me.member);
+	const name = me ? tableName(me.member) : account.displayName;
+	const avatarUrl = me ? me.member.avatarUrl : account.avatarUrl;
 
 	return (
 		<>
@@ -69,19 +84,21 @@ export function ProfileMenu({ me }: { me: Me }) {
 						className="inline-flex size-11 items-center justify-center rounded-full outline-none transition-shadow hover:ring-2 hover:ring-gilt/40 focus-visible:ring-[3px] focus-visible:ring-ring/45"
 						type="button"
 					>
-						<MemberAvatar avatarUrl={me.member.avatarUrl} name={name} size="sm" />
+						<MemberAvatar avatarUrl={avatarUrl} name={name} size="sm" />
 					</button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end" className="w-72">
 					<div className="flex items-center gap-3 px-2.5 pt-2 pb-3">
-						<MemberAvatar avatarUrl={me.member.avatarUrl} name={name} />
+						<MemberAvatar avatarUrl={avatarUrl} name={name} />
 						<div className="min-w-0">
 							<p className="truncate font-display font-semibold text-base text-gilt-ink tracking-wide">
-								{profileHeading(me)}
+								{profileHeading(account, me)}
 							</p>
 							<p className="flex items-center gap-2 text-muted-foreground text-sm">
-								<span className="truncate">{me.member.displayName}</span>
-								{me.isDm ? (
+								<span className="truncate">
+									{me ? account.displayName : `@${account.discordUsername}`}
+								</span>
+								{me?.isDm ? (
 									<Badge variant="gilt">
 										<ShieldCheckIcon />
 										DM
@@ -90,27 +107,41 @@ export function ProfileMenu({ me }: { me: Me }) {
 							</p>
 						</div>
 					</div>
-					<DropdownMenuSeparator />
-					<DropdownMenuItem
-						onSelect={() => {
-							setCharacterSheetOpen(true);
-						}}
-					>
-						<PenLineIcon />
-						Character name
-					</DropdownMenuItem>
-					{me.isDm ? (
-						<DropdownMenuCheckboxItem
-							checked={me.viewAsPlayer}
-							disabled={isSwitching}
-							onCheckedChange={(checked) => {
-								setViewAsPlayer(checked);
-							}}
-						>
-							<EyeIcon className="text-muted-foreground" />
-							View as player
-						</DropdownMenuCheckboxItem>
+					{me ? (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem
+								onSelect={() => {
+									setCharacterSheetOpen(true);
+								}}
+							>
+								<PenLineIcon />
+								Character name
+							</DropdownMenuItem>
+							{me.isDm ? <ViewAsPlayerItem viewAsPlayer={me.viewAsPlayer} /> : null}
+							{me.isDm ? null : (
+								<DropdownMenuItem
+									onSelect={() => {
+										setLeaveOpen(true);
+									}}
+									variant="destructive"
+								>
+									<DoorOpenIcon />
+									Leave this campaign…
+								</DropdownMenuItem>
+							)}
+						</>
 					) : null}
+					<DropdownMenuSeparator />
+					<DropdownMenuGroup>
+						<DropdownMenuItem asChild>
+							<Link to="/">
+								<LayoutGridIcon />
+								All campaigns
+							</Link>
+						</DropdownMenuItem>
+						{account.isSiteOwner ? <SiteAdminItem /> : null}
+					</DropdownMenuGroup>
 					<DropdownMenuSeparator />
 					<DropdownMenuLabel>Theme</DropdownMenuLabel>
 					<DropdownMenuRadioGroup
@@ -157,11 +188,22 @@ export function ProfileMenu({ me }: { me: Me }) {
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<CharacterNameSheet
-				me={me}
-				onOpenChange={setCharacterSheetOpen}
-				open={isCharacterSheetOpen}
-			/>
+			{me ? (
+				<>
+					<CharacterNameSheet
+						me={me}
+						onOpenChange={setCharacterSheetOpen}
+						open={isCharacterSheetOpen}
+					/>
+					<LeaveCampaignDialog
+						campaignId={me.campaign.id}
+						campaignName={me.campaign.name}
+						isWaiting={false}
+						onOpenChange={setLeaveOpen}
+						open={isLeaveOpen}
+					/>
+				</>
+			) : null}
 
 			<AlertDialog onOpenChange={setSignOutEverywhereOpen} open={isSignOutEverywhereOpen}>
 				<AlertDialogContent>
@@ -186,5 +228,42 @@ export function ProfileMenu({ me }: { me: Me }) {
 				</AlertDialogContent>
 			</AlertDialog>
 		</>
+	);
+}
+
+/** View as player, a session switch: it needs the campaign on screen to send it. */
+function ViewAsPlayerItem({ viewAsPlayer }: { viewAsPlayer: boolean }) {
+	const { setViewAsPlayer, isSwitching } = useViewAsPlayer();
+	return (
+		<DropdownMenuCheckboxItem
+			checked={viewAsPlayer}
+			disabled={isSwitching}
+			onCheckedChange={(checked) => {
+				setViewAsPlayer(checked);
+			}}
+		>
+			<EyeIcon className="text-muted-foreground" />
+			View as player
+		</DropdownMenuCheckboxItem>
+	);
+}
+
+/** The owner's way to /admin, with the open requests waiting there (read on focus, §5.2). */
+function SiteAdminItem() {
+	const requests = useQuery(adminCampaignRequestsQuery);
+	const openCount = requests.data?.requests.length ?? 0;
+	return (
+		<DropdownMenuItem asChild>
+			<Link to="/admin">
+				<CrownIcon />
+				<span className="flex-1">Site admin</span>
+				{openCount > 0 ? (
+					<span className="inline-flex min-w-6 items-center justify-center rounded-full bg-primary px-1.5 font-semibold text-primary-foreground text-xs leading-5">
+						{openCount}
+						<span className="sr-only">{openCount === 1 ? " open request" : " open requests"}</span>
+					</span>
+				) : null}
+			</Link>
+		</DropdownMenuItem>
 	);
 }

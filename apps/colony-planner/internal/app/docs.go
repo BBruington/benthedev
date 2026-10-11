@@ -14,7 +14,7 @@ func serveOpenAPI(document []byte) http.Handler {
 }
 
 // The docs page is huma's Stoplight Elements page, pinned with subresource integrity, pointed at the
-// dm-only /api/openapi.json.
+// owner-only /api/openapi.json.
 var docsContentSecurityPolicy = strings.Join([]string{
 	"default-src 'none'",
 	"base-uri 'none'",

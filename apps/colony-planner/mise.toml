@@ -23,6 +23,10 @@ run = [
   "cd web && bun install --frozen-lockfile",
 ]
 
+[tasks."env:upgrade"]
+description = "M1.5: rename DM_DISCORD_ID to SITE_OWNER_DISCORD_ID in .env (value kept, never printed)"
+run = "scripts/migrate-env.sh"
+
 [tasks."db:up"]
 description = "Start the local Postgres 17 container (127.0.0.1:54329) and wait until it is ready"
 run = "scripts/db-up.sh"
