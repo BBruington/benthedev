@@ -1,16 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
-import { membersQuery, settingsQuery } from "@/api/queries";
+import { colonyBoardQuery, membersQuery } from "@/api/queries";
 import { canUseDmTools, type Me } from "@/lib/access";
 
 export const fallbackCampaignName = "Colony Planner";
 
 /**
- * The campaign's name for the top bar. Only the DM can read settings in M0, so everyone else (and
- * the DM viewing as a player) sees the app's name until a member-level read carries it.
+ * The campaign's and the colony's names, from the member-level board read, so every player sees
+ * them too (the DM edits both on /settings). Undefined until the board has loaded.
  */
-export function useCampaignName(me: Me): string | undefined {
-	const { data } = useQuery({ ...settingsQuery, enabled: canUseDmTools(me) });
-	return data?.campaignName || undefined;
+export function useColonyNames(): { campaignName: string; colonyName: string } | undefined {
+	const { data } = useQuery(colonyBoardQuery);
+	if (!data) {
+		return undefined;
+	}
+	return { campaignName: data.campaignName, colonyName: data.colonyName };
+}
+
+/** The campaign's name for page titles; undefined until it has loaded. */
+export function useCampaignName(): string | undefined {
+	return useColonyNames()?.campaignName || undefined;
 }
 
 /** How many people are waiting at the door, for the DM's badges; 0 for everyone else. */

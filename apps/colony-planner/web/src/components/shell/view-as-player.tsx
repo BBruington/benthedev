@@ -1,9 +1,14 @@
 import { EyeIcon } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useViewAsPlayer } from "@/hooks/use-view-as-player";
 import type { Me } from "@/lib/access";
+import { focusFirstVisible } from "@/lib/focus";
+
+const viewAsPlayerButtonId = "view-as-player-button";
+const viewAsPlayerSwitchId = "view-as-player-switch";
 
 /** The DM's switch in the top bar: an eye on phones, a labelled switch on wider screens. */
 export function ViewAsPlayerToggle({ me }: { me: Me }) {
@@ -17,6 +22,7 @@ export function ViewAsPlayerToggle({ me }: { me: Me }) {
 						aria-pressed={me.viewAsPlayer}
 						className="aria-pressed:bg-verdigris/20 aria-pressed:text-verdigris-ink md:hidden"
 						disabled={isSwitching}
+						id={viewAsPlayerButtonId}
 						onClick={() => {
 							setViewAsPlayer(!me.viewAsPlayer);
 						}}
@@ -32,12 +38,12 @@ export function ViewAsPlayerToggle({ me }: { me: Me }) {
 			</Tooltip>
 			<label
 				className="hidden h-11 cursor-pointer select-none items-center gap-2.5 rounded-md px-3 text-muted-foreground text-sm transition-colors hover:bg-accent hover:text-foreground md:inline-flex"
-				htmlFor="view-as-player-switch"
+				htmlFor={viewAsPlayerSwitchId}
 			>
 				<Switch
 					checked={me.viewAsPlayer}
 					disabled={isSwitching}
-					id="view-as-player-switch"
+					id={viewAsPlayerSwitchId}
 					onCheckedChange={setViewAsPlayer}
 				/>
 				View as player
@@ -49,6 +55,17 @@ export function ViewAsPlayerToggle({ me }: { me: Me }) {
 /** Shown under the top bar for as long as view as player is on (spec §2.1). */
 export function ViewAsPlayerBanner() {
 	const { setViewAsPlayer, isSwitching } = useViewAsPlayer();
+	// Back to DM view removes this banner and its button, so focus goes to the top bar's switch (the
+	// eye on phones), which is back in the page by the time the banner unmounts.
+	const switchingBack = useRef(false);
+	useEffect(
+		() => () => {
+			if (switchingBack.current) {
+				focusFirstVisible(viewAsPlayerButtonId, viewAsPlayerSwitchId);
+			}
+		},
+		[],
+	);
 	return (
 		<div className="border-verdigris/35 border-t bg-verdigris/12" role="status">
 			<div className="flex items-center gap-3 px-4 py-2 md:px-6">
@@ -68,6 +85,7 @@ export function ViewAsPlayerBanner() {
 					className="shrink-0"
 					disabled={isSwitching}
 					onClick={() => {
+						switchingBack.current = true;
 						setViewAsPlayer(false);
 					}}
 					size="sm"

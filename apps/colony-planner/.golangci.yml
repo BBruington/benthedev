@@ -25,6 +25,14 @@ linters:
               desc: internal/game does no network access
             - pkg: github.com/bwmarrin/discordgo
               desc: internal/game does no network access
+            - pkg: os
+              desc: internal/game does no file or process access; handlers load data and pass it in
+            - pkg: os/exec
+              desc: internal/game starts no processes
+            - pkg: syscall
+              desc: internal/game does no system calls
+            - pkg: log
+              desc: internal/game reports through return values, not logs
             - pkg: math/rand
               desc: internal/game is deterministic
             - pkg: crypto/rand
@@ -129,7 +137,8 @@ linters:
               desc: the seed never talks to Discord
     forbidigo:
       forbid:
-        - pattern: ^time\.Now$
+        # time itself stays allowed: occurrences() needs time.Date and a *time.Location passed in.
+        - pattern: ^time\.(Now|Since|Until|After|AfterFunc|Tick|NewTicker|NewTimer|Sleep)$
           msg: internal/game has no clock; pass the time in
   exclusions:
     rules:

@@ -3,13 +3,14 @@ import { ArrowLeftIcon, EyeIcon, ShieldAlertIcon } from "lucide-react";
 import { StatusPanel } from "@/components/status-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { fallbackCampaignName, useCampaignName } from "@/hooks/use-campaign";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { useViewAsPlayer } from "@/hooks/use-view-as-player";
 import type { Me } from "@/lib/access";
 
 /** The 403 page: what a player sees on a DM screen, and what the DM sees there as a player. */
 export function Forbidden({ me }: { me: Me }) {
-	useDocumentTitle("DM only", "Colony Planner");
+	useDocumentTitle("DM only", useCampaignName() ?? fallbackCampaignName);
 	const { setViewAsPlayer, isSwitching } = useViewAsPlayer();
 	const backToColony = (
 		<Button asChild variant="outline">

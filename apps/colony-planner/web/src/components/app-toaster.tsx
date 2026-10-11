@@ -1,13 +1,21 @@
 import { Toaster } from "sonner";
 import { useResolvedTheme } from "@/lib/theme";
 
-/** Sonner, dressed in the palette. Toasts sit at the top, clear of the phone tab bar. */
+// Just below the sticky header (whose measured height already includes the safe area), so toasts
+// never cover its buttons; pages without the header fall back to the safe area alone. Sonner uses
+// mobileOffset below 600 px, so both are set.
+const toastTopOffset = {
+	top: "calc(var(--shell-header-height, env(safe-area-inset-top)) + 0.75rem)",
+};
+
+/** Sonner, dressed in the palette. Toasts sit at the top, clear of the header and the phone tab bar. */
 export function AppToaster() {
 	const theme = useResolvedTheme();
 	return (
 		<Toaster
 			gap={10}
-			offset={{ top: "calc(env(safe-area-inset-top) + 0.75rem)" }}
+			mobileOffset={toastTopOffset}
+			offset={toastTopOffset}
 			position="top-center"
 			theme={theme}
 			toastOptions={{

@@ -1,6 +1,16 @@
 import type { QueryKey } from "@tanstack/react-query";
 import type { Schemas } from "./client";
-import { membersQuery, meQuery, settingsQuery } from "./queries";
+import {
+	adjustPreviewQueryKeyPrefix,
+	advancePreviewQueryKeyPrefix,
+	colonyBoardQuery,
+	membersQuery,
+	meQuery,
+	recentTimelineQuery,
+	resourcesQuery,
+	settingsQuery,
+	timelineQueryKeyPrefix,
+} from "./queries";
 
 export type Topic = Schemas["Topic"];
 
@@ -9,9 +19,13 @@ export type Topic = Schemas["Topic"];
  * server fail typechecking here until it is mapped.
  */
 export const topicQueryKeys: Record<Topic, readonly QueryKey[]> = {
+	// A preview is only valid for the version it saw, so any colony change makes it stale.
+	colony: [colonyBoardQuery.queryKey, advancePreviewQueryKeyPrefix, adjustPreviewQueryKeyPrefix],
 	me: [meQuery.queryKey],
 	members: [membersQuery.queryKey],
+	resources: [resourcesQuery.queryKey],
 	settings: [settingsQuery.queryKey],
+	timeline: [timelineQueryKeyPrefix, recentTimelineQuery.queryKey],
 };
 
 function isKnownTopic(topic: string): topic is Topic {

@@ -12,13 +12,13 @@ import {
 	UserXIcon,
 	XIcon,
 } from "lucide-react";
-import { type FormEvent, Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
-import { fieldErrors, problemMessage } from "@/api/problem";
+import { problemMessage } from "@/api/problem";
 import { membersQuery } from "@/api/queries";
 import { BottomSheet } from "@/components/bottom-sheet";
-import { Field, fieldInputProps } from "@/components/field";
+import { CharacterNameForm } from "@/components/character-name-form";
 import { MemberAvatar } from "@/components/member-avatar";
 import { PageHeader } from "@/components/page-header";
 import { Forbidden } from "@/components/shell/forbidden";
@@ -42,12 +42,12 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fallbackCampaignName, useCampaignName } from "@/hooks/use-campaign";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { useMe } from "@/hooks/use-me";
 import { cachedMe, canUseDmTools, tableName } from "@/lib/access";
+import { focusFirstVisible } from "@/lib/focus";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 
 type Member = Schemas["Member"];
@@ -76,8 +76,7 @@ function PlayersRoute() {
 type Confirmation = { kind: "deny" | "remove" | "readmit"; member: Member };
 
 function PlayersPage() {
-	const me = useMe();
-	useDocumentTitle("Players", useCampaignName(me) ?? fallbackCampaignName);
+	useDocumentTitle("Players", useCampaignName() ?? fallbackCampaignName);
 	const members = useQuery(membersQuery);
 	const actions = useMemberActions();
 	const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
@@ -162,14 +161,17 @@ function MembersBody({
 				count={waiting.length}
 				description="New sign-ins appear here straight away, and Beny Bot pings your DM channel."
 				emptyMessage="No one is waiting to join."
+				headingId={sectionHeadingIds.waiting}
+				notice={
+					waiting.length >= pendingCap ? (
+						<p className="rounded-lg border border-gilt/40 bg-gilt/10 px-4 py-3 text-sm">
+							The waiting list is full ({pendingCap}). New sign-ins are told you aren't taking
+							players until you approve or deny someone.
+						</p>
+					) : null
+				}
 				title="Waiting to join"
 			>
-				{waiting.length >= pendingCap ? (
-					<p className="rounded-lg border border-gilt/40 bg-gilt/10 px-4 py-3 text-sm">
-						The waiting list is full ({pendingCap}). New sign-ins are told you aren't taking players
-						until you approve or deny someone.
-					</p>
-				) : null}
 				{waiting.map((member) => (
 					<MemberRow
 						actions={
@@ -208,6 +210,7 @@ function MembersBody({
 				count={playing.length}
 				description="Character names show across the site and in Beny Bot's replies."
 				emptyMessage="No one has been let in yet."
+				headingId={sectionHeadingIds.playing}
 				title="Playing"
 			>
 				{playing.map((member) => (
@@ -236,6 +239,7 @@ function MembersBody({
 				count={turnedAway.length}
 				description="Removed and denied accounts can't ask again. Only you can let them back in."
 				emptyMessage="No one has been removed or denied."
+				headingId={sectionHeadingIds.removed}
 				title="Removed or denied"
 			>
 				{turnedAway.map((member) => (
@@ -306,31 +310,37 @@ function lastSeen(member: Member): ReactNode {
 }
 
 function MemberSection({
+	headingId,
 	title,
 	description,
 	count,
 	emptyMessage,
+	notice,
 	children,
 }: {
+	headingId: string;
 	title: string;
 	description: string;
 	count: number;
 	emptyMessage: string;
+	/** Shown above the list, outside it. */
+	notice?: ReactNode;
 	children: ReactNode;
 }) {
-	const headingId = `members-${title.toLowerCase().replaceAll(" ", "-")}`;
 	return (
 		<section aria-labelledby={headingId} className="flex flex-col gap-3">
 			<div>
 				<h2
-					className="flex items-center gap-2.5 font-display font-semibold text-xl tracking-wide"
+					className="flex items-center gap-2.5 font-display font-semibold text-xl tracking-wide outline-none"
 					id={headingId}
+					tabIndex={-1}
 				>
 					{title}
 					<Badge variant="muted">{count}</Badge>
 				</h2>
 				<p className="text-muted-foreground text-sm">{description}</p>
 			</div>
+			{notice}
 			{count === 0 ? (
 				<p className="rounded-xl border border-border border-dashed px-4 py-6 text-center text-muted-foreground">
 					{emptyMessage}
@@ -464,6 +474,21 @@ function PlayersSkeleton() {
 
 type MemberActionKind = "approve" | "deny" | "remove" | "readmit";
 
+/** Section headings take focus when an action moves a row (and its buttons) to another section. */
+const sectionHeadingIds = {
+	playing: "members-playing",
+	removed: "members-removed-or-denied",
+	waiting: "members-waiting-to-join",
+} as const;
+
+/** Where focus goes once an action succeeds (the row's new section) or fails (the row's own section). */
+const focusTargets: Record<MemberActionKind, { succeeded: string; failed: string }> = {
+	approve: { failed: sectionHeadingIds.waiting, succeeded: sectionHeadingIds.playing },
+	deny: { failed: sectionHeadingIds.waiting, succeeded: sectionHeadingIds.removed },
+	readmit: { failed: sectionHeadingIds.removed, succeeded: sectionHeadingIds.playing },
+	remove: { failed: sectionHeadingIds.playing, succeeded: sectionHeadingIds.removed },
+};
+
 type MemberActions = {
 	run: (kind: MemberActionKind, member: Member) => void;
 	isBusy: (member: Member) => boolean;
@@ -492,6 +517,7 @@ function useMemberActions(): MemberActions {
 		return {
 			onError: (error: unknown) => {
 				toast.error(problemMessage(error, failureMessages[kind]));
+				focusFirstVisible(focusTargets[kind].failed);
 			},
 			onSettled: () => {
 				setBusyMemberIds((current) => {
@@ -503,6 +529,7 @@ function useMemberActions(): MemberActions {
 			},
 			onSuccess: () => {
 				toast.success(successMessages[kind](tableName(member)));
+				focusFirstVisible(focusTargets[kind].succeeded);
 			},
 		};
 	}
@@ -563,9 +590,19 @@ function ConfirmMemberAction({
 		setShown(confirmation);
 	}
 	const copy = shown ? confirmationCopy[shown.kind] : undefined;
+	// After a confirmed action the trigger is disabled and about to move, so Radix can't return focus to
+	// it; the action moves focus to a section heading when it settles instead (useMemberActions).
+	const confirmed = useRef(false);
 	return (
 		<AlertDialog onOpenChange={onOpenChange} open={confirmation !== null}>
-			<AlertDialogContent>
+			<AlertDialogContent
+				onCloseAutoFocus={(event) => {
+					if (confirmed.current) {
+						event.preventDefault();
+						confirmed.current = false;
+					}
+				}}
+			>
 				{shown && copy ? (
 					<>
 						<AlertDialogHeader>
@@ -576,6 +613,7 @@ function ConfirmMemberAction({
 							<AlertDialogCancel>Cancel</AlertDialogCancel>
 							<AlertDialogAction
 								onClick={() => {
+									confirmed.current = true;
 									onConfirmed(shown);
 								}}
 								variant={copy.destructive ? "destructive" : "default"}
@@ -609,7 +647,7 @@ function CharacterNameEditor({
 			title="Character name"
 		>
 			{shown ? (
-				<CharacterNameForm
+				<MemberCharacterNameForm
 					key={shown.id}
 					member={shown}
 					onDone={() => {
@@ -621,9 +659,8 @@ function CharacterNameEditor({
 	);
 }
 
-function CharacterNameForm({ member, onDone }: { member: Member; onDone: () => void }) {
+function MemberCharacterNameForm({ member, onDone }: { member: Member; onDone: () => void }) {
 	const queryClient = useQueryClient();
-	const [characterName, setCharacterName] = useState(member.characterName ?? "");
 	const mutation = api.useMutation("put", "/api/members/{memberId}/character-name", {
 		onSettled: () => {
 			queryClient.invalidateQueries({ queryKey: membersQuery.queryKey });
@@ -637,53 +674,19 @@ function CharacterNameForm({ member, onDone }: { member: Member; onDone: () => v
 			onDone();
 		},
 	});
-	const errors = fieldErrors(mutation.error);
-	const generalError =
-		mutation.error && !errors.characterName
-			? problemMessage(mutation.error, "The character name couldn't be saved.")
-			: undefined;
-
-	function handleSubmit(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault();
-		const trimmed = characterName.trim();
-		mutation.mutate({
-			body: { characterName: trimmed === "" ? null : trimmed },
-			params: { path: { memberId: member.id } },
-		});
-	}
 
 	return (
-		<form className="grid gap-5" onSubmit={handleSubmit}>
-			<Field
-				description="Leave it empty to clear it."
-				error={errors.characterName}
-				id="member-character-name"
-				label="Character name"
-			>
-				<Input
-					{...fieldInputProps("member-character-name", errors.characterName, true)}
-					autoComplete="off"
-					autoFocus
-					maxLength={60}
-					onChange={(event) => {
-						setCharacterName(event.target.value);
-					}}
-					value={characterName}
-				/>
-			</Field>
-			{generalError ? (
-				<p className="text-ember-ink text-sm" role="alert">
-					{generalError}
-				</p>
-			) : null}
-			<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-				<Button onClick={onDone} type="button" variant="ghost">
-					Cancel
-				</Button>
-				<Button disabled={mutation.isPending} type="submit">
-					{mutation.isPending ? "Saving…" : "Save"}
-				</Button>
-			</div>
-		</form>
+		<CharacterNameForm
+			description="Leave it empty to clear it."
+			error={mutation.error}
+			failureMessage="The character name couldn't be saved."
+			id="member-character-name"
+			initialName={member.characterName ?? ""}
+			isPending={mutation.isPending}
+			onCancel={onDone}
+			onSubmit={(characterName) => {
+				mutation.mutate({ body: { characterName }, params: { path: { memberId: member.id } } });
+			}}
+		/>
 	);
 }

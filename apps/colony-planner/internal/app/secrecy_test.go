@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"slices"
 	"sort"
@@ -19,30 +20,22 @@ import (
 	"github.com/BBruington/colony-planner/internal/store"
 )
 
-// The secrecy and access test (spec §2.2, item 6). Every DM-only value in the fixtures holds a canary.
-// Every operation in the OpenAPI document and every route in the route table is called as a player, a
-// pending member and a removed member: dm routes must answer 403, member routes 403 for anyone not
-// let in, and no response may contain a canary. New endpoints are covered without editing this test.
-
-func plantSettingsCanaries(t *testing.T, testHarness *harness) {
-	t.Helper()
-	channelID := numericCanary
-	if _, err := store.New(testHarness.database.Pool).UpdateSettings(context.Background(), store.UpdateSettingsParams{
-		CampaignName:             "Test Campaign",
-		Timezone:                 "UTC",
-		DiscordAnnounceChannelID: &channelID,
-		DiscordReminderChannelID: &channelID,
-		DiscordDmChannelID:       &channelID,
-	}); err != nil {
-		t.Fatalf("plant settings canaries: %v", err)
-	}
-}
+// The secrecy and access test (spec §2.2, item 6). Each feature plants a canary in every DM-only value
+// it stores (secrecy_fixtures_test.go). Every operation in the OpenAPI document and every route in the
+// route table is then called as a player, the DM viewing as player, a pending member, a removed member
+// and a visitor: dm routes must answer 403, member routes 403 for anyone not let in, member reads must
+// succeed for an active caller, every /api/ and /auth/ response must say Cache-Control: no-store, and
+// no response may contain a canary. Path parameters point at the fixtures' rows and required query
+// parameters are filled from their schemas, so a new endpoint is swept without editing this file. Its
+// DM-only data is covered only once its feature plants canaries: plant one for every new Dm field or
+// hidden row.
 
 type documentedOperation struct {
 	method      string
 	path        string
 	access      AccessLevel
 	requestBody map[string]any
+	parameters  []map[string]any
 }
 
 func documentedOperations(t *testing.T, server *Server) ([]documentedOperation, map[string]any) {
@@ -69,6 +62,12 @@ func documentedOperations(t *testing.T, server *Server) ([]documentedOperation, 
 			if requestBody, hasBody := operation["requestBody"].(map[string]any); hasBody {
 				documented.requestBody = requestBody
 			}
+			parameters, _ := operation["parameters"].([]any)
+			for _, parameterValue := range parameters {
+				if parameter, isParameter := parameterValue.(map[string]any); isParameter {
+					documented.parameters = append(documented.parameters, parameter)
+				}
+			}
 			operations = append(operations, documented)
 		}
 	}
@@ -83,9 +82,44 @@ func documentedOperations(t *testing.T, server *Server) ([]documentedOperation, 
 
 var pathParameter = regexp.MustCompile(`\{[^}]+\}`)
 
-// fillPath puts a real member's ID into every path parameter, so handlers run against existing rows.
-func fillPath(path string, memberID uuid.UUID) string {
-	return pathParameter.ReplaceAllString(path, memberID.String())
+// fillPath puts the fixture row named after each path parameter into the path, so handlers run against
+// existing rows. A parameter no fixture names fails the test: add its ID in secrecy_fixtures_test.go.
+func fillPath(t *testing.T, path string, fixtureIDs map[string]string) string {
+	t.Helper()
+	return pathParameter.ReplaceAllStringFunc(path, func(placeholder string) string {
+		name := strings.TrimSuffix(strings.TrimPrefix(placeholder, "{"), "}")
+		id, known := fixtureIDs[name]
+		if !known {
+			t.Errorf("%s: no secrecy fixture names path parameter %q; return one from its feature's plant", path, name)
+			return uuid.Nil.String()
+		}
+		return id
+	})
+}
+
+// fillQuery adds every required query parameter: a fixture ID when one has its name, otherwise a value
+// shaped by its schema.
+func fillQuery(document map[string]any, operation documentedOperation, fixtureIDs map[string]string, memberID uuid.UUID) string {
+	query := url.Values{}
+	for _, parameter := range operation.parameters {
+		if location, _ := parameter["in"].(string); location != "query" {
+			continue
+		}
+		if required, _ := parameter["required"].(bool); !required {
+			continue
+		}
+		name, _ := parameter["name"].(string)
+		if id, known := fixtureIDs[name]; known {
+			query.Set(name, id)
+			continue
+		}
+		schema, _ := parameter["schema"].(map[string]any)
+		query.Set(name, fmt.Sprint(sampleValue(document, schema, memberID)))
+	}
+	if len(query) == 0 {
+		return ""
+	}
+	return "?" + query.Encode()
 }
 
 // sampleBody builds a schema-shaped JSON body, so the handler behind validation runs too.
@@ -138,10 +172,12 @@ func sampleValue(document map[string]any, schema map[string]any, memberID uuid.U
 		if format, _ := schema["format"].(string); format == "uuid" {
 			return memberID.String()
 		}
-		if pattern, _ := schema["pattern"].(string); pattern == "^[0-9]{17,20}$" {
+		// Core checks formats, so the schema only describes them; a valid sample lets the handler run.
+		description, _ := schema["description"].(string)
+		if strings.Contains(description, "Discord channel ID") {
 			return "123456789012345678"
 		}
-		if name, _ := schema["description"].(string); strings.Contains(name, "IANA") {
+		if strings.Contains(description, "IANA") {
 			return "America/New_York"
 		}
 		return "Sample"
@@ -170,13 +206,27 @@ func expectedRefusal(access AccessLevel, viewer core.Viewer, signedIn bool) int 
 	return 0
 }
 
-func checkSecrecy(t *testing.T, label string, access AccessLevel, viewer core.Viewer, signedIn bool, response *httptest.ResponseRecorder) {
+// mustSucceed reports whether an active caller's request is a plain read that has to work. A member
+// read that answers 404 or 422 never ran its data path, so the sweep would prove nothing about it.
+func mustSucceed(method string, access AccessLevel, viewer core.Viewer, signedIn bool) bool {
+	return signedIn && viewer.IsActive() && method == http.MethodGet && (access == AccessMember || access == AccessPending)
+}
+
+func checkSecrecy(t *testing.T, label, method, path string, access AccessLevel, viewer core.Viewer, signedIn bool, response *httptest.ResponseRecorder) {
 	t.Helper()
 	if refusal := expectedRefusal(access, viewer, signedIn); refusal != 0 && response.Code != refusal {
 		t.Errorf("%s (%s): status %d, want %d; body: %s", label, access, response.Code, refusal, response.Body.String())
 	}
 	if response.Code >= http.StatusInternalServerError {
 		t.Errorf("%s (%s): status %d; body: %s", label, access, response.Code, response.Body.String())
+	}
+	if mustSucceed(method, access, viewer, signedIn) && (response.Code < 200 || response.Code > 299) {
+		t.Errorf("%s (%s): an active member's read answered %d; body: %s", label, access, response.Code, response.Body.String())
+	}
+	if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/") {
+		if cacheControl := response.Header().Get("Cache-Control"); !strings.Contains(cacheControl, "no-store") {
+			t.Errorf("%s (%s): Cache-Control %q, want no-store", label, access, cacheControl)
+		}
 	}
 	var headers strings.Builder
 	_ = response.Header().Write(&headers)
@@ -190,28 +240,39 @@ func checkSecrecy(t *testing.T, label string, access AccessLevel, viewer core.Vi
 
 func TestEveryRouteKeepsDmDataSecret(t *testing.T) {
 	testHarness := newHarness(t)
-	plantSettingsCanaries(t, testHarness)
+	fixtureIDs := plantCanaries(t, testHarness)
 	operations, document := documentedOperations(t, testHarness.server)
+	dmViewingAsPlayer := testHarness.viewerOf(testHarness.dm)
+	dmViewingAsPlayer.ViewAsPlayer = true
 
 	for _, caller := range []struct {
-		name     string
-		member   store.Member
-		signedIn bool
+		name         string
+		member       store.Member
+		viewer       core.Viewer
+		signedIn     bool
+		viewAsPlayer bool
 	}{
-		{name: "player", member: testHarness.player, signedIn: true},
-		{name: "pending member", member: testHarness.pending, signedIn: true},
-		{name: "removed member", member: testHarness.removed, signedIn: true},
+		{name: "player", member: testHarness.player, viewer: testHarness.viewerOf(testHarness.player), signedIn: true},
+		{name: "DM viewing as player", member: testHarness.dm, viewer: dmViewingAsPlayer, signedIn: true, viewAsPlayer: true},
+		{name: "pending member", member: testHarness.pending, viewer: testHarness.viewerOf(testHarness.pending), signedIn: true},
+		{name: "removed member", member: testHarness.removed, viewer: testHarness.viewerOf(testHarness.removed), signedIn: true},
 		{name: "visitor", signedIn: false},
 	} {
 		t.Run(caller.name, func(t *testing.T) {
-			viewer := testHarness.viewerOf(caller.member)
-			// Another member's ID, so member-targeted operations aim at someone else's row.
 			target := testHarness.otherPlayer.ID
+			// A fresh session per call, because the sweep also calls sign out.
 			token := func() string {
 				if !caller.signedIn {
 					return ""
 				}
-				return testHarness.signIn(caller.member.ID)
+				token := testHarness.signIn(caller.member.ID)
+				if caller.viewAsPlayer {
+					testHarness.expectStatus(testHarness.do(http.MethodPost, "/api/me/view-as-player", requestOptions{
+						token: token,
+						body:  `{"enabled":true}`,
+					}), http.StatusNoContent)
+				}
+				return token
 			}
 
 			for _, operation := range operations {
@@ -220,23 +281,25 @@ func TestEveryRouteKeepsDmDataSecret(t *testing.T) {
 					continue
 				}
 				label := operation.method + " " + operation.path
-				response := testHarness.do(operation.method, fillPath(operation.path, target), requestOptions{
+				path := fillPath(t, operation.path, fixtureIDs)
+				response := testHarness.do(operation.method, path+fillQuery(document, operation, fixtureIDs, target), requestOptions{
 					token: token(),
 					body:  sampleBody(document, operation.requestBody, target),
 				})
-				checkSecrecy(t, label, operation.access, viewer, caller.signedIn, response)
+				checkSecrecy(t, label, operation.method, path, operation.access, caller.viewer, caller.signedIn, response)
 			}
 
 			for _, route := range testHarness.server.routes {
-				method, path, _ := strings.Cut(route.Pattern, " ")
+				method, routePath, _ := strings.Cut(route.Pattern, " ")
 				options := requestOptions{token: token()}
-				if path == "/api/stream" {
+				if routePath == "/api/stream" {
 					streamContext, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 					defer cancel()
 					options.context = streamContext
 				}
-				response := testHarness.do(method, fillPath(path, target), options)
-				checkSecrecy(t, route.Pattern, route.Access, viewer, caller.signedIn, response)
+				path := fillPath(t, routePath, fixtureIDs)
+				response := testHarness.do(method, path, options)
+				checkSecrecy(t, route.Pattern, method, path, route.Access, caller.viewer, caller.signedIn, response)
 			}
 		})
 	}
@@ -267,18 +330,20 @@ func TestOnlyThreeRoutesAdmitPendingMembers(t *testing.T) {
 // TestDmSeesTheCanaries proves the fixtures really hold DM-only data, so the test above can fail.
 func TestDmSeesTheCanaries(t *testing.T) {
 	testHarness := newHarness(t)
-	plantSettingsCanaries(t, testHarness)
+	plantCanaries(t, testHarness)
 	token := testHarness.signIn(testHarness.dm.ID)
 
-	members := testHarness.do(http.MethodGet, "/api/members", requestOptions{token: token})
-	testHarness.expectStatus(members, http.StatusOK)
-	if !strings.Contains(members.Body.String(), canary) {
-		t.Fatalf("the DM's member list lacks the canary: %s", members.Body.String())
-	}
-	settings := testHarness.do(http.MethodGet, "/api/settings", requestOptions{token: token})
-	testHarness.expectStatus(settings, http.StatusOK)
-	if !strings.Contains(settings.Body.String(), numericCanary) {
-		t.Fatalf("the DM's settings lack the canary: %s", settings.Body.String())
+	for _, fixture := range secrecyFixtures {
+		if len(fixture.dmProof) == 0 {
+			t.Errorf("secrecy fixture %s names no GET path where the DM sees its canaries", fixture.feature)
+		}
+		for _, path := range fixture.dmProof {
+			response := testHarness.do(http.MethodGet, path, requestOptions{token: token})
+			testHarness.expectStatus(response, http.StatusOK)
+			if body := response.Body.String(); !strings.Contains(body, canary) && !strings.Contains(body, numericCanary) {
+				t.Errorf("%s: the DM's %s lacks the canary: %s", fixture.feature, path, body)
+			}
+		}
 	}
 }
 
@@ -286,7 +351,7 @@ func TestDmSeesTheCanaries(t *testing.T) {
 // removed member receive while the DM works, against the same canaries.
 func TestStreamMessagesCarryOnlyTopics(t *testing.T) {
 	testHarness := newHarness(t)
-	plantSettingsCanaries(t, testHarness)
+	plantCanaries(t, testHarness)
 	dmViewer := testHarness.viewerOf(testHarness.dm)
 	testContext := context.Background()
 
@@ -302,7 +367,7 @@ func TestStreamMessagesCarryOnlyTopics(t *testing.T) {
 	}
 
 	secretName := canary + " name"
-	if _, err := testHarness.core.UpdateSettings(testContext, dmViewer, core.SettingsInput{CampaignName: secretName, Timezone: "UTC"}); err != nil {
+	if _, err := testHarness.core.UpdateSettings(testContext, dmViewer, core.SettingsInput{CampaignName: secretName, ColonyName: secretName, Timezone: "UTC"}); err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
 	if _, err := testHarness.core.SetCharacterName(testContext, dmViewer, testHarness.pending.ID, core.CharacterNameInput{CharacterName: &secretName}); err != nil {

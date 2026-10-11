@@ -57,6 +57,55 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatalf("settings = %+v", settings)
 	}
 
+	// M1: a colony some weeks in, played through core (spec §9).
+	board, err := service.GetColonyBoard(testContext, dm)
+	if err != nil {
+		t.Fatalf("read the board: %v", err)
+	}
+	if board.ColonyName != "Port Eldari" || board.Day != 22 || board.Colonists != 19 || board.Shipments == nil || board.Shipments.NextDay != 28 {
+		t.Fatalf("board = %+v", board)
+	}
+	amounts := map[string]int64{}
+	for _, resource := range board.Resources {
+		amounts[resource.Key] = resource.Amount
+	}
+	if amounts["food"] != 63 || amounts["gold"] != 210 || amounts["materials"] != 160 || amounts["morale"] != 100 {
+		t.Fatalf("stock = %v", amounts)
+	}
+	if board.Dm == nil || board.Dm.LastChange == nil || board.Dm.LastChange.Label != "3 days pass · Day 22" {
+		t.Fatalf("undo slot = %+v; want the last advance", board.Dm)
+	}
+	dmTimeline, err := service.ListTimeline(testContext, dm, core.TimelineRangeInput{FromDay: 0, ToDay: 30})
+	if err != nil {
+		t.Fatalf("read the timeline: %v", err)
+	}
+	arrivals := map[string]bool{}
+	var cargoLinked, dmOnly bool
+	for _, entry := range dmTimeline.Entries {
+		switch entry.Kind {
+		case core.TimelineKindShipmentArrived:
+			arrivals[entry.ID.String()] = true
+		case core.TimelineKindCargoRecorded:
+			cargoLinked = entry.ArrivalEntryID != nil && arrivals[entry.ArrivalEntryID.String()]
+		case core.TimelineKindStockAdjusted:
+			dmOnly = dmOnly || entry.Dm.Visibility == core.TimelineVisibilityDm
+		}
+	}
+	if len(arrivals) != 3 || !cargoLinked || !dmOnly {
+		t.Fatalf("history: %d arrivals, cargo linked %v, DM-only adjustment %v", len(arrivals), cargoLinked, dmOnly)
+	}
+	player, err := service.ViewerByDiscordID(testContext, "seed:ana")
+	if err != nil {
+		t.Fatalf("find a player: %v", err)
+	}
+	playerTimeline, err := service.ListTimeline(testContext, player, core.TimelineRangeInput{FromDay: 0, ToDay: 30})
+	if err != nil {
+		t.Fatalf("read the player's timeline: %v", err)
+	}
+	if len(playerTimeline.Entries) != len(dmTimeline.Entries)-1 {
+		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment", len(playerTimeline.Entries), len(dmTimeline.Entries))
+	}
+
 	if err := Run(testContext, options); !errors.Is(err, ErrDatabaseInUse) {
 		t.Fatalf("seeding twice = %v, want ErrDatabaseInUse", err)
 	}

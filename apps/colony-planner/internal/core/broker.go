@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -20,6 +21,12 @@ const (
 	TopicMe       Topic = "me"
 	TopicMembers  Topic = "members"
 	TopicSettings Topic = "settings"
+	// TopicColony is the board: day, shipments, stock, headcounts, names and the undo slot.
+	TopicColony Topic = "colony"
+	// TopicTimeline is every timeline read, including the recent entries the toasts come from.
+	TopicTimeline Topic = "timeline"
+	// TopicResources is the DM's resource settings on /settings.
+	TopicResources Topic = "resources"
 )
 
 // InvalidateMessage is the data of every `event: invalidate` message on GET /api/stream.
@@ -27,9 +34,10 @@ type InvalidateMessage struct {
 	Topics []Topic `json:"topics"`
 }
 
-// AllTopics lists every topic; it feeds the Topic enum in the OpenAPI document.
+// AllTopics lists every topic; it feeds the Topic enum in the OpenAPI document, reconnect catch-up
+// and view as player. TestAllTopicsListsEveryTopicConstant fails when a Topic constant is missing here.
 func AllTopics() []Topic {
-	return []Topic{TopicMe, TopicMembers, TopicSettings}
+	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources}
 }
 
 // StreamMessage is one `event: invalidate` message, with its `<bootId>-<seq>` id.
@@ -39,8 +47,38 @@ type StreamMessage struct {
 }
 
 // A stream that falls this far behind is closed rather than blocking publishers; its client
-// reconnects and, having missed messages, gets one invalidate for everything.
+// reconnects and catches up on what it missed.
 const subscriptionBufferSize = 32
+
+// recentMessageLimit is how many published messages the broker remembers for resumes. A client that
+// was away for more messages than this gets one invalidate for everything.
+const recentMessageLimit = 256
+
+// recipients is who a published message reached: every active stream, one member's streams or one
+// session's streams. It is kept with the message so a resume can tell what the reconnecting stream
+// would have heard.
+type recipients struct {
+	activeStreams bool
+	memberID      uuid.UUID
+	sessionKey    string
+}
+
+func (scope recipients) include(subscription *Subscription) bool {
+	switch {
+	case scope.activeStreams:
+		return subscription.active
+	case scope.sessionKey != "":
+		return subscription.sessionKey == scope.sessionKey
+	default:
+		return subscription.memberID == scope.memberID
+	}
+}
+
+type publishedMessage struct {
+	sequence   uint64
+	topics     []Topic
+	recipients recipients
+}
 
 // Broker fans invalidations out to open streams. It lives in-process (single replica, spec §8.8) and
 // touches no database: reconnects and heartbeats cost nothing.
@@ -49,6 +87,8 @@ type Broker struct {
 	bootID        string
 	sequence      uint64
 	subscriptions map[*Subscription]struct{}
+	// recent holds the last recentMessageLimit published messages, oldest first, for resumes.
+	recent []publishedMessage
 	// memberActive is the newest status this process gave each member. A stream that subscribes with a
 	// Viewer read just before an approval or removal still gets the scope the member has now.
 	memberActive map[uuid.UUID]bool
@@ -106,9 +146,12 @@ func (broker *Broker) currentIDLocked() string {
 	return broker.bootID + "-" + strconv.FormatUint(broker.sequence, 10)
 }
 
-// Subscribe registers a stream. When lastEventID is not the newest message ID (the client missed
-// something, comes from an earlier boot, or has no ID yet), it also returns one invalidate for
-// everything the stream may see; when it is the newest, nothing happened, so nothing is sent.
+// Subscribe registers a stream. With the newest message ID as lastEventID nothing happened, so
+// nothing is sent. With an older ID from this boot that the recent messages still reach back to, it
+// returns one invalidate for the topics this stream would have heard since then, or nothing when none
+// of those messages were for it (a view-as-player switch in the DM's browser, a message to another
+// member). Otherwise (no ID, another boot, too far behind) it returns one invalidate for everything
+// the stream may see.
 func (broker *Broker) Subscribe(viewer Viewer, lastEventID string) (*Subscription, *StreamMessage) {
 	broker.mutex.Lock()
 	defer broker.mutex.Unlock()
@@ -130,28 +173,56 @@ func (broker *Broker) Subscribe(viewer Viewer, lastEventID string) (*Subscriptio
 	if lastEventID == currentID {
 		return subscription, nil
 	}
-	return subscription, &StreamMessage{
-		ID:   currentID,
-		Data: InvalidateMessage{Topics: subscription.visibleTopics(AllTopics())},
+	missed := subscription.visibleTopics(broker.missedTopicsLocked(subscription, lastEventID))
+	if len(missed) == 0 {
+		return subscription, nil
 	}
+	return subscription, &StreamMessage{ID: currentID, Data: InvalidateMessage{Topics: missed}}
+}
+
+// missedTopicsLocked is the union of the topics published to this subscription's recipients after
+// lastEventID, or every topic when the recent messages can't answer that.
+func (broker *Broker) missedTopicsLocked(subscription *Subscription, lastEventID string) []Topic {
+	bootID, sequenceText, found := strings.Cut(lastEventID, "-")
+	lastSequence, err := strconv.ParseUint(sequenceText, 10, 64)
+	if !found || err != nil || bootID != broker.bootID || lastSequence > broker.sequence {
+		return AllTopics()
+	}
+	if len(broker.recent) == 0 || broker.recent[0].sequence > lastSequence+1 {
+		return AllTopics()
+	}
+	missed := map[Topic]bool{}
+	for _, message := range broker.recent {
+		if message.sequence > lastSequence && message.recipients.include(subscription) {
+			for _, topic := range message.topics {
+				missed[topic] = true
+			}
+		}
+	}
+	topics := make([]Topic, 0, len(missed))
+	for _, topic := range AllTopics() {
+		if missed[topic] {
+			topics = append(topics, topic)
+		}
+	}
+	return topics
 }
 
 // Publish tells every active stream to refetch these topics. Pending and removed streams never hear
 // a broadcast.
 func (broker *Broker) Publish(topics ...Topic) {
-	broker.publish(topics, func(subscription *Subscription) bool { return subscription.active })
+	broker.publish(topics, recipients{activeStreams: true})
 }
 
 func (broker *Broker) publishToMember(memberID uuid.UUID, topics ...Topic) {
-	broker.publish(topics, func(subscription *Subscription) bool { return subscription.memberID == memberID })
+	broker.publish(topics, recipients{memberID: memberID})
 }
 
 func (broker *Broker) publishToSession(tokenHash []byte, topics ...Topic) {
-	sessionKey := string(tokenHash)
-	broker.publish(topics, func(subscription *Subscription) bool { return subscription.sessionKey == sessionKey })
+	broker.publish(topics, recipients{sessionKey: string(tokenHash)})
 }
 
-func (broker *Broker) publish(topics []Topic, include func(*Subscription) bool) {
+func (broker *Broker) publish(topics []Topic, scope recipients) {
 	if len(topics) == 0 {
 		return
 	}
@@ -159,8 +230,12 @@ func (broker *Broker) publish(topics []Topic, include func(*Subscription) bool) 
 	defer broker.mutex.Unlock()
 	broker.sequence++
 	messageID := broker.currentIDLocked()
+	if len(broker.recent) == recentMessageLimit {
+		broker.recent = slices.Delete(broker.recent, 0, 1)
+	}
+	broker.recent = append(broker.recent, publishedMessage{sequence: broker.sequence, topics: slices.Clone(topics), recipients: scope})
 	for subscription := range broker.subscriptions {
-		if !include(subscription) {
+		if !scope.include(subscription) {
 			continue
 		}
 		visible := subscription.visibleTopics(topics)

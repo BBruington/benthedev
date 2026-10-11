@@ -12,6 +12,172 @@ import (
 	"github.com/google/uuid"
 )
 
+type ColonyIcon string
+
+const (
+	ColonyIconAnchor         ColonyIcon = "Anchor"
+	ColonyIconApple          ColonyIcon = "Apple"
+	ColonyIconAxe            ColonyIcon = "Axe"
+	ColonyIconBeef           ColonyIcon = "Beef"
+	ColonyIconBeer           ColonyIcon = "Beer"
+	ColonyIconBone           ColonyIcon = "Bone"
+	ColonyIconBookOpen       ColonyIcon = "BookOpen"
+	ColonyIconBoxes          ColonyIcon = "Boxes"
+	ColonyIconCoins          ColonyIcon = "Coins"
+	ColonyIconCrown          ColonyIcon = "Crown"
+	ColonyIconDroplets       ColonyIcon = "Droplets"
+	ColonyIconFeather        ColonyIcon = "Feather"
+	ColonyIconFish           ColonyIcon = "Fish"
+	ColonyIconFlame          ColonyIcon = "Flame"
+	ColonyIconFlaskConical   ColonyIcon = "FlaskConical"
+	ColonyIconGem            ColonyIcon = "Gem"
+	ColonyIconHammer         ColonyIcon = "Hammer"
+	ColonyIconHardHat        ColonyIcon = "HardHat"
+	ColonyIconHeart          ColonyIcon = "Heart"
+	ColonyIconHeartHandshake ColonyIcon = "HeartHandshake"
+	ColonyIconHeartPulse     ColonyIcon = "HeartPulse"
+	ColonyIconLeaf           ColonyIcon = "Leaf"
+	ColonyIconMountain       ColonyIcon = "Mountain"
+	ColonyIconPackage        ColonyIcon = "Package"
+	ColonyIconPickaxe        ColonyIcon = "Pickaxe"
+	ColonyIconScroll         ColonyIcon = "Scroll"
+	ColonyIconShield         ColonyIcon = "Shield"
+	ColonyIconShip           ColonyIcon = "Ship"
+	ColonyIconShirt          ColonyIcon = "Shirt"
+	ColonyIconSparkles       ColonyIcon = "Sparkles"
+	ColonyIconStar           ColonyIcon = "Star"
+	ColonyIconSword          ColonyIcon = "Sword"
+	ColonyIconTent           ColonyIcon = "Tent"
+	ColonyIconTrees          ColonyIcon = "Trees"
+	ColonyIconUsers          ColonyIcon = "Users"
+	ColonyIconWandSparkles   ColonyIcon = "WandSparkles"
+	ColonyIconWheat          ColonyIcon = "Wheat"
+	ColonyIconWrench         ColonyIcon = "Wrench"
+)
+
+func (e *ColonyIcon) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ColonyIcon(s)
+	case string:
+		*e = ColonyIcon(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ColonyIcon: %T", src)
+	}
+	return nil
+}
+
+type NullColonyIcon struct {
+	ColonyIcon ColonyIcon
+	Valid      bool // Valid is true if ColonyIcon is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullColonyIcon) Scan(value interface{}) error {
+	if value == nil {
+		ns.ColonyIcon, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ColonyIcon.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullColonyIcon) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ColonyIcon), nil
+}
+
+func (e ColonyIcon) Valid() bool {
+	switch e {
+	case ColonyIconAnchor,
+		ColonyIconApple,
+		ColonyIconAxe,
+		ColonyIconBeef,
+		ColonyIconBeer,
+		ColonyIconBone,
+		ColonyIconBookOpen,
+		ColonyIconBoxes,
+		ColonyIconCoins,
+		ColonyIconCrown,
+		ColonyIconDroplets,
+		ColonyIconFeather,
+		ColonyIconFish,
+		ColonyIconFlame,
+		ColonyIconFlaskConical,
+		ColonyIconGem,
+		ColonyIconHammer,
+		ColonyIconHardHat,
+		ColonyIconHeart,
+		ColonyIconHeartHandshake,
+		ColonyIconHeartPulse,
+		ColonyIconLeaf,
+		ColonyIconMountain,
+		ColonyIconPackage,
+		ColonyIconPickaxe,
+		ColonyIconScroll,
+		ColonyIconShield,
+		ColonyIconShip,
+		ColonyIconShirt,
+		ColonyIconSparkles,
+		ColonyIconStar,
+		ColonyIconSword,
+		ColonyIconTent,
+		ColonyIconTrees,
+		ColonyIconUsers,
+		ColonyIconWandSparkles,
+		ColonyIconWheat,
+		ColonyIconWrench:
+		return true
+	}
+	return false
+}
+
+func AllColonyIconValues() []ColonyIcon {
+	return []ColonyIcon{
+		ColonyIconAnchor,
+		ColonyIconApple,
+		ColonyIconAxe,
+		ColonyIconBeef,
+		ColonyIconBeer,
+		ColonyIconBone,
+		ColonyIconBookOpen,
+		ColonyIconBoxes,
+		ColonyIconCoins,
+		ColonyIconCrown,
+		ColonyIconDroplets,
+		ColonyIconFeather,
+		ColonyIconFish,
+		ColonyIconFlame,
+		ColonyIconFlaskConical,
+		ColonyIconGem,
+		ColonyIconHammer,
+		ColonyIconHardHat,
+		ColonyIconHeart,
+		ColonyIconHeartHandshake,
+		ColonyIconHeartPulse,
+		ColonyIconLeaf,
+		ColonyIconMountain,
+		ColonyIconPackage,
+		ColonyIconPickaxe,
+		ColonyIconScroll,
+		ColonyIconShield,
+		ColonyIconShip,
+		ColonyIconShirt,
+		ColonyIconSparkles,
+		ColonyIconStar,
+		ColonyIconSword,
+		ColonyIconTent,
+		ColonyIconTrees,
+		ColonyIconUsers,
+		ColonyIconWandSparkles,
+		ColonyIconWheat,
+		ColonyIconWrench,
+	}
+}
+
 type MemberStatus string
 
 const (
@@ -73,6 +239,75 @@ func AllMemberStatusValues() []MemberStatus {
 	}
 }
 
+type TimelineVisibility string
+
+const (
+	TimelineVisibilityPUBLIC TimelineVisibility = "PUBLIC"
+	TimelineVisibilityDM     TimelineVisibility = "DM"
+)
+
+func (e *TimelineVisibility) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TimelineVisibility(s)
+	case string:
+		*e = TimelineVisibility(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TimelineVisibility: %T", src)
+	}
+	return nil
+}
+
+type NullTimelineVisibility struct {
+	TimelineVisibility TimelineVisibility
+	Valid              bool // Valid is true if TimelineVisibility is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTimelineVisibility) Scan(value interface{}) error {
+	if value == nil {
+		ns.TimelineVisibility, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TimelineVisibility.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTimelineVisibility) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TimelineVisibility), nil
+}
+
+func (e TimelineVisibility) Valid() bool {
+	switch e {
+	case TimelineVisibilityPUBLIC,
+		TimelineVisibilityDM:
+		return true
+	}
+	return false
+}
+
+func AllTimelineVisibilityValues() []TimelineVisibility {
+	return []TimelineVisibility{
+		TimelineVisibilityPUBLIC,
+		TimelineVisibilityDM,
+	}
+}
+
+type Colony struct {
+	ID                   int16
+	Name                 string
+	Day                  int32
+	Version              int64
+	ShipmentIntervalDays *int32
+	NextShipmentDay      *int32
+	LastChange           []byte
+	UpdatedAt            time.Time
+}
+
 type Member struct {
 	ID              uuid.UUID
 	DiscordUserID   string
@@ -86,6 +321,28 @@ type Member struct {
 	LastSeenAt      *time.Time
 }
 
+type Resource struct {
+	Key       string
+	Label     string
+	Icon      ColonyIcon
+	Amount    int32
+	MinAmount int32
+	MaxAmount *int32
+	SortOrder int32
+	IsSystem  bool
+	Archived  bool
+}
+
+type Role struct {
+	Key          string
+	Label        string
+	Icon         ColonyIcon
+	SortOrder    int32
+	UnnamedCount int32
+	IsSystem     bool
+	Archived     bool
+}
+
 type Settings struct {
 	ID                       int16
 	CampaignName             string
@@ -93,6 +350,23 @@ type Settings struct {
 	DiscordAnnounceChannelID *string
 	DiscordReminderChannelID *string
 	DiscordDmChannelID       *string
+}
+
+type TimelineEvent struct {
+	ID         uuid.UUID
+	GroupID    *uuid.UUID
+	Sequence   int64
+	Day        int32
+	Kind       string
+	Title      string
+	Body       string
+	Visibility TimelineVisibility
+	Deltas     []byte
+	Data       []byte
+	UndoneAt   *time.Time
+	CreatedBy  *uuid.UUID
+	CreatedAt  time.Time
+	EditedAt   *time.Time
 }
 
 type WebSession struct {

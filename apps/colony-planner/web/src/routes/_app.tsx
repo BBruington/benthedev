@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useLiveUpdates } from "@/api/stream";
+import { useTimelineToasts } from "@/colony/live-toasts";
 import { FullScreenError } from "@/components/error-screens";
 import { BottomTabs } from "@/components/shell/bottom-tabs";
 import { Sidebar } from "@/components/shell/sidebar";
@@ -40,6 +41,7 @@ function AppLayout() {
 	const headerRef = useRef<HTMLElement>(null);
 	const pendingCount = usePendingCount(me);
 	useLiveUpdates();
+	useTimelineToasts();
 	useShellHeaderHeight(headerRef);
 
 	useEffect(() => {

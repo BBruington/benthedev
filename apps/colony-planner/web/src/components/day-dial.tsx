@@ -17,6 +17,23 @@ const ticks = Array.from({ length: tickCount }, (_, index) => {
 
 const numberFormat = new Intl.NumberFormat();
 
+/** Long days (a 1,000,000-day advance) shrink so the number stays inside the dial's inner ring. */
+function dayTextSize(dayText: string): string {
+	if (dayText.length <= 3) {
+		return "text-5xl";
+	}
+	if (dayText.length <= 5) {
+		return "text-4xl";
+	}
+	if (dayText.length <= 7) {
+		return "text-3xl";
+	}
+	if (dayText.length <= 9) {
+		return "text-2xl";
+	}
+	return "text-xl";
+}
+
 /**
  * The colony's day clock (spec §6.6). Static for now: with no day it shows an unlit dial. When the
  * colony arrives (M1) it is given the day and, if ships are scheduled, the share of the voyage done.
@@ -37,6 +54,7 @@ export function DayDial({
 	const progress = Math.min(1, Math.max(0, shipmentProgress ?? 0));
 	const arcRadius = 76;
 	const circumference = 2 * Math.PI * arcRadius;
+	const dayText = isLit ? numberFormat.format(day) : "—";
 	return (
 		<figure className={cn("flex flex-col items-center gap-3", className)}>
 			<div className="relative aspect-square w-44 sm:w-52">
@@ -98,11 +116,12 @@ export function DayDial({
 					</span>
 					<span
 						className={cn(
-							"font-display font-semibold text-5xl tabular-nums leading-tight tracking-wide",
+							"font-display font-semibold tabular-nums leading-tight tracking-wide",
+							dayTextSize(dayText),
 							isLit ? "text-gilt-ink" : "text-muted-foreground/70",
 						)}
 					>
-						{isLit ? numberFormat.format(day) : "—"}
+						{dayText}
 					</span>
 				</div>
 			</div>

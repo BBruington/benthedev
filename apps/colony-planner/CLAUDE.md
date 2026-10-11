@@ -17,9 +17,10 @@ Run `mise run setup` once (pinned tools, `bun install`, and a `.env` with a rand
 | `mise run check` | every check; it must end with "All checks passed" |
 | `mise run seed` / `reset` / `fresh` | load the sample campaign / wipe and re-migrate / both |
 | `mise run build` | the SPA into web/dist/spa and bin/colony (no devauth); then bin/colony serve is the one-origin shape |
-| `mise run db:up` / `db:down` | start / stop the Postgres container |
+| `mise run db:up` / `db:down` | start / stop the Postgres container (and the database browser) |
+| `mise run db:studio` | DbGate, a web database browser on http://localhost:54330, connected to `colony`; edits skip the app's rules |
 
-Ports: Vite 5173; Go 8080 (bound to 127.0.0.1 outside production); Postgres 54329 (container
+Ports: Vite 5173; Go 8080 (bound to 127.0.0.1 outside production); DbGate 54330; Postgres 54329 (container
 `colony-planner-db`, databases `colony` and `colony_test`). Vite proxies /api, /auth, /img, /calendar
 and /healthz to Go and keeps the Host header. Web edits hot-reload; restart `mise run dev` after Go edits.
 `reset`/`fresh` may run while dev runs: the server reconnects and everyone signs in again. Outside
@@ -43,7 +44,7 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
 | `db/queries/` | sqlc input, one file per feature |
 | `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build |
-| `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh` |
+| `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
 | `docs/` | `docs/SPEC.md` (the design) and `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) |
 
 ## Boundaries (enforced by `mise run check`)
@@ -108,12 +109,26 @@ Add a field (four hand edits), then `mise run gen` and follow the compiler error
 1. a new migration in `db/migrations/` (ALTER TABLE);
 2. the column in the feature's queries file in `db/queries/`;
 3. the DTO field, its mapping and its input field in the feature's file in `internal/core/` (a secret
-   field goes in the Dm sub-struct);
+   field goes in the Dm sub-struct); free text goes through `cleanText` (`internal/core/text.go`), and
+   core, not a huma tag, checks lengths and formats so the person reads core's message;
 4. its display and input in the screen under web/src/routes.
+A secret field also needs a canary: plant a canary for every new Dm field or hidden row in its feature's
+fixture in `internal/app/secrecy_fixtures_test.go`. The secrecy sweep only sees a leak of a planted value.
 
-Add an entity: a migration, a queries file, a core file, a thin handler file in `internal/app/` registered
-from `app.New`, a route file under web/src/routes, a nav entry, and a rules file in `internal/game/` if it
-has rules.
+Add an entity, then `mise run gen`:
+1. a migration and a queries file in `db/queries/`;
+2. a core file in `internal/core/`, and its live-update topic: a `Topic` constant in
+   `internal/core/broker.go` listed in `AllTopics()` (a test fails if it isn't), published after commit;
+3. for a new Postgres enum: a re-export of the type and every value in `internal/core/` (as
+   `internal/core/member_status.go` does), each name in `allowedDataReferences` in
+   `internal/core/boundary_test.go`, and one line in `enumTypes` in `internal/app/enums.go`;
+4. a thin handler file in `internal/app/` registered from `app.New`;
+5. a secrecy fixture in `internal/app/secrecy_fixtures_test.go`: plant a canary for every new Dm field
+   or hidden row (a DM-visibility timeline entry, an undone PUBLIC entry), name a real row for every
+   path parameter, and list a GET where the DM sees the canary;
+6. its reads in `web/src/api/queries.ts` and its topic's entry in `topicQueryKeys` in
+   `web/src/api/topics.ts`;
+7. a route file under web/src/routes, a nav entry, and a rules file in `internal/game/` if it has rules.
 
 Add a non-huma route: one route-table line in `internal/app/app.go` with its access level.
 
@@ -136,9 +151,20 @@ reaches 0 or morale is low. An undecided rule is data or an open question (`docs
 - Full descriptive names in every language: campaignId, request, response, integration. Go's err is
   the only short name allowed; receivers are spelled out too (service *Service).
 - TypeScript: no any (use unknown and type guards), no console.*, no process.env, no nested ternaries.
+  Build tooling config (`web/vite.config.ts`) is the exception: it runs in Node, Biome allows process.env
+  in *.config.ts, and COLONY_DEV_GO_URL there points a second dev server at another Go server.
   import.meta.env is read only in `web/src/env.ts`; a Biome plugin (`web/biome-plugins/no-import-meta-env.grit`)
   enforces it.
 - Comments explain why, never what.
+- Web files: a route file under web/src/routes holds the page and its data wiring (queries, mutations,
+  toasts). A piece used by more than one screen, or big enough to stand alone, goes in
+  `web/src/components/` (or a feature folder under web/src when a feature grows several), and takes
+  its data and callbacks as props.
+- An action that removes or disables its own trigger (a row that moves, a banner or sheet that closes)
+  moves focus to a stable target when it settles, with `focusFirstVisible` from `web/src/lib/focus.ts`
+  (a heading takes tabIndex={-1}); see Let in on /players and Back to DM view. BottomSheet and
+  AlertDialogContent hand focus back to whatever opened them (`web/src/hooks/use-focus-return.ts`); a
+  confirmed action that removes its opener prevents the default in onCloseAutoFocus and moves focus itself.
 - Web UI: shadcn/ui components (added with the shadcn CLI per `web/components.json`), `cn` from
   `web/src/lib/utils.ts`, palette tokens and fonts in `web/src/styles.css` ("Night Sea and Parchment").
   Players use phones: every player screen works one-handed at 360 px wide.

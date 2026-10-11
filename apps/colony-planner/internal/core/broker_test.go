@@ -2,6 +2,13 @@ package core
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -138,5 +145,115 @@ func assertClosed(t *testing.T, subscription *Subscription, want bool) {
 		if want {
 			t.Fatal("a stream is open that should be closed")
 		}
+	}
+}
+
+// A resume sends only what this stream missed: a targeted publish to someone else (the DM's view as
+// player switch, a message to another member) does not make every other tab refetch everything.
+func TestResumeSendsOnlyWhatTheStreamMissed(t *testing.T) {
+	broker := NewBroker()
+	player := activeViewer()
+	dm := activeViewer()
+	dm.IsDM = true
+	_, catchUp := broker.Subscribe(player, "")
+	lastID := catchUp.ID
+
+	broker.publishToSession(dm.SessionTokenHash, AllTopics()...)
+	broker.publishToMember(uuid.New(), TopicMe)
+	if _, resume := broker.Subscribe(player, lastID); resume != nil {
+		t.Fatalf("a targeted publish to someone else invalidated my resume: %+v", resume)
+	}
+
+	broker.Publish(TopicSettings)
+	broker.publishToMember(player.MemberID, TopicMe)
+	_, resume := broker.Subscribe(player, lastID)
+	if resume == nil || fmt.Sprint(resume.Data.Topics) != "[me settings]" || resume.ID != broker.currentIDLocked() {
+		t.Fatalf("resume = %+v, want [me settings] at the newest ID", resume)
+	}
+
+	// The same session hears its own targeted publish.
+	_, dmResume := broker.Subscribe(dm, lastID)
+	if dmResume == nil || fmt.Sprint(dmResume.Data.Topics) != fmt.Sprint(AllTopics()) {
+		t.Fatalf("the DM's session resume = %+v, want every topic", dmResume)
+	}
+
+	// A pending stream hears only its own me topic, even when broadcasts went by.
+	pending := pendingViewer()
+	_, pendingCatchUp := broker.Subscribe(pending, "")
+	broker.Publish(TopicMembers)
+	if _, pendingResume := broker.Subscribe(pending, pendingCatchUp.ID); pendingResume != nil {
+		t.Fatalf("a pending stream's resume after a broadcast = %+v, want nothing", pendingResume)
+	}
+}
+
+func TestResumeFallsBackToEverythingWhenTheRecentMessagesDoNotReachBack(t *testing.T) {
+	broker := NewBroker()
+	player := activeViewer()
+	_, catchUp := broker.Subscribe(player, "")
+	for range recentMessageLimit + 1 {
+		broker.publishToMember(uuid.New(), TopicMe)
+	}
+	_, resume := broker.Subscribe(player, catchUp.ID)
+	if resume == nil || fmt.Sprint(resume.Data.Topics) != fmt.Sprint(AllTopics()) {
+		t.Fatalf("resume past the recent messages = %+v, want every topic", resume)
+	}
+	for _, lastEventID := range []string{"garbage", broker.bootID + "-x", broker.bootID + "-999999"} {
+		if _, fallback := broker.Subscribe(player, lastEventID); fallback == nil || len(fallback.Data.Topics) != len(AllTopics()) {
+			t.Errorf("last ID %q: %+v, want every topic", lastEventID, fallback)
+		}
+	}
+}
+
+// AllTopics feeds reconnect catch-up, view as player and the TypeScript Topic union; a constant left
+// out of it would silently drop out of all three.
+func TestAllTopicsListsEveryTopicConstant(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("list the package files: %v", err)
+	}
+	fileSet := token.NewFileSet()
+	var declared []Topic
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(fileSet, file, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", file, err)
+		}
+		for _, declaration := range parsed.Decls {
+			general, isGeneral := declaration.(*ast.GenDecl)
+			if !isGeneral || general.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range general.Specs {
+				valueSpec, _ := spec.(*ast.ValueSpec)
+				if typeName, isIdent := valueSpec.Type.(*ast.Ident); !isIdent || typeName.Name != "Topic" {
+					continue
+				}
+				for _, value := range valueSpec.Values {
+					literal, isLiteral := value.(*ast.BasicLit)
+					if !isLiteral {
+						t.Fatalf("%s: a Topic constant that is not a string literal", file)
+					}
+					unquoted, err := strconv.Unquote(literal.Value)
+					if err != nil {
+						t.Fatalf("%s: %v", file, err)
+					}
+					declared = append(declared, Topic(unquoted))
+				}
+			}
+		}
+	}
+	if len(declared) == 0 {
+		t.Fatal("found no Topic constants")
+	}
+	for _, topic := range declared {
+		if !slices.Contains(AllTopics(), topic) {
+			t.Errorf("Topic %q is missing from AllTopics()", topic)
+		}
+	}
+	if len(declared) != len(AllTopics()) {
+		t.Errorf("AllTopics() = %v, but the declared Topic constants are %v", AllTopics(), declared)
 	}
 }

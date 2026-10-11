@@ -34,6 +34,10 @@ func newEnumType[Value ~string](name string, allValues func() []Value) enumType 
 var enumTypes = []enumType{
 	newEnumType("MemberStatus", core.AllMemberStatusValues),
 	newEnumType("Topic", core.AllTopics),
+	newEnumType("ColonyIcon", core.AllColonyIconValues),
+	newEnumType("TimelineVisibility", core.AllTimelineVisibilityValues),
+	newEnumType("TimelineKind", core.AllTimelineKinds),
+	newEnumType("AdjustSource", core.AllAdjustSources),
 }
 
 var enumNamesByType = func() map[reflect.Type]string {

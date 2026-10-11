@@ -29,7 +29,11 @@ type DiscordIdentity struct {
 	AvatarURL   *string
 }
 
-const displayNameMaxLength = 100
+const (
+	displayNameMaxLength = 100
+	// Discord usernames are at most 32 characters; the slack covers older name formats.
+	usernameMaxLength = 100
+)
 
 // SignIn records a Discord sign-in and returns the member it belongs to. The DM is always ACTIVE; a
 // first-time sign-in becomes PENDING (and Beny Bot pings the DM); everyone else keeps their status, so a
@@ -114,18 +118,30 @@ func (service *Service) SignIn(requestContext context.Context, identity DiscordI
 
 func normalizeIdentity(identity DiscordIdentity) (DiscordIdentity, error) {
 	identity.UserID = strings.TrimSpace(identity.UserID)
-	identity.Username = strings.TrimSpace(identity.Username)
-	identity.DisplayName = strings.TrimSpace(identity.DisplayName)
+	username, usernameError := cleanText("username", identity.Username, usernameMaxLength)
+	// A long display name is cut rather than refused: Discord chose it, and it is only shown.
+	displayName, displayNameError := cleanText("displayName", truncateRunes(strings.TrimSpace(identity.DisplayName), displayNameMaxLength), displayNameMaxLength)
+	for _, fieldError := range []*FieldError{usernameError, displayNameError} {
+		if fieldError != nil {
+			return DiscordIdentity{}, Invalid("Your Discord name has characters the planner can't store.", *fieldError)
+		}
+	}
+	identity.Username = username
+	identity.DisplayName = displayName
 	if identity.UserID == "" || identity.Username == "" {
 		return DiscordIdentity{}, Invalid("Discord did not say who you are.")
 	}
 	if identity.DisplayName == "" {
 		identity.DisplayName = identity.Username
 	}
-	if utf8.RuneCountInString(identity.DisplayName) > displayNameMaxLength {
-		identity.DisplayName = string([]rune(identity.DisplayName)[:displayNameMaxLength])
-	}
 	return identity, nil
+}
+
+func truncateRunes(value string, maxLength int) string {
+	if utf8.RuneCountInString(value) <= maxLength {
+		return value
+	}
+	return string([]rune(value)[:maxLength])
 }
 
 // SignOut ends the caller's current web session and closes its live streams.

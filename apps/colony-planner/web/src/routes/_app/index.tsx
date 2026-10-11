@@ -3,36 +3,49 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
 	AnchorIcon,
 	ArrowRightIcon,
+	CastleIcon,
 	CheckIcon,
 	type LucideIcon,
 	MessagesSquareIcon,
 	PenLineIcon,
-	ScrollTextIcon,
-	SunriseIcon,
 	UserCheckIcon,
-	UsersIcon,
-	WheatIcon,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { membersQuery, settingsQuery } from "@/api/queries";
+import type { Schemas } from "@/api/client";
+import { problemMessage } from "@/api/problem";
+import { colonyBoardQuery, membersQuery, recentTimelineQuery, settingsQuery } from "@/api/queries";
+import { AdjustSheet } from "@/colony/adjust-sheet";
+import { AdvanceSheet } from "@/colony/advance-sheet";
+import { ColonistsStrip, DmTools, RecentEntries, ResourceTiles } from "@/colony/board-sections";
+import { CorrectDaySheet } from "@/colony/correct-day-sheet";
+import { ShipmentsSheet } from "@/colony/shipments-sheet";
+import { UndoDialog } from "@/colony/undo-dialog";
+import { type ColonyChanges, useColonyChanges } from "@/colony/use-colony-changes";
 import { DayDial } from "@/components/day-dial";
 import { MemberAvatar } from "@/components/member-avatar";
 import { PageHeader } from "@/components/page-header";
 import { CharacterNameSheet } from "@/components/shell/character-name-sheet";
-import { Badge } from "@/components/ui/badge";
+import { StatusPanel } from "@/components/status-panel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fallbackCampaignName, useCampaignName } from "@/hooks/use-campaign";
+import { fallbackCampaignName } from "@/hooks/use-campaign";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { useMe } from "@/hooks/use-me";
+import { useSheetState } from "@/hooks/use-sheet-state";
 import { cachedMe, canUseDmTools, type Me, tableName } from "@/lib/access";
+import { dayName, shipmentLine, voyageProgress } from "@/lib/colony";
+import { focusFirstVisible } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
+
+type ColonyBoard = Schemas["ColonyBoard"];
 
 export const Route = createFileRoute("/_app/")({
 	component: ColonyPage,
 	loader: ({ context }) => {
-		// Warm the DM's checklist; prefetching never throws, and the page handles a failure itself.
+		// Prefetching never throws; the page shows its own loading and error states.
+		context.queryClient.prefetchQuery(colonyBoardQuery);
+		context.queryClient.prefetchQuery(recentTimelineQuery);
 		const me = cachedMe(context.queryClient);
 		if (me && canUseDmTools(me)) {
 			context.queryClient.prefetchQuery(membersQuery);
@@ -41,73 +54,203 @@ export const Route = createFileRoute("/_app/")({
 	},
 });
 
-/** M0's Colony page: the board itself (day dial, stock, shipments) arrives in M1. */
+const boardHeadingId = "colony-board-heading";
+
+/** The colony board (spec §6.2): the clock, the stockpile, the colonists and the latest entries. */
 function ColonyPage() {
 	const me = useMe();
-	const campaignName = useCampaignName(me);
-	useDocumentTitle("Colony", campaignName ?? fallbackCampaignName);
-	const greetingName = tableName(me.member);
+	const board = useQuery(colonyBoardQuery);
+	const recent = useQuery(recentTimelineQuery);
+	useDocumentTitle("Colony", board.data?.colonyName ?? fallbackCampaignName);
 
-	return (
-		<div className="flex flex-col gap-8 md:gap-10">
-			<PageHeader
-				description={`Welcome back, ${greetingName}.`}
-				eyebrow={campaignName ? "The colony" : undefined}
-				title={campaignName ?? "The colony"}
+	if (board.isPending) {
+		return <BoardSkeleton />;
+	}
+	if (board.isError) {
+		return (
+			<StatusPanel
+				description={problemMessage(board.error, "The colony board couldn't be loaded.")}
+				icon={CastleIcon}
+				title="The board couldn't be loaded"
+				tone="ember"
 			/>
-			<ColonyBoardPreview />
+		);
+	}
+	const data = board.data;
+	return (
+		<div className="flex flex-col gap-6 md:gap-8">
+			<PageHeader
+				description={`Welcome back, ${tableName(me.member)}.`}
+				eyebrow={data.campaignName}
+				title={data.colonyName}
+			/>
+			<ClockCard board={data} me={me} />
+			<section aria-labelledby="stockpile-heading" className="flex flex-col gap-3">
+				<h2 className="sr-only" id="stockpile-heading">
+					Stockpile
+				</h2>
+				<ResourceTiles resources={data.resources} />
+			</section>
+			<ColonistsStrip board={data} />
+			<RecentEntries
+				entries={recent.data?.entries}
+				isError={recent.isError}
+				isPending={recent.isPending}
+			/>
 			{canUseDmTools(me) ? <TableChecklist /> : <YourPlace me={me} />}
 		</div>
 	);
 }
 
-const comingToTheBoard: { icon: LucideIcon; text: string }[] = [
-	{ icon: SunriseIcon, text: "The day clock, and how many days until the next ship from Eldari" },
-	{ icon: WheatIcon, text: "The stockpile, changing live as the DM keeps the books" },
-	{ icon: UsersIcon, text: "How many colonists there are, and who is unassigned" },
-	{ icon: ScrollTextIcon, text: "The latest entries from the colony's timeline" },
-];
+function BoardSkeleton() {
+	return (
+		<div aria-busy="true" className="flex flex-col gap-6">
+			<Skeleton className="h-16 w-2/3" />
+			<Skeleton className="h-72 rounded-2xl" />
+			<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+				<Skeleton className="h-28 rounded-xl" />
+				<Skeleton className="h-28 rounded-xl" />
+				<Skeleton className="h-28 rounded-xl" />
+				<Skeleton className="h-28 rounded-xl" />
+			</div>
+		</div>
+	);
+}
 
-function ColonyBoardPreview() {
+/** "Day 44 · next ship Day 47, in 3 days" (spec §6.2). */
+function clockLine(board: ColonyBoard): string {
+	const shipments = shipmentLine(board.shipments);
+	return `${dayName(board.day)} · ${shipments.charAt(0).toLowerCase()}${shipments.slice(1)}`;
+}
+
+/** The day dial with the shipment countdown, and the DM's tools beside it. */
+function ClockCard({ board, me }: { board: ColonyBoard; me: Me }) {
+	const showDmTools = canUseDmTools(me);
 	return (
 		<section
-			aria-labelledby="colony-board-heading"
+			aria-labelledby={boardHeadingId}
 			className="relative isolate overflow-hidden rounded-2xl border border-border bg-card shadow-card"
 		>
 			<div
 				aria-hidden="true"
-				className="absolute inset-y-0 right-0 -z-10 hidden w-3/5 bg-[url(/eldari.webp)] bg-cover bg-center opacity-[0.14] [mask-image:linear-gradient(to_left,black,transparent)] lg:block"
+				className="absolute inset-y-0 right-0 -z-10 hidden w-3/5 bg-[url(/eldari.webp)] bg-cover bg-center opacity-[0.12] [mask-image:linear-gradient(to_left,black,transparent)] lg:block"
 			/>
-			<div className="grid items-center gap-8 p-6 sm:p-8 lg:grid-cols-[auto_1fr] lg:gap-12 lg:p-10">
-				<DayDial caption="The clock starts with the colony board" day={null} />
-				<div className="min-w-0">
-					<Badge variant="gilt">Coming in M1 · Colony clock and books</Badge>
+			<div
+				className={cn(
+					"grid items-center gap-6 p-5 sm:p-8",
+					showDmTools && "lg:grid-cols-[auto_1fr] lg:gap-10",
+				)}
+			>
+				<div className="flex flex-col items-center gap-2">
+					<DayDial day={board.day} shipmentProgress={voyageProgress(board.shipments)} />
 					<h2
-						className="mt-4 text-balance font-display font-semibold text-2xl tracking-wide md:text-3xl"
-						id="colony-board-heading"
+						className="text-balance text-center font-display font-semibold text-gilt-ink text-lg tracking-wide outline-none"
+						id={boardHeadingId}
+						tabIndex={-1}
 					>
-						The colony board is being charted
+						{clockLine(board)}
 					</h2>
-					<p className="mt-3 max-w-prose font-flavor text-lg text-muted-foreground italic">
-						The ink is still drying on the ledgers. When the board arrives, this is where the colony
-						lives:
-					</p>
-					<ul className="mt-5 grid gap-3">
-						{comingToTheBoard.map((entry) => (
-							<li className="flex items-start gap-3" key={entry.text}>
-								<span
-									aria-hidden="true"
-									className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-gilt/12 text-gilt-ink"
-								>
-									<entry.icon className="size-4" />
-								</span>
-								<span>{entry.text}</span>
-							</li>
-						))}
-					</ul>
 				</div>
+				{showDmTools ? <BoardTools board={board} /> : null}
 			</div>
 		</section>
+	);
+}
+
+/** The DM's tools and the sheets they open; only mounted for the DM outside View as player. */
+function BoardTools({ board }: { board: ColonyBoard }) {
+	const changes = useColonyChanges();
+	const advance = useSheetState<{ days: number | null }>();
+	const adjust = useSheetState<true>();
+	const shipments = useSheetState<true>();
+	const correctDay = useSheetState<true>();
+	const [isUndoOpen, setUndoOpen] = useState(false);
+	const lastChange = board.dm?.lastChange ?? null;
+
+	return (
+		<>
+			<DmTools
+				board={board}
+				isUndoing={changes.undo.isPending}
+				onAdjust={() => {
+					adjust.show(true);
+				}}
+				onAdvance={(days) => {
+					advance.show({ days });
+				}}
+				onCorrectDay={() => {
+					correctDay.show(true);
+				}}
+				onShipments={() => {
+					shipments.show(true);
+				}}
+				onUndo={() => {
+					setUndoOpen(true);
+				}}
+			/>
+			{advance.value ? (
+				<AdvanceSheet
+					changes={changes}
+					initialDays={advance.value.days}
+					key={advance.session}
+					onOpenChange={advance.onOpenChange}
+					open={advance.open}
+				/>
+			) : null}
+			{adjust.value ? (
+				<AdjustSheet
+					cargo={null}
+					changes={changes}
+					key={adjust.session}
+					onOpenChange={adjust.onOpenChange}
+					open={adjust.open}
+					resources={board.resources}
+					version={board.version}
+				/>
+			) : null}
+			{shipments.value ? (
+				<ShipmentsSheet
+					board={board}
+					changes={changes}
+					key={shipments.session}
+					onOpenChange={shipments.onOpenChange}
+					open={shipments.open}
+				/>
+			) : null}
+			{correctDay.value ? (
+				<CorrectDaySheet
+					board={board}
+					changes={changes}
+					key={correctDay.session}
+					onOpenChange={correctDay.onOpenChange}
+					open={correctDay.open}
+				/>
+			) : null}
+			<UndoDialog
+				lastChange={lastChange}
+				onConfirm={(confirmed) => {
+					undoFromBoard(changes, confirmed.groupId);
+					setUndoOpen(false);
+				}}
+				onOpenChange={setUndoOpen}
+				open={isUndoOpen}
+			/>
+		</>
+	);
+}
+
+/** Undo removes its own button, so focus settles on the day heading (or a fresh Undo after a 409). */
+function undoFromBoard(changes: ColonyChanges, groupId: string) {
+	changes.undo.mutate(
+		{ body: { groupId } },
+		{
+			onError: () => {
+				focusFirstVisible("undo-last-change", boardHeadingId);
+			},
+			onSuccess: () => {
+				focusFirstVisible(boardHeadingId);
+			},
+		},
 	);
 }
 
@@ -122,13 +265,20 @@ function TableChecklist() {
 		settings.data?.discordDmChannelId,
 	].filter(Boolean).length;
 
+	const isAllDone =
+		members.isSuccess && waitingCount === 0 && playerCount > 0 && channelCount === 3;
+	if (isAllDone) {
+		return null;
+	}
 	return (
 		<section aria-labelledby="checklist-heading" className="flex flex-col gap-4">
 			<div>
 				<h2 className="font-display font-semibold text-xl tracking-wide" id="checklist-heading">
 					Ready the table
 				</h2>
-				<p className="text-muted-foreground">What can be set up before the colony board arrives.</p>
+				<p className="text-muted-foreground">
+					What's left to set up. This goes away once it's done.
+				</p>
 			</div>
 			<div className="grid gap-4 lg:grid-cols-3">
 				<ChecklistCard
