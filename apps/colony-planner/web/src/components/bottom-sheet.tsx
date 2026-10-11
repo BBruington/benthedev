@@ -1,6 +1,7 @@
 import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { type PointerEvent, type ReactNode, useRef } from "react";
+import { useFocusReturn } from "@/hooks/use-focus-return";
 import { cn } from "@/lib/utils";
 
 // Past either of these the sheet closes when the finger lifts; short of them it springs back.
@@ -14,6 +15,7 @@ type DragState = { startY: number; startedAt: number; offset: number };
 /**
  * A sheet that rises from the bottom on a phone and sits centred as a dialog on wider screens
  * (spec §6.1: the DM edits in place with dialogs and bottom sheets). Drag the handle down to close.
+ * Closing hands focus back to the button that opened it.
  */
 export function BottomSheet({
 	open,
@@ -35,6 +37,7 @@ export function BottomSheet({
 }) {
 	const contentRef = useRef<HTMLDivElement>(null);
 	const dragRef = useRef<DragState | null>(null);
+	const focusReturn = useFocusReturn();
 
 	function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
 		if (event.pointerType === "mouse" && event.button !== 0) {
@@ -102,6 +105,8 @@ export function BottomSheet({
 						"md:inset-x-auto md:top-1/2 md:bottom-auto md:left-1/2 md:max-h-[min(44rem,calc(100dvh-4rem))] md:w-full md:max-w-lg md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-2xl md:border md:pb-0 md:duration-200 md:data-[state=closed]:fade-out-0 md:data-[state=open]:fade-in-0 md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95 md:data-[state=closed]:slide-out-to-bottom-2 md:data-[state=open]:slide-in-from-bottom-2",
 						className,
 					)}
+					onCloseAutoFocus={focusReturn.onCloseAutoFocus}
+					onFocus={focusReturn.onFocus}
 					ref={contentRef}
 				>
 					<div

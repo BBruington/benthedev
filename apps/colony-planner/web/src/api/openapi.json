@@ -1,11 +1,225 @@
 {
   "components": {
     "schemas": {
+      "AdjustInput": {
+        "additionalProperties": false,
+        "properties": {
+          "arrivalEntryId": {
+            "description": "The arrival this cargo came on: required for SHIPMENT, null for ADJUSTMENT",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "colonists": {
+            "description": "New colonists, 0 or more; they land in Unassigned",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deltas": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "Resource key to change; {} for none",
+            "type": "object"
+          },
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "public": {
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "At most 200 characters after trimming; may be blank",
+            "type": "string"
+          },
+          "setTo": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "Resource key to new amount, turned into a delta under the colony lock; {} for none. A key may not also be in deltas.",
+            "type": "object"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AdjustSource"
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "source",
+          "arrivalEntryId",
+          "deltas",
+          "setTo",
+          "colonists",
+          "reason",
+          "public"
+        ],
+        "type": "object"
+      },
+      "AdjustPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "colonistsAfter": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "colonistsBefore": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "resources": {
+            "description": "Every resource the adjustment names, sorted by key",
+            "items": {
+              "$ref": "#/components/schemas/ResourceChangePreview"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "description": "e.g. Food +30 · Morale 98 → 100 (capped) · 4 colonists (Unassigned)",
+            "type": "string"
+          },
+          "version": {
+            "description": "The colony version the preview saw; send it as expectedVersion",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "resources",
+          "colonistsBefore",
+          "colonistsAfter",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "AdjustSource": {
+        "enum": [
+          "ADJUSTMENT",
+          "SHIPMENT"
+        ],
+        "type": "string"
+      },
+      "AdvanceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "description": "1 or more; no limit beyond what the database can store",
+            "format": "int64",
+            "type": "integer"
+          },
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days",
+          "expectedVersion"
+        ],
+        "type": "object"
+      },
+      "AdvancePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "arrivalCount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "arrivals": {
+            "description": "Every arrival day in the span, as runs",
+            "items": {
+              "$ref": "#/components/schemas/ArrivalRun"
+            },
+            "type": "array"
+          },
+          "colonists": {
+            "description": "The headcount upkeep used",
+            "format": "int64",
+            "type": "integer"
+          },
+          "days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "fromDay": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceChangePreview"
+            },
+            "type": "array"
+          },
+          "shipmentsAfter": {
+            "$ref": "#/components/schemas/ShipmentSchedule",
+            "description": "null when no shipment schedule is set"
+          },
+          "summary": {
+            "description": "e.g. Day 12 → 17 · Food 140 → 80 · 1 shipment arrival (Day 14)",
+            "type": "string"
+          },
+          "toDay": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days",
+          "version",
+          "fromDay",
+          "toDay",
+          "colonists",
+          "resources",
+          "arrivalCount",
+          "arrivals",
+          "shipmentsAfter",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "ArrivalRun": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "every": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "first": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "last": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "first",
+          "every",
+          "count",
+          "last"
+        ],
+        "type": "object"
+      },
       "CharacterNameInput": {
         "additionalProperties": false,
         "properties": {
           "characterName": {
-            "maxLength": 60,
+            "description": "At most 60 characters after trimming; blank or null clears it",
             "type": [
               "string",
               "null"
@@ -14,6 +228,226 @@
         },
         "required": [
           "characterName"
+        ],
+        "type": "object"
+      },
+      "ClearShipmentScheduleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "type": "object"
+      },
+      "ColonyBoard": {
+        "additionalProperties": false,
+        "properties": {
+          "campaignName": {
+            "type": "string"
+          },
+          "colonists": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "colonyName": {
+            "type": "string"
+          },
+          "day": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dm": {
+            "$ref": "#/components/schemas/ColonyBoardDm"
+          },
+          "resources": {
+            "description": "Unarchived resources in board order",
+            "items": {
+              "$ref": "#/components/schemas/ColonyResource"
+            },
+            "type": "array"
+          },
+          "roles": {
+            "description": "Unarchived roles in display order, Unassigned included",
+            "items": {
+              "$ref": "#/components/schemas/RoleHeadcount"
+            },
+            "type": "array"
+          },
+          "shipments": {
+            "$ref": "#/components/schemas/ShipmentSchedule",
+            "description": "null when no shipment schedule is set"
+          },
+          "unassigned": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaignName",
+          "colonyName",
+          "day",
+          "version",
+          "shipments",
+          "resources",
+          "colonists",
+          "unassigned",
+          "roles"
+        ],
+        "type": "object"
+      },
+      "ColonyBoardDm": {
+        "additionalProperties": false,
+        "properties": {
+          "lastChange": {
+            "$ref": "#/components/schemas/LastChange",
+            "description": "What Undo would rewind; null when there is nothing to undo"
+          }
+        },
+        "required": [
+          "lastChange"
+        ],
+        "type": "object"
+      },
+      "ColonyChange": {
+        "additionalProperties": false,
+        "properties": {
+          "board": {
+            "$ref": "#/components/schemas/ColonyBoard",
+            "description": "The board after the change"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            },
+            "type": "array"
+          },
+          "groupId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupId",
+          "label",
+          "entries",
+          "board"
+        ],
+        "type": "object"
+      },
+      "ColonyIcon": {
+        "enum": [
+          "Anchor",
+          "Apple",
+          "Axe",
+          "Beef",
+          "Beer",
+          "Bone",
+          "BookOpen",
+          "Boxes",
+          "Coins",
+          "Crown",
+          "Droplets",
+          "Feather",
+          "Fish",
+          "Flame",
+          "FlaskConical",
+          "Gem",
+          "Hammer",
+          "HardHat",
+          "Heart",
+          "HeartHandshake",
+          "HeartPulse",
+          "Leaf",
+          "Mountain",
+          "Package",
+          "Pickaxe",
+          "Scroll",
+          "Shield",
+          "Ship",
+          "Shirt",
+          "Sparkles",
+          "Star",
+          "Sword",
+          "Tent",
+          "Trees",
+          "Users",
+          "WandSparkles",
+          "Wheat",
+          "Wrench"
+        ],
+        "type": "string"
+      },
+      "ColonyResource": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "icon": {
+            "$ref": "#/components/schemas/ColonyIcon"
+          },
+          "isSystem": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "maxAmount": {
+            "description": "null when unbounded",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minAmount": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "icon",
+          "amount",
+          "minAmount",
+          "maxAmount",
+          "isSystem"
+        ],
+        "type": "object"
+      },
+      "CorrectDayInput": {
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "description": "0 or more",
+            "format": "int64",
+            "type": "integer"
+          },
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "day"
         ],
         "type": "object"
       },
@@ -47,6 +481,23 @@
           "status",
           "isDm"
         ],
+        "type": "object"
+      },
+      "Effects": {
+        "additionalProperties": false,
+        "properties": {
+          "colonists": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "resources": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "object"
+          }
+        },
         "type": "object"
       },
       "ErrorDetail": {
@@ -132,6 +583,38 @@
           "topics"
         ],
         "type": "object"
+      },
+      "LastChange": {
+        "additionalProperties": false,
+        "properties": {
+          "changedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "day": {
+            "description": "The colony day after the change",
+            "format": "int64",
+            "type": "integer"
+          },
+          "groupId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "description": "What the change did, e.g. 3 days pass · Day 44",
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupId",
+          "label",
+          "day",
+          "changedAt"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
       },
       "LoginOptions": {
         "additionalProperties": false,
@@ -292,11 +775,42 @@
         ],
         "type": "string"
       },
+      "NewResourceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "icon": {
+            "$ref": "#/components/schemas/ColonyIcon"
+          },
+          "label": {
+            "description": "1 to 40 characters after trimming",
+            "type": "string"
+          },
+          "maxAmount": {
+            "description": "null for no maximum; at least minAmount",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minAmount": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "icon",
+          "minAmount",
+          "maxAmount"
+        ],
+        "type": "object"
+      },
       "ProfileInput": {
         "additionalProperties": false,
         "properties": {
           "characterName": {
-            "maxLength": 60,
+            "description": "At most 60 characters after trimming; blank or null clears it",
             "type": [
               "string",
               "null"
@@ -305,6 +819,210 @@
         },
         "required": [
           "characterName"
+        ],
+        "type": "object"
+      },
+      "RecentTimeline": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "description": "Newest first, at most 10",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "ResourceChangePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "before": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "clamped": {
+            "description": "A bound stopped the change (capped at the maximum or floored at the minimum)",
+            "type": "boolean"
+          },
+          "icon": {
+            "$ref": "#/components/schemas/ColonyIcon"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "requested": {
+            "description": "The change asked for; after minus before is what applies",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "icon",
+          "before",
+          "after",
+          "requested",
+          "clamped"
+        ],
+        "type": "object"
+      },
+      "ResourceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "description": "A system resource (food) can't be archived",
+            "type": "boolean"
+          },
+          "icon": {
+            "$ref": "#/components/schemas/ColonyIcon"
+          },
+          "label": {
+            "description": "1 to 40 characters after trimming",
+            "type": "string"
+          },
+          "maxAmount": {
+            "description": "null for no maximum; at least minAmount",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minAmount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "icon",
+          "minAmount",
+          "maxAmount",
+          "sortOrder",
+          "archived"
+        ],
+        "type": "object"
+      },
+      "ResourceList": {
+        "additionalProperties": false,
+        "properties": {
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceSettings"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "resources"
+        ],
+        "type": "object"
+      },
+      "ResourceSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "icon": {
+            "$ref": "#/components/schemas/ColonyIcon"
+          },
+          "isSystem": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "maxAmount": {
+            "description": "null when unbounded",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minAmount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "icon",
+          "amount",
+          "minAmount",
+          "maxAmount",
+          "sortOrder",
+          "isSystem",
+          "archived"
+        ],
+        "type": "object"
+      },
+      "RoleHeadcount": {
+        "additionalProperties": false,
+        "properties": {
+          "icon": {
+            "$ref": "#/components/schemas/ColonyIcon"
+          },
+          "isSystem": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "namedCount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "unnamedCount": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "icon",
+          "unnamedCount",
+          "namedCount",
+          "total",
+          "isSystem"
         ],
         "type": "object"
       },
@@ -321,6 +1039,9 @@
           "campaignName": {
             "type": "string"
           },
+          "colonyName": {
+            "type": "string"
+          },
           "discordAnnounceChannelId": {
             "type": [
               "string",
@@ -346,6 +1067,7 @@
         },
         "required": [
           "campaignName",
+          "colonyName",
           "timezone",
           "discordAnnounceChannelId",
           "discordReminderChannelId",
@@ -358,26 +1080,29 @@
         "additionalProperties": false,
         "properties": {
           "campaignName": {
-            "maxLength": 80,
-            "minLength": 1,
+            "description": "1 to 80 characters after trimming",
+            "type": "string"
+          },
+          "colonyName": {
+            "description": "1 to 80 characters after trimming",
             "type": "string"
           },
           "discordAnnounceChannelId": {
-            "pattern": "^[0-9]{17,20}$",
+            "description": "Discord channel ID: 17 to 20 digits",
             "type": [
               "string",
               "null"
             ]
           },
           "discordDmChannelId": {
-            "pattern": "^[0-9]{17,20}$",
+            "description": "Discord channel ID: 17 to 20 digits",
             "type": [
               "string",
               "null"
             ]
           },
           "discordReminderChannelId": {
-            "pattern": "^[0-9]{17,20}$",
+            "description": "Discord channel ID: 17 to 20 digits",
             "type": [
               "string",
               "null"
@@ -385,13 +1110,12 @@
           },
           "timezone": {
             "description": "IANA time zone, e.g. America/New_York",
-            "maxLength": 64,
-            "minLength": 1,
             "type": "string"
           }
         },
         "required": [
           "campaignName",
+          "colonyName",
           "timezone",
           "discordAnnounceChannelId",
           "discordReminderChannelId",
@@ -399,13 +1123,281 @@
         ],
         "type": "object"
       },
+      "ShipmentSchedule": {
+        "additionalProperties": false,
+        "properties": {
+          "daysUntil": {
+            "description": "nextDay minus day; always at least 1",
+            "format": "int64",
+            "type": "integer"
+          },
+          "intervalDays": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nextDay": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "intervalDays",
+          "nextDay",
+          "daysUntil"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "ShipmentScheduleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "intervalDays": {
+            "description": "1 or more",
+            "format": "int64",
+            "type": "integer"
+          },
+          "nextDay": {
+            "description": "After today; null keeps the current next arrival, or day + interval when there is none",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "intervalDays",
+          "nextDay"
+        ],
+        "type": "object"
+      },
+      "TimelineEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "arrivalEntryId": {
+            "description": "CARGO_RECORDED only; null otherwise",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "arrivals": {
+            "$ref": "#/components/schemas/ArrivalRun",
+            "description": "SHIPMENT_ARRIVED only; absent otherwise"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "day": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "deltas": {
+            "$ref": "#/components/schemas/Effects"
+          },
+          "dm": {
+            "$ref": "#/components/schemas/TimelineEntryDm"
+          },
+          "groupId": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TimelineKind"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "groupId",
+          "day",
+          "kind",
+          "title",
+          "body",
+          "deltas",
+          "arrivalEntryId",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "TimelineEntryDm": {
+        "additionalProperties": false,
+        "properties": {
+          "canDelete": {
+            "type": "boolean"
+          },
+          "canRecordCargo": {
+            "type": "boolean"
+          },
+          "editedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "undoneAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/TimelineVisibility"
+          }
+        },
+        "required": [
+          "visibility",
+          "undoneAt",
+          "editedAt",
+          "canDelete",
+          "canRecordCargo"
+        ],
+        "type": "object"
+      },
+      "TimelineEntryInput": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "description": "At most 2000 characters; line breaks allowed",
+            "type": "string"
+          },
+          "day": {
+            "description": "0 or more, past or future; must stay the same unless the entry is CUSTOM",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "1 to 120 characters after trimming",
+            "type": "string"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/TimelineVisibility"
+          }
+        },
+        "required": [
+          "day",
+          "title",
+          "body",
+          "visibility"
+        ],
+        "type": "object"
+      },
+      "TimelineKind": {
+        "enum": [
+          "DAYS_ADVANCED",
+          "SHIPMENT_ARRIVED",
+          "SHIPMENT_SCHEDULE_CHANGED",
+          "CARGO_RECORDED",
+          "STOCK_ADJUSTED",
+          "DAY_CORRECTED",
+          "UNDO",
+          "CUSTOM"
+        ],
+        "type": "string"
+      },
+      "TimelinePage": {
+        "additionalProperties": false,
+        "properties": {
+          "earlierDay": {
+            "description": "The nearest day before fromDay with an entry this viewer sees; null when none",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "entries": {
+            "description": "Ordered by day, then write order",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            },
+            "type": "array"
+          },
+          "fromDay": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "laterDay": {
+            "description": "The nearest day after toDay with an entry this viewer sees; null when none",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "toDay": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "today": {
+            "description": "The colony's current day, for Jump to today",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fromDay",
+          "toDay",
+          "today",
+          "entries",
+          "earlierDay",
+          "laterDay"
+        ],
+        "type": "object"
+      },
+      "TimelineVisibility": {
+        "enum": [
+          "PUBLIC",
+          "DM"
+        ],
+        "type": "string"
+      },
       "Topic": {
         "enum": [
           "me",
           "members",
-          "settings"
+          "settings",
+          "colony",
+          "timeline",
+          "resources"
         ],
         "type": "string"
+      },
+      "UndoInput": {
+        "additionalProperties": false,
+        "properties": {
+          "groupId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupId"
+        ],
+        "type": "object"
       },
       "ViewAsPlayerInput": {
         "additionalProperties": false,
@@ -427,6 +1419,378 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/colony": {
+      "get": {
+        "operationId": "getColonyBoard",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyBoard"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The colony board: names, day, shipments, stock and headcounts",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "member"
+      }
+    },
+    "/api/colony/adjust": {
+      "post": {
+        "operationId": "adjustStock",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Adjust stock, or record a shipment's cargo",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/colony/adjust-preview": {
+      "post": {
+        "operationId": "previewAdjustStock",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdjustPreview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "What an adjustment or cargo would apply, caps included, without doing it",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/colony/advance": {
+      "post": {
+        "operationId": "advanceDays",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdvanceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Advance the colony N days",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/colony/advance-preview": {
+      "get": {
+        "operationId": "previewAdvance",
+        "parameters": [
+          {
+            "description": "1 or more",
+            "explode": false,
+            "in": "query",
+            "name": "days",
+            "required": true,
+            "schema": {
+              "description": "1 or more",
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdvancePreview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "What advancing N days would do, without doing it",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/colony/correct-day": {
+      "post": {
+        "operationId": "correctDay",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectDayInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set the day directly, with no upkeep or arrivals",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/colony/shipments": {
+      "put": {
+        "operationId": "setShipmentSchedule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShipmentScheduleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set the shipment interval and next arrival day",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/colony/shipments/clear": {
+      "post": {
+        "operationId": "clearShipmentSchedule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearShipmentScheduleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Clear the shipment schedule",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/colony/undo": {
+      "post": {
+        "operationId": "undoLastChange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Undo the last colony change",
+        "tags": [
+          "colony"
+        ],
+        "x-access": "dm"
+      }
+    },
     "/api/login-options": {
       "get": {
         "operationId": "getLoginOptions",
@@ -825,6 +2189,130 @@
         "x-access": "dm"
       }
     },
+    "/api/resources": {
+      "get": {
+        "operationId": "listResources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every resource, archived ones included, for settings",
+        "tags": [
+          "resources"
+        ],
+        "x-access": "dm"
+      },
+      "post": {
+        "operationId": "createResource",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewResourceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceSettings"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a resource",
+        "tags": [
+          "resources"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/resources/{resourceKey}": {
+      "put": {
+        "operationId": "updateResource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "resourceKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Replace a resource's label, icon, bounds, order and archived flag",
+        "tags": [
+          "resources"
+        ],
+        "x-access": "dm"
+      }
+    },
     "/api/settings": {
       "get": {
         "operationId": "getSettings",
@@ -893,6 +2381,223 @@
         "summary": "Replace the campaign settings",
         "tags": [
           "settings"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/timeline": {
+      "get": {
+        "operationId": "listTimeline",
+        "parameters": [
+          {
+            "description": "First day shown, inclusive",
+            "explode": false,
+            "in": "query",
+            "name": "fromDay",
+            "required": true,
+            "schema": {
+              "description": "First day shown, inclusive",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Last day shown, inclusive; at most 365 days after fromDay",
+            "explode": false,
+            "in": "query",
+            "name": "toDay",
+            "required": true,
+            "schema": {
+              "description": "Last day shown, inclusive; at most 365 days after fromDay",
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelinePage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Timeline entries for a range of days, in the viewer's projection",
+        "tags": [
+          "timeline"
+        ],
+        "x-access": "member"
+      },
+      "post": {
+        "operationId": "createTimelineEntry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimelineEntryInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelineEntry"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a custom timeline entry on any day",
+        "tags": [
+          "timeline"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/timeline/recent": {
+      "get": {
+        "operationId": "listRecentTimeline",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecentTimeline"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The newest timeline entries in write order, for the board and live toasts",
+        "tags": [
+          "timeline"
+        ],
+        "x-access": "member"
+      }
+    },
+    "/api/timeline/{timelineEntryId}": {
+      "delete": {
+        "operationId": "deleteTimelineEntry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "timelineEntryId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a custom timeline entry",
+        "tags": [
+          "timeline"
+        ],
+        "x-access": "dm"
+      },
+      "put": {
+        "operationId": "updateTimelineEntry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "timelineEntryId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimelineEntryInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelineEntry"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Replace a timeline entry's text and visibility (and a custom entry's day)",
+        "tags": [
+          "timeline"
         ],
         "x-access": "dm"
       }

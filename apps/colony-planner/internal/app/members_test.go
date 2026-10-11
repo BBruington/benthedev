@@ -95,7 +95,7 @@ func TestPendingPageOpensLiveOnApproval(t *testing.T) {
 		t.Fatalf("pending catch-up = %+v, want only the me topic", catchUp)
 	}
 
-	settingsBody := `{"campaignName":"Renamed","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`
+	settingsBody := `{"campaignName":"Renamed","colonyName":"Port Eldari","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`
 	testHarness.expectStatus(testHarness.do(http.MethodPut, "/api/settings", requestOptions{token: dmToken, body: settingsBody}), http.StatusOK)
 	if message, received := stream.nextMessage(300 * time.Millisecond); received {
 		t.Fatalf("a pending stream heard a broadcast: %+v", message)
@@ -118,8 +118,9 @@ func TestPendingPageOpensLiveOnApproval(t *testing.T) {
 	}
 	testHarness.expectStatus(testHarness.do(http.MethodPut, "/api/settings", requestOptions{token: dmToken, body: settingsBody}), http.StatusOK)
 	message, received = stream.nextMessage(2 * time.Second)
-	if !received || message.data != `{"topics":["settings"]}` {
-		t.Fatalf("after approval the stream got %+v, want the settings topic", message)
+	// The board carries the campaign and colony names, so a settings change also invalidates it.
+	if !received || message.data != `{"topics":["settings","colony"]}` {
+		t.Fatalf("after approval the stream got %+v, want the settings and colony topics", message)
 	}
 }
 
@@ -199,7 +200,7 @@ func TestMemberDecisions(t *testing.T) {
 
 func TestViewAsPlayer(t *testing.T) {
 	testHarness := newHarness(t)
-	plantSettingsCanaries(t, testHarness)
+	plantCanaries(t, testHarness)
 	dmToken := testHarness.signIn(testHarness.dm.ID)
 	otherDeviceToken := testHarness.signIn(testHarness.dm.ID)
 	dmOptions := requestOptions{token: dmToken}
@@ -219,7 +220,7 @@ func TestViewAsPlayer(t *testing.T) {
 	if !decoded.IsDM || !decoded.ViewAsPlayer || decoded.Member.Dm != nil {
 		t.Fatalf("me while viewing as player = %+v; want isDm, viewAsPlayer and no dm object", decoded)
 	}
-	settingsBody := `{"campaignName":"Renamed","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`
+	settingsBody := `{"campaignName":"Renamed","colonyName":"Port Eldari","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`
 	for _, request := range []struct{ method, path, body string }{
 		{http.MethodGet, "/api/members", ""},
 		{http.MethodGet, "/api/settings", ""},
@@ -311,7 +312,7 @@ func TestSessionsEndWhenTheDatabaseIsReset(t *testing.T) {
 	me := testHarness.do(http.MethodGet, "/api/me", requestOptions{token: dmToken})
 	testHarness.expectStatus(me, http.StatusUnauthorized)
 
-	settingsBody := `{"campaignName":"Stale session wrote this","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`
+	settingsBody := `{"campaignName":"Stale session wrote this","colonyName":"Port Eldari","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`
 	testHarness.expectStatus(testHarness.do(http.MethodPut, "/api/settings", requestOptions{token: otherDeviceToken, body: settingsBody}), http.StatusUnauthorized)
 	testHarness.expectStatus(testHarness.do(http.MethodGet, "/api/members", requestOptions{token: dmToken}), http.StatusUnauthorized)
 	cleared := testHarness.do(http.MethodGet, "/api/me", requestOptions{token: playerToken})
@@ -421,4 +422,29 @@ func TestLoginOptions(t *testing.T) {
 	if len(options.DevSignIn) != 5 || !options.DevSignIn[0].IsDM {
 		t.Fatalf("dev sign-in = %+v; want all five members, the DM first", options.DevSignIn)
 	}
+}
+
+// Core owns validation messages: the schema carries no length or pattern rules that would answer
+// first in the schema validator's words (and before core trims).
+func TestValidationMessagesComeFromCore(t *testing.T) {
+	testHarness := newHarness(t)
+	dmOptions := requestOptions{token: testHarness.signIn(testHarness.dm.ID)}
+
+	for _, testCase := range []struct {
+		method, path, body, want string
+	}{
+		{http.MethodPut, "/api/settings", `{"campaignName":"","colonyName":"Port Eldari","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`, "Give the campaign a name."},
+		{http.MethodPut, "/api/settings", `{"campaignName":"Colony","colonyName":"Port Eldari","timezone":"UTC","discordAnnounceChannelId":"12ab","discordReminderChannelId":null,"discordDmChannelId":null}`, "A channel ID is 17 to 20 digits."},
+		{http.MethodPut, "/api/me/profile", `{"characterName":"x\u0000y"}`, "Remove the tabs, line breaks or other control characters."},
+	} {
+		dmOptions.body = testCase.body
+		response := testHarness.do(testCase.method, testCase.path, dmOptions)
+		testHarness.expectStatus(response, http.StatusUnprocessableEntity)
+		if !strings.Contains(response.Body.String(), testCase.want) {
+			t.Errorf("%s %s %s: body %s, want %q", testCase.method, testCase.path, testCase.body, response.Body.String(), testCase.want)
+		}
+	}
+
+	dmOptions.body = `{"characterName":"  ` + strings.Repeat("a", 60) + `  "}`
+	testHarness.expectStatus(testHarness.do(http.MethodPut, "/api/me/profile", dmOptions), http.StatusOK)
 }

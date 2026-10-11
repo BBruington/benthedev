@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -78,6 +79,9 @@ func New(options Options) (*Server, error) {
 	featureHandlers.registerMe(api)
 	featureHandlers.registerMembers(api)
 	featureHandlers.registerSettings(api)
+	featureHandlers.registerColony(api)
+	featureHandlers.registerTimeline(api)
+	featureHandlers.registerResources(api)
 
 	openAPIJSON, err := json.Marshal(api.OpenAPI())
 	if err != nil {
@@ -169,6 +173,12 @@ func securityHeaders(next http.Handler) http.Handler {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("Referrer-Policy", "same-origin")
 		writer.Header().Set("X-Frame-Options", "DENY")
+		// API and sign-in answers are per viewer, so no browser or proxy may keep one: a stored DM
+		// projection could be served to a player who asks for the same URL. Set before the handler runs,
+		// so huma's own error responses carry it and a handler may still choose another policy.
+		if strings.HasPrefix(request.URL.Path, "/api/") || strings.HasPrefix(request.URL.Path, "/auth/") {
+			writer.Header().Set("Cache-Control", "no-store")
+		}
 		next.ServeHTTP(writer, request)
 	})
 }

@@ -5,13 +5,14 @@ import { Crest } from "@/components/crest";
 import { LiveDot } from "@/components/live-dot";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { fallbackCampaignName, useCampaignName } from "@/hooks/use-campaign";
+import { fallbackCampaignName, useColonyNames } from "@/hooks/use-campaign";
 import { canUseDmTools, type Me } from "@/lib/access";
 import { ProfileMenu } from "./profile-menu";
 import { ViewAsPlayerBanner, ViewAsPlayerToggle } from "./view-as-player";
 
 export function TopBar({ me, ref }: { me: Me; ref: Ref<HTMLElement> }) {
-	const campaignName = useCampaignName(me) ?? fallbackCampaignName;
+	// The colony's name heads every screen (spec §6.1); every member can read it.
+	const colonyName = useColonyNames()?.colonyName || fallbackCampaignName;
 	return (
 		<header
 			className="sticky top-0 z-40 border-border border-b bg-bg/88 pt-[env(safe-area-inset-top)] backdrop-blur-md supports-[backdrop-filter]:bg-bg/72"
@@ -24,7 +25,7 @@ export function TopBar({ me, ref }: { me: Me; ref: Ref<HTMLElement> }) {
 				>
 					<Crest className="size-7 text-gilt sm:size-8 md:size-9" />
 					<span className="truncate font-display font-semibold text-base text-gilt-ink tracking-wide sm:text-lg md:text-xl">
-						{campaignName}
+						{colonyName}
 					</span>
 				</Link>
 				<LiveDot className="ml-1 shrink-0 px-1.5 sm:ml-2" labelClassName="sr-only sm:not-sr-only" />

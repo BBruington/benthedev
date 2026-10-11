@@ -112,11 +112,134 @@ func Run(requestContext context.Context, options Options) error {
 	})
 	if _, err := options.Core.UpdateSettings(requestContext, dmViewer, core.SettingsInput{
 		CampaignName: "Sample Colony",
+		ColonyName:   "Port Eldari",
 		Timezone:     "America/New_York",
 	}); err != nil {
 		return fmt.Errorf("seed settings: %w", err)
 	}
+	if err := seedColony(requestContext, options.Core, queries, dmViewer); err != nil {
+		return fmt.Errorf("seed the colony: %w", err)
+	}
 	return nil
+}
+
+// sampleHeadcounts are the role headcounts the sample colony starts with: 16 colonists. There is no
+// workforce operation until M2, so they are set directly (spec §9, M1).
+var sampleHeadcounts = map[string]int32{
+	"FARMER":     4,
+	"HEALER":     1,
+	"BLACKSMITH": 1,
+	"SOLDIER":    2,
+	"MINER":      2,
+	"BUILDER":    3,
+	"SCHOLAR":    1,
+	"UNASSIGNED": 2,
+}
+
+// seedColony plays a colony some weeks in through the same core operations the API uses: founding
+// stores, a 7-day shipment schedule, three weeks of advances, cargo recorded on the first arrival and a
+// DM-only adjustment. It ends on Day 22 with 63 food for 19 colonists and the next ship on Day 28, and
+// the last advance still in the undo slot.
+func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer) error {
+	for key, count := range sampleHeadcounts {
+		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{Key: key, UnnamedCount: count}); err != nil {
+			return fmt.Errorf("headcount %s: %w", key, err)
+		}
+	}
+	if _, err := service.CreateCustomEntry(requestContext, dm, core.TimelineEntryInput{
+		Day:        0,
+		Title:      "Port Eldari is founded",
+		Body:       "Sixteen settlers come ashore on the Eldari coast.",
+		Visibility: core.TimelineVisibilityPublic,
+	}); err != nil {
+		return fmt.Errorf("founding entry: %w", err)
+	}
+	version := func() (int64, error) {
+		board, err := service.GetColonyBoard(requestContext, dm)
+		return board.Version, err
+	}
+	steps := []struct {
+		name string
+		run  func(expectedVersion int64) (core.ColonyChange, error)
+	}{
+		{"founding stores", func(expectedVersion int64) (core.ColonyChange, error) {
+			return service.AdjustStock(requestContext, dm, core.AdjustInput{
+				ExpectedVersion: expectedVersion,
+				Source:          core.AdjustSourceAdjustment,
+				Deltas:          map[string]int64{},
+				SetTo:           map[string]int64{"gold": 250, "food": 400, "materials": 120},
+				Reason:          "The founders' stores, unloaded at landing",
+				Public:          true,
+			})
+		}},
+		{"shipment schedule", func(expectedVersion int64) (core.ColonyChange, error) {
+			return service.SetShipmentSchedule(requestContext, dm, core.ShipmentScheduleInput{ExpectedVersion: expectedVersion, IntervalDays: 7})
+		}},
+		{"first week", advanceBy(requestContext, service, dm, 7)},
+	}
+	// The last of these steps is the first week, whose arrival the cargo names.
+	var firstWeek core.ColonyChange
+	for _, step := range steps {
+		expectedVersion, err := version()
+		if err != nil {
+			return err
+		}
+		change, err := step.run(expectedVersion)
+		if err != nil {
+			return fmt.Errorf("%s: %w", step.name, err)
+		}
+		firstWeek = change
+	}
+
+	arrival := firstWeek.Entries[0]
+	if arrival.Kind != core.TimelineKindShipmentArrived {
+		return fmt.Errorf("the first week logged %s first, not a shipment arrival", arrival.Kind)
+	}
+	later := []struct {
+		name string
+		run  func(expectedVersion int64) (core.ColonyChange, error)
+	}{
+		{"cargo", func(expectedVersion int64) (core.ColonyChange, error) {
+			return service.AdjustStock(requestContext, dm, core.AdjustInput{
+				ExpectedVersion: expectedVersion,
+				Source:          core.AdjustSourceShipment,
+				ArrivalEntryID:  &arrival.ID,
+				Deltas:          map[string]int64{"food": 60, "materials": 40},
+				SetTo:           map[string]int64{},
+				Colonists:       3,
+				Reason:          "Grain, timber and three settlers from the mainland",
+				Public:          true,
+			})
+		}},
+		{"second week", advanceBy(requestContext, service, dm, 7)},
+		{"five days", advanceBy(requestContext, service, dm, 5)},
+		{"DM-only adjustment", func(expectedVersion int64) (core.ColonyChange, error) {
+			return service.AdjustStock(requestContext, dm, core.AdjustInput{
+				ExpectedVersion: expectedVersion,
+				Source:          core.AdjustSourceAdjustment,
+				Deltas:          map[string]int64{"gold": -40},
+				SetTo:           map[string]int64{},
+				Reason:          "Paid the smuggler at the north cove to keep quiet",
+			})
+		}},
+		{"three days", advanceBy(requestContext, service, dm, 3)},
+	}
+	for _, step := range later {
+		expectedVersion, err := version()
+		if err != nil {
+			return err
+		}
+		if _, err := step.run(expectedVersion); err != nil {
+			return fmt.Errorf("%s: %w", step.name, err)
+		}
+	}
+	return nil
+}
+
+func advanceBy(requestContext context.Context, service *core.Service, dm core.Viewer, days int64) func(int64) (core.ColonyChange, error) {
+	return func(expectedVersion int64) (core.ColonyChange, error) {
+		return service.Advance(requestContext, dm, core.AdvanceInput{Days: days, ExpectedVersion: expectedVersion})
+	}
 }
 
 func sampleMemberParameters(sample sampleMember, now time.Time) store.CreateMemberParams {

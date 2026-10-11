@@ -153,11 +153,10 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		icon: Settings2Icon,
 		id: "settings",
 		label: "Settings",
-		summary: "The campaign's name, time zone and Discord channels.",
+		summary: "The campaign's name, time zone, resources and Discord channels.",
 		to: "/settings",
 	},
 	timeline: {
-		arrivesIn: "M1",
 		icon: ScrollTextIcon,
 		id: "timeline",
 		label: "Timeline",

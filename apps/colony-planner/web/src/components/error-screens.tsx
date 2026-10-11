@@ -12,8 +12,37 @@ import { EldariBackdrop } from "@/components/eldari-backdrop";
 import { StatusPanel } from "@/components/status-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { environment } from "@/env";
 
 type Failure = { title: string; detail: string; status?: number; icon: LucideIcon };
+
+/** In development builds only: the underlying error, so a crash can be reported and fixed. */
+function DevelopmentErrorDetails({ error }: { error: unknown }) {
+	if (!environment.isDevelopment) {
+		return null;
+	}
+	let summary = String(error);
+	let stack = "";
+	if (error instanceof Error) {
+		summary = `${error.name}: ${error.message}`;
+		stack = error.stack ?? "";
+	}
+	return (
+		<div className="mt-4 text-left text-sm">
+			<p className="rounded-md border border-border bg-bg px-3 py-2 font-mono text-xs">{summary}</p>
+			{stack ? (
+				<details className="mt-2">
+					<summary className="cursor-pointer text-muted-foreground">
+						Stack trace (development only)
+					</summary>
+					<pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-bg p-3 font-mono text-xs">
+						{stack}
+					</pre>
+				</details>
+			) : null}
+		</div>
+	);
+}
 
 function describeFailure(error: unknown): Failure {
 	const status = problemStatus(error);
@@ -47,7 +76,12 @@ export function PanelError({ error }: ErrorComponentProps) {
 	return (
 		<StatusPanel
 			actions={<RetryButton />}
-			description={failure.detail}
+			description={
+				<>
+					{failure.detail}
+					<DevelopmentErrorDetails error={error} />
+				</>
+			}
 			eyebrow={failure.status ? <Badge variant="ember">Error {failure.status}</Badge> : undefined}
 			icon={failure.icon}
 			title={failure.title}
@@ -65,7 +99,12 @@ export function FullScreenError({ error }: ErrorComponentProps) {
 				<StatusPanel
 					actions={<RetryButton />}
 					className="py-8 md:py-10"
-					description={failure.detail}
+					description={
+						<>
+							{failure.detail}
+							<DevelopmentErrorDetails error={error} />
+						</>
+					}
 					eyebrow={
 						failure.status ? <Badge variant="ember">Error {failure.status}</Badge> : undefined
 					}

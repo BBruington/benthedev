@@ -3,6 +3,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { StatusPanel } from "@/components/status-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { fallbackCampaignName, useCampaignName } from "@/hooks/use-campaign";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { type Milestone, type NavigationItemId, navigationItems } from "./navigation";
 
@@ -17,7 +18,7 @@ const milestoneNames: Record<Milestone, string> = {
 /** The page behind a navigation item whose milestone hasn't been built yet. */
 export function ComingSoon({ itemId }: { itemId: NavigationItemId }) {
 	const item = navigationItems[itemId];
-	useDocumentTitle(item.label, "Colony Planner");
+	useDocumentTitle(item.label, useCampaignName() ?? fallbackCampaignName);
 	return (
 		<StatusPanel
 			actions={

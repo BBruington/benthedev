@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 
@@ -171,7 +172,7 @@ func TestUpdateSettingsValidates(t *testing.T) {
 	dm := service.NewViewer(core.ViewerIdentity{MemberID: dmID, DiscordUserID: testDmDiscordID})
 
 	for _, timezone := range []string{"Mars/Olympus", "Local", ""} {
-		_, err := service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "Sample", Timezone: timezone})
+		_, err := service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "Sample", ColonyName: "Sample", Timezone: timezone})
 		operationError, typed := core.AsError(err)
 		if !typed || operationError.Kind != core.KindInvalid || len(operationError.Fields) != 1 || operationError.Fields[0].Field != "timezone" {
 			t.Errorf("timezone %q: %v", timezone, err)
@@ -182,6 +183,7 @@ func TestUpdateSettingsValidates(t *testing.T) {
 	channel := "123456789012345678"
 	settings, err := service.UpdateSettings(testContext, dm, core.SettingsInput{
 		CampaignName:             "  Sample Colony ",
+		ColonyName:               " Port Eldari  ",
 		Timezone:                 "America/New_York",
 		DiscordAnnounceChannelID: &blank,
 		DiscordDmChannelID:       &channel,
@@ -189,7 +191,7 @@ func TestUpdateSettingsValidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
-	if settings.CampaignName != "Sample Colony" || settings.DiscordAnnounceChannelID != nil || settings.DiscordDmChannelID == nil {
+	if settings.CampaignName != "Sample Colony" || settings.ColonyName != "Port Eldari" || settings.DiscordAnnounceChannelID != nil || settings.DiscordDmChannelID == nil {
 		t.Fatalf("settings = %+v", settings)
 	}
 	channels, err := service.DiscordChannels(testContext)
@@ -221,4 +223,45 @@ func TestSettingsShowBenyBotsInviteLinkOnlyWhenConfigured(t *testing.T) {
 func isKind(err error, kind core.ErrorKind) bool {
 	operationError, typed := core.AsError(err)
 	return typed && operationError.Kind == kind
+}
+
+// Free text is checked in core: a NUL byte would otherwise reach Postgres and come back as a 500, and
+// lengths count after trimming.
+func TestFreeTextRefusesControlCharactersAndCountsAfterTrimming(t *testing.T) {
+	service, _, _, _ := newService(t)
+	testContext := context.Background()
+	dmID, err := service.SignIn(testContext, core.DiscordIdentity{UserID: testDmDiscordID, Username: "dm"})
+	if err != nil {
+		t.Fatalf("sign in the DM: %v", err)
+	}
+	dm := service.NewViewer(core.ViewerIdentity{MemberID: dmID, DiscordUserID: testDmDiscordID})
+
+	expectFieldError := func(label string, err error, field string) {
+		t.Helper()
+		operationError, typed := core.AsError(err)
+		if !typed || operationError.Kind != core.KindInvalid || len(operationError.Fields) != 1 || operationError.Fields[0].Field != field {
+			t.Errorf("%s: %v, want one invalid %s field", label, err, field)
+		}
+	}
+
+	for _, characterName := range []string{"x\x00y", "line\nbreak", "tab\there", strings.Repeat("a", 61)} {
+		_, err := service.SetCharacterName(testContext, dm, dmID, core.CharacterNameInput{CharacterName: &characterName})
+		expectFieldError(fmt.Sprintf("character name %q", characterName), err, "characterName")
+	}
+	padded := "  " + strings.Repeat("a", 60) + "  "
+	if member, err := service.SetCharacterName(testContext, dm, dmID, core.CharacterNameInput{CharacterName: &padded}); err != nil || member.CharacterName == nil || *member.CharacterName != strings.Repeat("a", 60) {
+		t.Errorf("a 60-character name with spaces around it: %+v, %v", member, err)
+	}
+
+	_, err = service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "Bad\x00Name", ColonyName: "Sample", Timezone: "UTC"})
+	expectFieldError("campaign name with NUL", err, "campaignName")
+	_, err = service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "   ", ColonyName: "Sample", Timezone: "UTC"})
+	expectFieldError("blank campaign name", err, "campaignName")
+	for _, channel := range []string{"12345", "12345678901234567a", "123456789012345678901"} {
+		_, err = service.UpdateSettings(testContext, dm, core.SettingsInput{CampaignName: "Sample", ColonyName: "Sample", Timezone: "UTC", DiscordReminderChannelID: &channel})
+		expectFieldError(fmt.Sprintf("channel %q", channel), err, "discordReminderChannelId")
+	}
+
+	_, err = service.SignIn(testContext, core.DiscordIdentity{UserID: "100000000000000099", Username: "nul", DisplayName: "Nul\x00Name"})
+	expectFieldError("sign-in display name with NUL", err, "displayName")
 }

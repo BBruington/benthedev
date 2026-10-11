@@ -1,6 +1,7 @@
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
+import { useFocusReturn } from "@/hooks/use-focus-return";
 import { cn } from "@/lib/utils";
 
 function AlertDialog(props: ComponentProps<typeof AlertDialogPrimitive.Root>) {
@@ -31,10 +32,15 @@ function AlertDialogOverlay({
 	);
 }
 
+// Every alert dialog here opens without a Radix Trigger, so focus goes back to its opener by hand. A
+// caller that moves focus itself after a confirmed action prevents the default in onCloseAutoFocus.
 function AlertDialogContent({
 	className,
+	onCloseAutoFocus,
+	onFocus,
 	...props
 }: ComponentProps<typeof AlertDialogPrimitive.Content>) {
+	const focusReturn = useFocusReturn();
 	return (
 		<AlertDialogPortal>
 			<AlertDialogOverlay />
@@ -44,6 +50,16 @@ function AlertDialogContent({
 					className,
 				)}
 				data-slot="alert-dialog-content"
+				onCloseAutoFocus={(event) => {
+					onCloseAutoFocus?.(event);
+					if (!event.defaultPrevented) {
+						focusReturn.onCloseAutoFocus(event);
+					}
+				}}
+				onFocus={(event) => {
+					focusReturn.onFocus(event);
+					onFocus?.(event);
+				}}
 				{...props}
 			/>
 		</AlertDialogPortal>

@@ -17,7 +17,8 @@ import { type FormEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
 import { fieldErrors, problemMessage } from "@/api/problem";
-import { settingsQuery } from "@/api/queries";
+import { resourcesQuery, settingsQuery } from "@/api/queries";
+import { ResourceSettingsCard } from "@/colony/resource-settings";
 import { Field, fieldInputProps, fieldMessageIds } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { Forbidden } from "@/components/shell/forbidden";
@@ -38,6 +39,7 @@ type SettingsInput = Schemas["SettingsInput"];
 // Inputs hold strings; the API takes null for an unset channel.
 type SettingsDraft = {
 	campaignName: string;
+	colonyName: string;
 	timezone: string;
 	discordAnnounceChannelId: string;
 	discordReminderChannelId: string;
@@ -52,6 +54,7 @@ export const Route = createFileRoute("/_app/settings")({
 		const me = cachedMe(context.queryClient);
 		if (me && canUseDmTools(me)) {
 			context.queryClient.prefetchQuery(settingsQuery);
+			context.queryClient.prefetchQuery(resourcesQuery);
 		}
 	},
 });
@@ -66,12 +69,12 @@ function SettingsRoute() {
 
 function SettingsPage() {
 	const settings = useQuery(settingsQuery);
-	useDocumentTitle("Settings", settings.data?.campaignName);
+	useDocumentTitle("Settings", settings.data?.colonyName);
 
 	return (
 		<div className="flex flex-col gap-8 md:gap-10">
 			<PageHeader
-				description="The campaign's name, its time zone, and the Discord channels Beny Bot posts in."
+				description="The campaign's and colony's names, the time zone, the colony's resources, and the Discord channels Beny Bot posts in."
 				eyebrow="Dungeon Master"
 				title="Settings"
 			/>
@@ -103,12 +106,19 @@ function SettingsBody({
 			/>
 		);
 	}
-	return <SettingsForm settings={settings.data} />;
+	return (
+		<>
+			<SettingsForm settings={settings.data} />
+			<ResourceSettingsCard />
+			<ComingLater />
+		</>
+	);
 }
 
 function toDraft(settings: Settings): SettingsDraft {
 	return {
 		campaignName: settings.campaignName,
+		colonyName: settings.colonyName,
 		discordAnnounceChannelId: settings.discordAnnounceChannelId ?? "",
 		discordDmChannelId: settings.discordDmChannelId ?? "",
 		discordReminderChannelId: settings.discordReminderChannelId ?? "",
@@ -124,28 +134,12 @@ function optionalText(value: string): string | null {
 function toInput(draft: SettingsDraft): SettingsInput {
 	return {
 		campaignName: draft.campaignName.trim(),
+		colonyName: draft.colonyName.trim(),
 		discordAnnounceChannelId: optionalText(draft.discordAnnounceChannelId),
 		discordDmChannelId: optionalText(draft.discordDmChannelId),
 		discordReminderChannelId: optionalText(draft.discordReminderChannelId),
 		timezone: draft.timezone,
 	};
-}
-
-const channelFields: ChannelField[] = [
-	"discordAnnounceChannelId",
-	"discordReminderChannelId",
-	"discordDmChannelId",
-];
-
-// The server's pattern message names a regular expression; say what a channel ID looks like instead.
-function withFriendlyChannelErrors(errors: Record<string, string>): Record<string, string> {
-	const friendly = { ...errors };
-	for (const field of channelFields) {
-		if (friendly[field]?.toLowerCase().includes("pattern")) {
-			friendly[field] = "A channel ID is 17 to 20 digits. Copy it from Discord as described above.";
-		}
-	}
-	return friendly;
 }
 
 function sameSettings(first: SettingsDraft, second: SettingsDraft): boolean {
@@ -183,7 +177,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
 		},
 	});
 
-	const errors = withFriendlyChannelErrors(fieldErrors(mutation.error));
+	const errors = fieldErrors(mutation.error);
 	const isDirty = !sameSettings(draft, toDraft(settings));
 
 	function update<Key extends keyof SettingsDraft>(key: Key, value: SettingsDraft[Key]) {
@@ -216,7 +210,25 @@ function SettingsForm({ settings }: { settings: Settings }) {
 						onChange={(event) => {
 							update("campaignName", event.target.value);
 						}}
+						required
 						value={draft.campaignName}
+					/>
+				</Field>
+				<Field
+					description="Everyone sees it at the top of the Colony page."
+					error={errors.colonyName}
+					id="settings-colony-name"
+					label="Colony name"
+				>
+					<Input
+						{...fieldInputProps("settings-colony-name", errors.colonyName, true)}
+						autoComplete="off"
+						maxLength={80}
+						onChange={(event) => {
+							update("colonyName", event.target.value);
+						}}
+						required
+						value={draft.colonyName}
 					/>
 				</Field>
 				<Field
@@ -282,8 +294,6 @@ function SettingsForm({ settings }: { settings: Settings }) {
 					value={draft.discordDmChannelId}
 				/>
 			</SettingsCard>
-
-			<ComingLater />
 
 			<SaveBar
 				changedElsewhere={changedElsewhere}
@@ -413,7 +423,6 @@ function ChannelInput({
 }
 
 const laterSettings: { label: string; arrivesIn: string }[] = [
-	{ arrivesIn: "M1", label: "Colony name and resources" },
 	{ arrivesIn: "M2", label: "Colonist roles" },
 	{ arrivesIn: "M5", label: "Discord event location and the calendar (ICS) link" },
 ];
@@ -430,7 +439,7 @@ function ComingLater() {
 			>
 				Arriving with later milestones
 			</h2>
-			<ul className="mt-3 grid gap-2 lg:grid-cols-3">
+			<ul className="mt-3 grid gap-2 lg:grid-cols-2">
 				{laterSettings.map((setting) => (
 					<li className="flex items-center gap-2 text-muted-foreground" key={setting.label}>
 						<Badge variant="muted">{setting.arrivesIn}</Badge>

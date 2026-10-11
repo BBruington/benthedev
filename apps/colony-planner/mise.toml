@@ -28,8 +28,12 @@ description = "Start the local Postgres 17 container (127.0.0.1:54329) and wait 
 run = "scripts/db-up.sh"
 
 [tasks."db:down"]
-description = "Stop the local Postgres container (data stays in the named volume)"
-run = "docker compose down"
+description = "Stop the local Postgres container and the database browser (data stays in the named volumes)"
+run = "docker compose --profile studio down"
+
+[tasks."db:studio"]
+description = "Open DbGate, a browser for the local database (http://localhost:54330), like Drizzle Studio"
+run = "scripts/db-studio.sh"
 
 [tasks.dev]
 description = "Run Postgres, the Go server (devauth, :8080) and Vite (:5173); open http://localhost:5173"

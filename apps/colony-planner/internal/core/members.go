@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -48,12 +46,13 @@ type ViewAsPlayerInput struct {
 }
 
 // ProfileInput replaces the caller's whole profile (PUT semantics). A null characterName clears it.
+// Lengths and formats are checked in core, not in schema tags, so the person reads core's messages.
 type ProfileInput struct {
-	CharacterName *string `json:"characterName" maxLength:"60"`
+	CharacterName *string `json:"characterName" doc:"At most 60 characters after trimming; blank or null clears it"`
 }
 
 type CharacterNameInput struct {
-	CharacterName *string `json:"characterName" maxLength:"60"`
+	CharacterName *string `json:"characterName" doc:"At most 60 characters after trimming; blank or null clears it"`
 }
 
 // MemberGroups is the DM's /players page: who is waiting, who plays, who was removed or denied.
@@ -181,14 +180,14 @@ func normalizeCharacterName(characterName *string) (*string, error) {
 	if characterName == nil {
 		return nil, nil
 	}
-	trimmed := strings.TrimSpace(*characterName)
-	if trimmed == "" {
+	cleaned, fieldError := cleanText("characterName", *characterName, characterNameMaxLength)
+	if fieldError != nil {
+		return nil, Invalid("Check the character name.", *fieldError)
+	}
+	if cleaned == "" {
 		return nil, nil
 	}
-	if utf8.RuneCountInString(trimmed) > characterNameMaxLength {
-		return nil, Invalid("The character name is too long.", FieldError{Field: "characterName", Message: "Use at most 60 characters."})
-	}
-	return &trimmed, nil
+	return &cleaned, nil
 }
 
 func (service *Service) ListMembers(requestContext context.Context, viewer Viewer) (MemberGroups, error) {

@@ -141,12 +141,14 @@ Colony Planner is a private website for one D&D campaign: the author's **Colony 
    - Timeline text is rendered when the event is written, using player-facing names.
    - A PUBLIC event never names a hidden NPC, quest giver or patron. If the subject is hidden, the event is written with DM visibility, or the hidden detail goes into the event's `dm.data`.
 6. **Secrecy and access test (part of `mise run check`, §8.12).**
-   - It seeds a canary string into every `dm` field and every hidden row.
-   - It then calls **every operation in the OpenAPI document and every route in the route table** as a player:
+   - Each feature plants a canary string in every `dm` field and every hidden row it stores (a per-feature fixture in `internal/app/secrecy_fixtures_test.go`), and names a real row for each path parameter its routes use.
+   - It then calls **every operation in the OpenAPI document and every route in the route table** as a player, the DM viewing as player, a pending member, a removed member and a visitor, with path parameters pointing at the fixtures' rows and required query parameters filled from their schemas:
      - `dm` routes must return 403;
+     - an active member's member-level read must succeed, so its data path really runs;
+     - every `/api/` and `/auth/` response carries `Cache-Control: no-store`;
      - every other response must contain no canary.
    - It also replays every SSE message and every Beny Bot command reply against the same canaries.
-   - New endpoints are covered automatically.
+   - New endpoints are swept without editing the test, but their DM-only data is covered only once their feature plants canaries: plant one for every new `Dm` field or hidden row.
 7. **CSRF.**
    - The mux is wrapped in Go's stdlib `http.CrossOriginProtection`.
    - The cookie is `SameSite=Lax` and `__Host-` prefixed.
@@ -315,9 +317,9 @@ All tables live in one Postgres database:
 
 | Table | Key fields | Notes |
 |---|---|---|
-| `colony` (singleton) | `name`, `day int ≥ 0`, `version bigint`, `shipment_interval_days int NULL CHECK (≥ 1)`, `next_shipment_day int NULL`, `last_change jsonb NULL`, `updated_at` | `CHECK ((shipment_interval_days IS NULL) = (next_shipment_day IS NULL))` and `CHECK (next_shipment_day > day)`, so the stall is impossible. `version` increments on every colony mutation. `last_change` holds the undo snapshot (§5.1). |
-| `resource` | `key text PK`, `label`, `icon` (from a curated lucide list), `amount int`, `min_amount int DEFAULT 0`, `max_amount int NULL`, `sort_order`, `is_system bool`, `archived bool` | `CHECK (amount >= min_amount AND (max_amount IS NULL OR amount <= max_amount))`. Seeds: `gold`, `food` (system; used by upkeep), `materials`, and `morale` (max 100, starts at 100). The DM adds resources with no code change. |
-| `role` | `key text PK`, `label`, `icon`, `sort_order`, `unnamed_count int CHECK (≥ 0)`, `is_system bool`, `archived bool` | Seeds use the old icons: FARMER (Wheat), HEALER (HeartPulse), BLACKSMITH (Hammer), SOLDIER (Sword), MINER (Pickaxe), BUILDER (HardHat), SCHOLAR (BookOpen), MAGE (Wand2), plus the system role **UNASSIGNED** (Users). A role can be archived only when its headcount is 0. |
+| `colony` (singleton) | `name`, `day int ≥ 0`, `version bigint`, `shipment_interval_days int NULL CHECK (≥ 1)`, `next_shipment_day int NULL`, `last_change jsonb NULL`, `updated_at` | `CHECK ((shipment_interval_days IS NULL) = (next_shipment_day IS NULL))` and `CHECK (next_shipment_day > day)`, so the stall is impossible. `version` increments on every colony mutation. `last_change` holds the undo snapshot (§5.1). Every member reads `name` and the campaign name on the board; the DM edits both on `/settings`, which is not a colony mutation. |
+| `resource` | `key text PK`, `label`, `icon colony_icon` (a curated lucide list, as a Postgres enum), `amount int`, `min_amount int DEFAULT 0`, `max_amount int NULL`, `sort_order`, `is_system bool`, `archived bool` | `CHECK (amount >= min_amount AND (max_amount IS NULL OR amount <= max_amount))`. Seeds: `gold`, `food` (system; used by upkeep), `materials`, and `morale` (max 100, starts at 100). The DM adds resources with no code change. |
+| `role` | `key text PK`, `label`, `icon`, `sort_order`, `unnamed_count int CHECK (≥ 0)`, `is_system bool`, `archived bool` | Seeds use the old icons: FARMER (Wheat), HEALER (HeartPulse), BLACKSMITH (Hammer), SOLDIER (Sword), MINER (Pickaxe), BUILDER (HardHat), SCHOLAR (BookOpen), MAGE (Wand2, stored as `WandSparkles`, lucide's current name for it), plus the system role **UNASSIGNED** (Users). A role can be archived only when its headcount is 0. |
 
 The **colonist total is never stored**. `game.Colonists` and this query compute it:
 
@@ -335,7 +337,7 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role)
 | `patron` | `id`, `name`, `description`, `revealed bool DEFAULT false`, `archived bool DEFAULT false`, `favor int DEFAULT 0`, `player_notes`, `dm_notes`, `sort_order`, timestamps | Archived, never deleted. There is no delete operation, and foreign keys to it are RESTRICT, so a stray SQL delete fails loudly. |
 | `patron_action` | `id`, `patron_id → patron RESTRICT`, `name`, `description`, `favor_cost int CHECK (≥ 0)`, `effects jsonb`, `revealed bool DEFAULT false`, `archived bool`, `sort_order`, timestamps | Archived, never deleted. Example: "Grain Barge", cost 3, effects `{"resources":{"food":7}}`. |
 | `request` | `id`, `kind text` (validated in Go; v1 has only `PATRON_ACTION`), `title text` (snapshot of what was asked for, e.g. "Grain Barge"), `patron_id → patron NULL SET NULL`, `patron_name text NULL` (snapshot), `patron_action_id → patron_action NULL SET NULL`, `cost jsonb` (snapshot, e.g. `{"favor":3}`), `effects jsonb` (snapshot), `applied_effects jsonb NULL`, `requested_by → member`, `on_behalf_of → member NULL`, `requested_day`, `note`, `status request_status` (PENDING, APPROVED, DECLINED, WITHDRAWN), `decided_by NULL`, `decided_at NULL`, `decision_note NULL`, `event_group_id NULL`, `discord_message_id NULL`, `created_at` | `CHECK (kind <> 'PATRON_ACTION' OR patron_name IS NOT NULL)`. Snapshots never change, so history reads correctly after the action is edited or archived. `applied_effects` records a DM tweak. A future kind fills `title`, `cost` and `effects` the same way and adds its own nullable reference column (§3.3). |
-| `timeline_event` | `id`, `group_id uuid NULL` (shared by every entry one mutation writes), `day int`, `kind text`, `title`, `body`, `visibility timeline_visibility` (PUBLIC, DM), `deltas jsonb` (applied Effects only), `data jsonb` (kind-specific), `quest_id`, `patron_id`, `request_id`, `npc_id`, `session_id` (all `SET NULL`), `undone_at NULL`, `created_by → member NULL`, `created_at`, `edited_at NULL`; index `(day, created_at)` | Named `timeline_event` so it isn't confused with the future Events mechanic. Text is rendered at write time. |
+| `timeline_event` | `id`, `group_id uuid NULL` (shared by every entry one mutation writes), `sequence` (write order), `day int`, `kind text`, `title`, `body`, `visibility timeline_visibility` (PUBLIC, DM), `deltas jsonb` (applied Effects only), `data jsonb` (kind-specific), `quest_id`, `patron_id`, `request_id`, `npc_id`, `session_id` (all `SET NULL`), `undone_at NULL`, `created_by → member NULL`, `created_at`, `edited_at NULL`; index `(day, created_at)` | Named `timeline_event` so it isn't confused with the future Events mechanic. Text is rendered at write time. M1 creates it without the five link columns: each arrives with its table (`quest_id` in M3, `npc_id` in M2, and so on). `sequence` orders entries within one transaction, which share `created_at`. `CARGO_RECORDED` links to its arrival in `data` (`{arrivalEntryId}`); `SHIPMENT_ARRIVED` keeps `{first, every, count}` there. |
 
 **`Effects` JSON** is one Go type and one generated TypeScript type, used everywhere:
 
@@ -1219,7 +1221,7 @@ To add a player-visible NPC field `voice`, make **4 hand edits**:
 
 1. `db/migrations/00NN_npc_voice.sql`: `ALTER TABLE npc ADD COLUMN voice text`.
 2. `db/queries/npcs.sql`: add it to `UpdateNpc`'s SET list. Reads use `sqlc.embed(npc)`.
-3. `internal/core/npcs.go`: add it to `Npc` (or `NpcDm` if it is secret), `toNpc()` and `NpcInput`. The huma handler passes these structs through unchanged, and the secrecy test covers `NpcDm` automatically.
+3. `internal/core/npcs.go`: add it to `Npc` (or `NpcDm` if it is secret), `toNpc()` and `NpcInput`. The huma handler passes these structs through unchanged. A secret field also gets a canary in the NPC fixture of `internal/app/secrecy_fixtures_test.go`, or the secrecy test can't see it leak.
 4. `web/src/routes/npcs.$npcId.tsx`: display and input.
 
 Then run `mise run gen`. Compiler errors point at anything missed.
@@ -1236,9 +1238,10 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
   - A heartbeat comment every 20 s. Heartbeats touch no database.
   - The server closes each stream at about 10 minutes, under the 15-minute proxy cap of the M6 host (Railway), and `EventSource` reconnects on its own with `Last-Event-ID`. Locally this costs nothing, and it keeps behavior the same before and after M6.
   - The client also closes the stream while the tab is hidden (`document.hidden`). When the tab is visible again, it reopens the stream and passes its last ID as `?last=`.
-- **Reconnect without refetch.** On connect, the server compares the client's last ID with its own:
+- **Reconnect without refetch.** The broker remembers its last 256 messages and who each one reached (every active stream, one member, or one session). On connect, it compares the client's last ID with its own:
   - same boot and same sequence: nothing happened, so it sends nothing;
-  - any other case (a newer sequence, a new boot, or no ID): it sends one invalidate for everything.
+  - same boot, an older sequence the remembered messages still reach back to: one invalidate for the topics this stream would have heard since then, or nothing when none of them was for it (a view-as-player switch in the DM's browser, a message to another member);
+  - any other case (too far behind, a new boot, or no ID): one invalidate for everything.
 - **A reconnect touches no database.** The session comes from the in-memory cache (§8.5), and `last_seen_at` is written at most once a day. A tab left open between sessions therefore won't keep a hosted database awake (M6).
 - **Client.**
   - Maps topics to query-key prefixes and invalidates them.

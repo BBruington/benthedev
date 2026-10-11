@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Pinned: move to the next Ubuntu on purpose, not when GitHub moves the latest label.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -40,5 +41,7 @@ jobs:
           cache: true
       - name: mise run check
         run: mise run check
+      # Untracked files count too: a new sqlc output file that was never added would otherwise be
+      # regenerated here and pass, although a clean checkout doesn't build.
       - name: Generated code is committed and current
-        run: git diff --exit-code
+        run: git diff --exit-code && test -z "$(git status --porcelain)" || { git status --porcelain; exit 1; }

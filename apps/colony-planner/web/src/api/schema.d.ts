@@ -4,6 +4,159 @@
  */
 
 export interface paths {
+    "/api/colony": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The colony board: names, day, shipments, stock and headcounts */
+        get: operations["getColonyBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/adjust": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Adjust stock, or record a shipment's cargo */
+        post: operations["adjustStock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/adjust-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What an adjustment or cargo would apply, caps included, without doing it */
+        post: operations["previewAdjustStock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/advance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Advance the colony N days */
+        post: operations["advanceDays"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/advance-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What advancing N days would do, without doing it */
+        get: operations["previewAdvance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/correct-day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set the day directly, with no upkeep or arrivals */
+        post: operations["correctDay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/shipments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set the shipment interval and next arrival day */
+        put: operations["setShipmentSchedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/shipments/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear the shipment schedule */
+        post: operations["clearShipmentSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/colony/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo the last colony change */
+        post: operations["undoLastChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/login-options": {
         parameters: {
             query?: never;
@@ -174,6 +327,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every resource, archived ones included, for settings */
+        get: operations["listResources"];
+        put?: never;
+        /** Add a resource */
+        post: operations["createResource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/resources/{resourceKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a resource's label, icon, bounds, order and archived flag */
+        put: operations["updateResource"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings": {
         parameters: {
             query?: never;
@@ -192,12 +380,213 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Timeline entries for a range of days, in the viewer's projection */
+        get: operations["listTimeline"];
+        put?: never;
+        /** Add a custom timeline entry on any day */
+        post: operations["createTimelineEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/timeline/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest timeline entries in write order, for the board and live toasts */
+        get: operations["listRecentTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/timeline/{timelineEntryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a timeline entry's text and visibility (and a custom entry's day) */
+        put: operations["updateTimelineEntry"];
+        post?: never;
+        /** Delete a custom timeline entry */
+        delete: operations["deleteTimelineEntry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdjustInput: {
+            /**
+             * Format: uuid
+             * @description The arrival this cargo came on: required for SHIPMENT, null for ADJUSTMENT
+             */
+            arrivalEntryId: string | null;
+            /**
+             * Format: int64
+             * @description New colonists, 0 or more; they land in Unassigned
+             */
+            colonists: number;
+            /** @description Resource key to change; {} for none */
+            deltas: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            expectedVersion: number;
+            public: boolean;
+            /** @description At most 200 characters after trimming; may be blank */
+            reason: string;
+            /** @description Resource key to new amount, turned into a delta under the colony lock; {} for none. A key may not also be in deltas. */
+            setTo: {
+                [key: string]: number;
+            };
+            source: components["schemas"]["AdjustSource"];
+        };
+        AdjustPreview: {
+            /** Format: int64 */
+            colonistsAfter: number;
+            /** Format: int64 */
+            colonistsBefore: number;
+            /** @description Every resource the adjustment names, sorted by key */
+            resources: components["schemas"]["ResourceChangePreview"][];
+            /** @description e.g. Food +30 · Morale 98 → 100 (capped) · 4 colonists (Unassigned) */
+            summary: string;
+            /**
+             * Format: int64
+             * @description The colony version the preview saw; send it as expectedVersion
+             */
+            version: number;
+        };
+        /** @enum {string} */
+        AdjustSource: "ADJUSTMENT" | "SHIPMENT";
+        AdvanceInput: {
+            /**
+             * Format: int64
+             * @description 1 or more; no limit beyond what the database can store
+             */
+            days: number;
+            /** Format: int64 */
+            expectedVersion: number;
+        };
+        AdvancePreview: {
+            /** Format: int64 */
+            arrivalCount: number;
+            /** @description Every arrival day in the span, as runs */
+            arrivals: components["schemas"]["ArrivalRun"][];
+            /**
+             * Format: int64
+             * @description The headcount upkeep used
+             */
+            colonists: number;
+            /** Format: int64 */
+            days: number;
+            /** Format: int64 */
+            fromDay: number;
+            resources: components["schemas"]["ResourceChangePreview"][];
+            /** @description null when no shipment schedule is set */
+            shipmentsAfter: components["schemas"]["ShipmentSchedule"];
+            /** @description e.g. Day 12 → 17 · Food 140 → 80 · 1 shipment arrival (Day 14) */
+            summary: string;
+            /** Format: int64 */
+            toDay: number;
+            /** Format: int64 */
+            version: number;
+        };
+        ArrivalRun: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            every: number;
+            /** Format: int64 */
+            first: number;
+            /** Format: int64 */
+            last: number;
+        };
         CharacterNameInput: {
+            /** @description At most 60 characters after trimming; blank or null clears it */
             characterName: string | null;
+        };
+        ClearShipmentScheduleInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+        };
+        ColonyBoard: {
+            campaignName: string;
+            /** Format: int64 */
+            colonists: number;
+            colonyName: string;
+            /** Format: int64 */
+            day: number;
+            dm?: components["schemas"]["ColonyBoardDm"];
+            /** @description Unarchived resources in board order */
+            resources: components["schemas"]["ColonyResource"][];
+            /** @description Unarchived roles in display order, Unassigned included */
+            roles: components["schemas"]["RoleHeadcount"][];
+            /** @description null when no shipment schedule is set */
+            shipments: components["schemas"]["ShipmentSchedule"];
+            /** Format: int64 */
+            unassigned: number;
+            /** Format: int64 */
+            version: number;
+        };
+        ColonyBoardDm: {
+            /** @description What Undo would rewind; null when there is nothing to undo */
+            lastChange: components["schemas"]["LastChange"];
+        };
+        ColonyChange: {
+            /** @description The board after the change */
+            board: components["schemas"]["ColonyBoard"];
+            entries: components["schemas"]["TimelineEntry"][];
+            /** Format: uuid */
+            groupId: string;
+            label: string;
+        };
+        /** @enum {string} */
+        ColonyIcon: "Anchor" | "Apple" | "Axe" | "Beef" | "Beer" | "Bone" | "BookOpen" | "Boxes" | "Coins" | "Crown" | "Droplets" | "Feather" | "Fish" | "Flame" | "FlaskConical" | "Gem" | "Hammer" | "HardHat" | "Heart" | "HeartHandshake" | "HeartPulse" | "Leaf" | "Mountain" | "Package" | "Pickaxe" | "Scroll" | "Shield" | "Ship" | "Shirt" | "Sparkles" | "Star" | "Sword" | "Tent" | "Trees" | "Users" | "WandSparkles" | "Wheat" | "Wrench";
+        ColonyResource: {
+            /** Format: int64 */
+            amount: number;
+            icon: components["schemas"]["ColonyIcon"];
+            isSystem: boolean;
+            key: string;
+            label: string;
+            /**
+             * Format: int64
+             * @description null when unbounded
+             */
+            maxAmount: number | null;
+            /** Format: int64 */
+            minAmount: number;
+        };
+        CorrectDayInput: {
+            /**
+             * Format: int64
+             * @description 0 or more
+             */
+            day: number;
+            /** Format: int64 */
+            expectedVersion: number;
         };
         DevSignInMember: {
             characterName: string | null;
@@ -206,6 +595,13 @@ export interface components {
             /** Format: uuid */
             memberId: string;
             status: components["schemas"]["MemberStatus"];
+        };
+        Effects: {
+            /** Format: int64 */
+            colonists?: number;
+            resources?: {
+                [key: string]: number;
+            };
         };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -251,6 +647,19 @@ export interface components {
         InvalidateMessage: {
             topics: components["schemas"]["Topic"][];
         };
+        LastChange: {
+            /** Format: date-time */
+            changedAt: string;
+            /**
+             * Format: int64
+             * @description The colony day after the change
+             */
+            day: number;
+            /** Format: uuid */
+            groupId: string;
+            /** @description What the change did, e.g. 3 days pass · Day 44 */
+            label: string;
+        } | null;
         LoginOptions: {
             /** @description Present only in devauth builds */
             devSignIn?: components["schemas"]["DevSignInMember"][];
@@ -289,13 +698,96 @@ export interface components {
         };
         /** @enum {string} */
         MemberStatus: "PENDING" | "ACTIVE" | "REMOVED";
+        NewResourceInput: {
+            icon: components["schemas"]["ColonyIcon"];
+            /** @description 1 to 40 characters after trimming */
+            label: string;
+            /**
+             * Format: int64
+             * @description null for no maximum; at least minAmount
+             */
+            maxAmount: number | null;
+            /** Format: int64 */
+            minAmount: number;
+        };
         ProfileInput: {
+            /** @description At most 60 characters after trimming; blank or null clears it */
             characterName: string | null;
+        };
+        RecentTimeline: {
+            /** @description Newest first, at most 10 */
+            entries: components["schemas"]["TimelineEntry"][];
+        };
+        ResourceChangePreview: {
+            /** Format: int64 */
+            after: number;
+            /** Format: int64 */
+            before: number;
+            /** @description A bound stopped the change (capped at the maximum or floored at the minimum) */
+            clamped: boolean;
+            icon: components["schemas"]["ColonyIcon"];
+            key: string;
+            label: string;
+            /**
+             * Format: int64
+             * @description The change asked for; after minus before is what applies
+             */
+            requested: number;
+        };
+        ResourceInput: {
+            /** @description A system resource (food) can't be archived */
+            archived: boolean;
+            icon: components["schemas"]["ColonyIcon"];
+            /** @description 1 to 40 characters after trimming */
+            label: string;
+            /**
+             * Format: int64
+             * @description null for no maximum; at least minAmount
+             */
+            maxAmount: number | null;
+            /** Format: int64 */
+            minAmount: number;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        ResourceList: {
+            resources: components["schemas"]["ResourceSettings"][];
+        };
+        ResourceSettings: {
+            /** Format: int64 */
+            amount: number;
+            archived: boolean;
+            icon: components["schemas"]["ColonyIcon"];
+            isSystem: boolean;
+            key: string;
+            label: string;
+            /**
+             * Format: int64
+             * @description null when unbounded
+             */
+            maxAmount: number | null;
+            /** Format: int64 */
+            minAmount: number;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        RoleHeadcount: {
+            icon: components["schemas"]["ColonyIcon"];
+            isSystem: boolean;
+            key: string;
+            label: string;
+            /** Format: int64 */
+            namedCount: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            unnamedCount: number;
         };
         Settings: {
             /** @description Adds Beny Bot to a Discord server; null until DISCORD_CLIENT_ID is set */
             botInviteUrl: string | null;
             campaignName: string;
+            colonyName: string;
             discordAnnounceChannelId: string | null;
             discordDmChannelId: string | null;
             discordReminderChannelId: string | null;
@@ -303,15 +795,120 @@ export interface components {
             timezone: string;
         };
         SettingsInput: {
+            /** @description 1 to 80 characters after trimming */
             campaignName: string;
+            /** @description 1 to 80 characters after trimming */
+            colonyName: string;
+            /** @description Discord channel ID: 17 to 20 digits */
             discordAnnounceChannelId: string | null;
+            /** @description Discord channel ID: 17 to 20 digits */
             discordDmChannelId: string | null;
+            /** @description Discord channel ID: 17 to 20 digits */
             discordReminderChannelId: string | null;
             /** @description IANA time zone, e.g. America/New_York */
             timezone: string;
         };
+        ShipmentSchedule: {
+            /**
+             * Format: int64
+             * @description nextDay minus day; always at least 1
+             */
+            daysUntil: number;
+            /** Format: int64 */
+            intervalDays: number;
+            /** Format: int64 */
+            nextDay: number;
+        } | null;
+        ShipmentScheduleInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+            /**
+             * Format: int64
+             * @description 1 or more
+             */
+            intervalDays: number;
+            /**
+             * Format: int64
+             * @description After today; null keeps the current next arrival, or day + interval when there is none
+             */
+            nextDay: number | null;
+        };
+        TimelineEntry: {
+            /**
+             * Format: uuid
+             * @description CARGO_RECORDED only; null otherwise
+             */
+            arrivalEntryId: string | null;
+            /** @description SHIPMENT_ARRIVED only; absent otherwise */
+            arrivals?: components["schemas"]["ArrivalRun"];
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            day: number;
+            deltas: components["schemas"]["Effects"];
+            dm?: components["schemas"]["TimelineEntryDm"];
+            /** Format: uuid */
+            groupId: string | null;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["TimelineKind"];
+            title: string;
+        };
+        TimelineEntryDm: {
+            canDelete: boolean;
+            canRecordCargo: boolean;
+            /** Format: date-time */
+            editedAt: string | null;
+            /** Format: date-time */
+            undoneAt: string | null;
+            visibility: components["schemas"]["TimelineVisibility"];
+        };
+        TimelineEntryInput: {
+            /** @description At most 2000 characters; line breaks allowed */
+            body: string;
+            /**
+             * Format: int64
+             * @description 0 or more, past or future; must stay the same unless the entry is CUSTOM
+             */
+            day: number;
+            /** @description 1 to 120 characters after trimming */
+            title: string;
+            visibility: components["schemas"]["TimelineVisibility"];
+        };
         /** @enum {string} */
-        Topic: "me" | "members" | "settings";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM";
+        TimelinePage: {
+            /**
+             * Format: int64
+             * @description The nearest day before fromDay with an entry this viewer sees; null when none
+             */
+            earlierDay: number | null;
+            /** @description Ordered by day, then write order */
+            entries: components["schemas"]["TimelineEntry"][];
+            /** Format: int64 */
+            fromDay: number;
+            /**
+             * Format: int64
+             * @description The nearest day after toDay with an entry this viewer sees; null when none
+             */
+            laterDay: number | null;
+            /** Format: int64 */
+            toDay: number;
+            /**
+             * Format: int64
+             * @description The colony's current day, for Jump to today
+             */
+            today: number;
+        };
+        /** @enum {string} */
+        TimelineVisibility: "PUBLIC" | "DM";
+        /** @enum {string} */
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources";
+        UndoInput: {
+            /** Format: uuid */
+            groupId: string;
+        };
         ViewAsPlayerInput: {
             enabled: boolean;
         };
@@ -324,6 +921,298 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getColonyBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyBoard"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    adjustStock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    previewAdjustStock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdjustPreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    advanceDays: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdvanceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    previewAdvance: {
+        parameters: {
+            query: {
+                /** @description 1 or more */
+                days: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvancePreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    correctDay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectDayInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setShipmentSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShipmentScheduleInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    clearShipmentSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearShipmentScheduleInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    undoLastChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     getLoginOptions: {
         parameters: {
             query?: never;
@@ -634,6 +1523,103 @@ export interface operations {
             };
         };
     };
+    listResources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewResourceInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceSettings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                resourceKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceSettings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     getSettings: {
         parameters: {
             query?: never;
@@ -684,6 +1670,166 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Settings"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listTimeline: {
+        parameters: {
+            query: {
+                /** @description First day shown, inclusive */
+                fromDay: number;
+                /** @description Last day shown, inclusive; at most 365 days after fromDay */
+                toDay: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelinePage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createTimelineEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimelineEntryInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineEntry"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listRecentTimeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecentTimeline"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateTimelineEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                timelineEntryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimelineEntryInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineEntry"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteTimelineEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                timelineEntryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
