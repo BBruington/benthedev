@@ -1,0 +1,31 @@
+name: colony-planner
+
+services:
+  postgres:
+    image: postgres:17.10
+    container_name: colony-planner-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: colony
+      POSTGRES_DB: colony
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing; run `mise run setup` to create .env}
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - colony-postgres:/var/lib/postgresql/data
+    configs:
+      - source: create-test-database
+        target: /docker-entrypoint-initdb.d/10-create-test-database.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U colony -d colony"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+configs:
+  create-test-database:
+    content: |
+      CREATE DATABASE colony_test;
+
+volumes:
+  colony-postgres:

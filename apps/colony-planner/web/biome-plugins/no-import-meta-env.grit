@@ -1,0 +1,6 @@
+language js
+
+`import.meta.env` as $access where {
+	$filename <: not r".*src/env\.ts$",
+	register_diagnostic(span=$access, message="Read environment values through src/env.ts; it is the only module that touches import.meta.env.")
+}

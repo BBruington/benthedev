@@ -1,0 +1,25 @@
+{
+	"compilerOptions": {
+		"allowImportingTsExtensions": false,
+		"isolatedModules": true,
+		"jsx": "react-jsx",
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"noEmit": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"paths": {
+			"@/*": ["./src/*"]
+		},
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"target": "ES2023",
+		"types": ["vite/client", "bun"],
+		"verbatimModuleSyntax": true
+	},
+	"include": ["src", "vite.config.ts"]
+}

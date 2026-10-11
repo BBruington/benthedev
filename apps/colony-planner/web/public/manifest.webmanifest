@@ -1,0 +1,10 @@
+{
+	"background_color": "#0E1A1D",
+	"description": "The Colony Campaign: the DM's console and the players' board.",
+	"display": "standalone",
+	"icons": [{ "purpose": "any", "sizes": "any", "src": "/favicon.svg", "type": "image/svg+xml" }],
+	"name": "Colony Planner",
+	"short_name": "Colony",
+	"start_url": "/",
+	"theme_color": "#0E1A1D"
+}
