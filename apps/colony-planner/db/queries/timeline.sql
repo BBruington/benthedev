@@ -1,5 +1,7 @@
 -- Player projection: PUBLIC entries that have not been undone, about no NPC or a revealed one, so an
--- entry follows its NPC when the DM hides them later (Invariant 15). core passes viewer.SeesDmFields() as
+-- entry follows its NPC when the DM hides them later (Invariant 15). The same holds for an entry's
+-- quest, patron and request (whose action may be hidden since, or was hidden when it was made), so a
+-- link ID reaches players only for a row they can see. core passes viewer.SeesDmFields() as
 -- dm_projection (never IsDM), so the DM viewing as player gets the player projection (spec §2.2).
 
 -- name: ListTimelineEvents :many
@@ -7,7 +9,13 @@ SELECT * FROM timeline_event
 WHERE timeline_event.campaign_id = @campaign_id
   AND day BETWEEN @from_day AND @to_day
   AND (@dm_projection::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
-       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))))
+       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))
+       AND (quest_id IS NULL OR EXISTS (SELECT 1 FROM quest WHERE quest.campaign_id = @campaign_id AND quest.id = timeline_event.quest_id AND quest.revealed))
+       AND (patron_id IS NULL OR EXISTS (SELECT 1 FROM patron WHERE patron.campaign_id = @campaign_id AND patron.id = timeline_event.patron_id AND patron.revealed))
+       AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
+            LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
+            WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
+              AND (patron_action.id IS NULL OR patron_action.revealed)))))
 ORDER BY day, created_at, sequence;
 
 -- The newest entries in the order they were written, for the board and the live toasts.
@@ -15,7 +23,13 @@ ORDER BY day, created_at, sequence;
 SELECT * FROM timeline_event
 WHERE timeline_event.campaign_id = @campaign_id
   AND (@dm_projection::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
-       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))))
+       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))
+       AND (quest_id IS NULL OR EXISTS (SELECT 1 FROM quest WHERE quest.campaign_id = @campaign_id AND quest.id = timeline_event.quest_id AND quest.revealed))
+       AND (patron_id IS NULL OR EXISTS (SELECT 1 FROM patron WHERE patron.campaign_id = @campaign_id AND patron.id = timeline_event.patron_id AND patron.revealed))
+       AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
+            LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
+            WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
+              AND (patron_action.id IS NULL OR patron_action.revealed)))))
 ORDER BY sequence DESC
 LIMIT @entry_limit;
 
@@ -25,7 +39,13 @@ SELECT day FROM timeline_event
 WHERE timeline_event.campaign_id = @campaign_id
   AND day < @before_day
   AND (@dm_projection::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
-       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))))
+       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))
+       AND (quest_id IS NULL OR EXISTS (SELECT 1 FROM quest WHERE quest.campaign_id = @campaign_id AND quest.id = timeline_event.quest_id AND quest.revealed))
+       AND (patron_id IS NULL OR EXISTS (SELECT 1 FROM patron WHERE patron.campaign_id = @campaign_id AND patron.id = timeline_event.patron_id AND patron.revealed))
+       AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
+            LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
+            WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
+              AND (patron_action.id IS NULL OR patron_action.revealed)))))
 ORDER BY day DESC
 LIMIT 1;
 
@@ -34,7 +54,13 @@ SELECT day FROM timeline_event
 WHERE timeline_event.campaign_id = @campaign_id
   AND day > @after_day
   AND (@dm_projection::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
-       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))))
+       AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = @campaign_id AND npc.id = timeline_event.npc_id AND npc.revealed))
+       AND (quest_id IS NULL OR EXISTS (SELECT 1 FROM quest WHERE quest.campaign_id = @campaign_id AND quest.id = timeline_event.quest_id AND quest.revealed))
+       AND (patron_id IS NULL OR EXISTS (SELECT 1 FROM patron WHERE patron.campaign_id = @campaign_id AND patron.id = timeline_event.patron_id AND patron.revealed))
+       AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
+            LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
+            WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
+              AND (patron_action.id IS NULL OR patron_action.revealed)))))
 ORDER BY day
 LIMIT 1;
 
@@ -47,8 +73,10 @@ SELECT * FROM timeline_event WHERE campaign_id = @campaign_id AND id = @id;
 -- runs under the colony lock, so entries then carry their commit order, and the live toasts can
 -- tell news from older entries that slid into the recent list (web/src/lib/colony.ts).
 -- name: CreateTimelineEvent :one
-INSERT INTO timeline_event (campaign_id, group_id, day, kind, title, body, visibility, deltas, data, created_by, npc_id, npc_name, created_at)
-VALUES (@campaign_id, sqlc.narg(group_id), @day, @kind, @title, @body, @visibility, @deltas, @data, sqlc.narg(created_by), sqlc.narg(npc_id), @npc_name, clock_timestamp())
+INSERT INTO timeline_event (campaign_id, group_id, day, kind, title, body, visibility, deltas, data, created_by, npc_id, npc_name,
+    quest_id, patron_id, request_id, created_at)
+VALUES (@campaign_id, sqlc.narg(group_id), @day, @kind, @title, @body, @visibility, @deltas, @data, sqlc.narg(created_by), sqlc.narg(npc_id), @npc_name,
+    sqlc.narg(quest_id), sqlc.narg(patron_id), sqlc.narg(request_id), clock_timestamp())
 RETURNING *;
 
 -- The DM edits any entry's text and visibility; only a CUSTOM entry may move to another day (core
@@ -90,3 +118,8 @@ UPDATE timeline_event
 SET visibility = CASE WHEN @npc_revealed::boolean THEN visibility ELSE 'DM' END,
     npc_name = CASE WHEN @npc_revealed::boolean AND npc_name = @display_name::text THEN '' ELSE npc_name END
 WHERE campaign_id = @campaign_id AND npc_id = @npc_id;
+
+-- Before a hidden quest is deleted (the foreign key then clears quest_id): its entries stay away from
+-- players, who never learned of it.
+-- name: HideQuestTimelineEvents :exec
+UPDATE timeline_event SET visibility = 'DM' WHERE campaign_id = @campaign_id AND quest_id = @quest_id::uuid;

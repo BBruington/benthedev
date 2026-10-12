@@ -341,6 +341,16 @@ func TestExampleFQuestRewardClampsAndLandsInUnassigned(t *testing.T) {
 	if err != nil || vex.Favor != 3 {
 		t.Fatalf("Lady Vex favor %d, %v; want 3", vex.Favor, err)
 	}
+
+	// The whole of Complete's rule in one call: the reward in CLAMP mode and reward_favor to the giver.
+	// The status guard behind "a second Complete gets 409 Already resolved" lives in internal/core.
+	completed, err := ResolveQuest(state, &Patron{Name: "Lady Vex", Favor: 1}, Effects{Resources: map[string]int64{"food": 20, "morale": 5}, Colonists: 3}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(completed.Effects, reward) || completed.PatronBefore.Favor != 1 || completed.PatronAfter.Favor != 3 {
+		t.Fatalf("Complete: %+v, favor %d → %d; want Example F's numbers", completed.Effects.Applied, completed.PatronBefore.Favor, completed.PatronAfter.Favor)
+	}
 }
 
 func TestExampleGStrictShortfall(t *testing.T) {
@@ -356,7 +366,8 @@ func TestExampleGStrictShortfall(t *testing.T) {
 		t.Fatalf("after Grant: favor %d, food %d; want 2, 27", granted.PatronAfter.Favor, food(granted.Effects.After))
 	}
 
-	// Requesting again (422) and the variant's second approval (409) are the same check.
+	// Requesting again (422) and the variant's second approval (409) are the same check; the variant's
+	// two pending requests run end to end in internal/core.
 	_, err = Spend(granted.Effects.After, granted.PatronAfter, 3, grainBarge)
 	var shortfallError *ShortfallError
 	if !errors.As(err, &shortfallError) || err.Error() != "Not enough favor: Lady Vex has 2, needs 3" {

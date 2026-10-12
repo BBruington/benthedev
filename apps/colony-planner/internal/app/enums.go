@@ -47,6 +47,10 @@ var enumTypes = []enumType{
 	newEnumType("NpcRelation", core.AllNpcRelationValues),
 	newEnumType("JoinMode", core.AllJoinModes),
 	newEnumType("LeaveMode", core.AllLeaveModes),
+	newEnumType("QuestKind", core.AllQuestKindValues),
+	newEnumType("QuestStatus", core.AllQuestStatusValues),
+	newEnumType("RequestStatus", core.AllRequestStatusValues),
+	newEnumType("RequestKind", core.AllRequestKinds),
 }
 
 var enumNamesByType = func() map[reflect.Type]string {

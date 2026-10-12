@@ -617,6 +617,189 @@ func AllNpcStatusValues() []NpcStatus {
 	}
 }
 
+type QuestKind string
+
+const (
+	QuestKindMAINLAND QuestKind = "MAINLAND"
+	QuestKindCOLONY   QuestKind = "COLONY"
+)
+
+func (e *QuestKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = QuestKind(s)
+	case string:
+		*e = QuestKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for QuestKind: %T", src)
+	}
+	return nil
+}
+
+type NullQuestKind struct {
+	QuestKind QuestKind
+	Valid     bool // Valid is true if QuestKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullQuestKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.QuestKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.QuestKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullQuestKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.QuestKind), nil
+}
+
+func (e QuestKind) Valid() bool {
+	switch e {
+	case QuestKindMAINLAND,
+		QuestKindCOLONY:
+		return true
+	}
+	return false
+}
+
+func AllQuestKindValues() []QuestKind {
+	return []QuestKind{
+		QuestKindMAINLAND,
+		QuestKindCOLONY,
+	}
+}
+
+type QuestStatus string
+
+const (
+	QuestStatusACTIVE    QuestStatus = "ACTIVE"
+	QuestStatusCOMPLETED QuestStatus = "COMPLETED"
+	QuestStatusFAILED    QuestStatus = "FAILED"
+)
+
+func (e *QuestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = QuestStatus(s)
+	case string:
+		*e = QuestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for QuestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullQuestStatus struct {
+	QuestStatus QuestStatus
+	Valid       bool // Valid is true if QuestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullQuestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.QuestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.QuestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullQuestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.QuestStatus), nil
+}
+
+func (e QuestStatus) Valid() bool {
+	switch e {
+	case QuestStatusACTIVE,
+		QuestStatusCOMPLETED,
+		QuestStatusFAILED:
+		return true
+	}
+	return false
+}
+
+func AllQuestStatusValues() []QuestStatus {
+	return []QuestStatus{
+		QuestStatusACTIVE,
+		QuestStatusCOMPLETED,
+		QuestStatusFAILED,
+	}
+}
+
+type RequestStatus string
+
+const (
+	RequestStatusPENDING   RequestStatus = "PENDING"
+	RequestStatusAPPROVED  RequestStatus = "APPROVED"
+	RequestStatusDECLINED  RequestStatus = "DECLINED"
+	RequestStatusWITHDRAWN RequestStatus = "WITHDRAWN"
+)
+
+func (e *RequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RequestStatus(s)
+	case string:
+		*e = RequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRequestStatus struct {
+	RequestStatus RequestStatus
+	Valid         bool // Valid is true if RequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RequestStatus), nil
+}
+
+func (e RequestStatus) Valid() bool {
+	switch e {
+	case RequestStatusPENDING,
+		RequestStatusAPPROVED,
+		RequestStatusDECLINED,
+		RequestStatusWITHDRAWN:
+		return true
+	}
+	return false
+}
+
+func AllRequestStatusValues() []RequestStatus {
+	return []RequestStatus{
+		RequestStatusPENDING,
+		RequestStatusAPPROVED,
+		RequestStatusDECLINED,
+		RequestStatusWITHDRAWN,
+	}
+}
+
 type TimelineVisibility string
 
 const (
@@ -766,6 +949,36 @@ type Npc struct {
 	CampaignID     uuid.UUID
 }
 
+type Patron struct {
+	ID          uuid.UUID
+	Name        string
+	Description string
+	Revealed    bool
+	Archived    bool
+	Favor       int32
+	PlayerNotes string
+	DmNotes     string
+	SortOrder   int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CampaignID  uuid.UUID
+}
+
+type PatronAction struct {
+	ID          uuid.UUID
+	PatronID    uuid.UUID
+	Name        string
+	Description string
+	FavorCost   int32
+	Effects     []byte
+	Revealed    bool
+	Archived    bool
+	SortOrder   int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CampaignID  uuid.UUID
+}
+
 type Place struct {
 	ID          uuid.UUID
 	Name        string
@@ -776,6 +989,53 @@ type Place struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	CampaignID  uuid.UUID
+}
+
+type Quest struct {
+	ID             uuid.UUID
+	Title          string
+	Description    string
+	Kind           QuestKind
+	Status         QuestStatus
+	Revealed       bool
+	GiverNpcID     *uuid.UUID
+	PatronID       *uuid.UUID
+	RewardEffects  []byte
+	RewardFavor    int32
+	FailureEffects []byte
+	FailureFavor   int32
+	Loot           []byte
+	DmNotes        string
+	ResolvedDay    *int32
+	ResolvedAt     *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CampaignID     uuid.UUID
+}
+
+type Request struct {
+	ID                uuid.UUID
+	Kind              string
+	Title             string
+	PatronID          *uuid.UUID
+	PatronName        *string
+	PatronActionID    *uuid.UUID
+	Cost              []byte
+	Effects           []byte
+	AppliedEffects    []byte
+	RequestedBy       uuid.UUID
+	OnBehalfOf        *uuid.UUID
+	RequestedDay      int32
+	Note              string
+	MadeWhileRevealed bool
+	Status            RequestStatus
+	DecidedBy         *uuid.UUID
+	DecidedAt         *time.Time
+	DecisionNote      string
+	EventGroupID      *uuid.UUID
+	DiscordMessageID  *string
+	CreatedAt         time.Time
+	CampaignID        uuid.UUID
 }
 
 type Resource struct {
@@ -828,6 +1088,9 @@ type TimelineEvent struct {
 	CampaignID uuid.UUID
 	NpcID      *uuid.UUID
 	NpcName    string
+	QuestID    *uuid.UUID
+	PatronID   *uuid.UUID
+	RequestID  *uuid.UUID
 }
 
 type WebSession struct {

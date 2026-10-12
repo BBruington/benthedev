@@ -21,7 +21,9 @@ type Options struct {
 	// Pool is nil when the binary only exports the OpenAPI document.
 	Pool     *pgxpool.Pool
 	Notifier Notifier
-	Logger   *slog.Logger
+	// RequestNotifier posts patron requests to the DM's Discord channel; nil while Beny Bot is off.
+	RequestNotifier RequestNotifier
+	Logger          *slog.Logger
 	// SiteOwnerDiscordID is the effective site owner: SITE_OWNER_DISCORD_ID, or the seeded seed:dm
 	// account in devauth builds when it is unset. Being owner confers nothing inside any campaign.
 	SiteOwnerDiscordID string
@@ -54,6 +56,7 @@ type Service struct {
 	pool               *pgxpool.Pool
 	queries            *store.Queries
 	notifier           Notifier
+	requestNotifier    RequestNotifier
 	logger             *slog.Logger
 	siteOwnerDiscordID string
 	sessions           SessionEvictor
@@ -67,6 +70,7 @@ func New(options Options) *Service {
 	service := &Service{
 		pool:               options.Pool,
 		notifier:           options.Notifier,
+		requestNotifier:    options.RequestNotifier,
 		logger:             options.Logger,
 		siteOwnerDiscordID: options.SiteOwnerDiscordID,
 		sessions:           options.Sessions,
@@ -81,6 +85,9 @@ func New(options Options) *Service {
 	if service.notifier == nil {
 		service.notifier = NoopNotifier{}
 	}
+	if service.requestNotifier == nil {
+		service.requestNotifier = NoopRequestNotifier{}
+	}
 	if service.logger == nil {
 		service.logger = slog.Default()
 	}
@@ -94,6 +101,11 @@ func New(options Options) *Service {
 // first, because the bot needs it).
 func (service *Service) SetDirectory(directory DiscordDirectory) {
 	service.directory = directory
+}
+
+// SetRequestNotifier attaches Beny Bot's request prompts once the bot exists, like SetDirectory.
+func (service *Service) SetRequestNotifier(requestNotifier RequestNotifier) {
+	service.requestNotifier = requestNotifier
 }
 
 // inTransaction runs work in one transaction; it commits when work returns nil.

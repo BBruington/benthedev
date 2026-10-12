@@ -90,6 +90,9 @@ func New(options Options) (*Server, error) {
 	featureHandlers.registerPeople(api)
 	featureHandlers.registerNpcs(api)
 	featureHandlers.registerPlaces(api)
+	featureHandlers.registerQuests(api)
+	featureHandlers.registerPatrons(api)
+	featureHandlers.registerRequests(api)
 	nullableEnumFields(api.OpenAPI())
 
 	openAPIJSON, err := json.Marshal(api.OpenAPI())

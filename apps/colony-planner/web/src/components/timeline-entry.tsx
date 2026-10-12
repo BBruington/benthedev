@@ -1,12 +1,18 @@
 import { Link } from "@tanstack/react-router";
 import {
+	BadgeCheckIcon,
 	CalendarClockIcon,
+	CircleXIcon,
+	CrownIcon,
 	EyeOffIcon,
 	FeatherIcon,
+	HandCoinsIcon,
 	HourglassIcon,
 	type LucideIcon,
 	PackageOpenIcon,
+	RotateCcwIcon,
 	ScaleIcon,
+	ScrollTextIcon,
 	ShipIcon,
 	SunriseIcon,
 	Undo2Icon,
@@ -45,6 +51,24 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 		tone: "bg-muted text-muted-foreground",
 	},
 	DAYS_ADVANCED: { icon: SunriseIcon, label: "Days pass", tone: "bg-gilt/12 text-gilt-ink" },
+	FAVOR_ADJUSTED: { icon: CrownIcon, label: "Favor", tone: "bg-gilt/12 text-gilt-ink" },
+	PATRON_ACTION: {
+		icon: HandCoinsIcon,
+		label: "Patron's favor",
+		tone: "bg-verdigris/14 text-verdigris-ink",
+	},
+	QUEST_COMPLETED: {
+		icon: BadgeCheckIcon,
+		label: "Quest done",
+		tone: "bg-moss/14 text-moss-ink",
+	},
+	QUEST_FAILED: { icon: CircleXIcon, label: "Quest failed", tone: "bg-ember/12 text-ember-ink" },
+	QUEST_POSTED: { icon: ScrollTextIcon, label: "New quest", tone: "bg-gilt/12 text-gilt-ink" },
+	QUEST_REOPENED: {
+		icon: RotateCcwIcon,
+		label: "Quest reopened",
+		tone: "bg-muted text-muted-foreground",
+	},
 	SHIPMENT_ARRIVED: {
 		icon: ShipIcon,
 		label: "Ship arrived",
@@ -64,10 +88,54 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 	},
 };
 
+const entryLinkClasses =
+	"underline decoration-gilt-ink/50 underline-offset-4 hover:decoration-gilt-ink";
+
+/**
+ * The entry's title, linking to the NPC, quest or patron it is about. The server sends those IDs to a
+ * player only while the row is visible to them, so a link never points at something hidden.
+ */
+function EntryTitle({ entry, slug }: { entry: Entry; slug: string }) {
+	if (entry.npcId) {
+		return (
+			<Link
+				className={entryLinkClasses}
+				params={{ campaignSlug: slug, npcId: entry.npcId }}
+				to="/c/$campaignSlug/npcs/$npcId"
+			>
+				{entry.title}
+			</Link>
+		);
+	}
+	if (entry.questId) {
+		return (
+			<Link
+				className={entryLinkClasses}
+				params={{ campaignSlug: slug, questId: entry.questId }}
+				to="/c/$campaignSlug/quests/$questId"
+			>
+				{entry.title}
+			</Link>
+		);
+	}
+	if (entry.patronId) {
+		return (
+			<Link
+				className={entryLinkClasses}
+				params={{ campaignSlug: slug, patronId: entry.patronId }}
+				to="/c/$campaignSlug/patrons/$patronId"
+			>
+				{entry.title}
+			</Link>
+		);
+	}
+	return entry.title;
+}
+
 /**
  * One timeline entry with its glyph, title and narration. For the DM, a DM-only entry carries an
  * eye-slash and an undone one is struck through (spec §5.8); players never receive either. An
- * entry about an NPC links its title to their page; players only receive those whose NPC they know.
+ * entry about an NPC, a quest or a patron links its title to that page.
  */
 export function TimelineEntry({
 	entry,
@@ -115,17 +183,7 @@ export function TimelineEntry({
 						isUndone && "line-through decoration-ember-ink/70",
 					)}
 				>
-					{entry.npcId ? (
-						<Link
-							className="underline decoration-gilt-ink/50 underline-offset-4 hover:decoration-gilt-ink"
-							params={{ campaignSlug: slug, npcId: entry.npcId }}
-							to="/c/$campaignSlug/npcs/$npcId"
-						>
-							{entry.title}
-						</Link>
-					) : (
-						entry.title
-					)}
+					<EntryTitle entry={entry} slug={slug} />
 				</h3>
 				{entry.body ? (
 					<p
@@ -135,6 +193,12 @@ export function TimelineEntry({
 						)}
 					>
 						{entry.body}
+					</p>
+				) : null}
+				{entry.dm?.note ? (
+					<p className="mt-0.5 inline-flex items-start gap-1 whitespace-pre-line text-sm text-verdigris-ink [overflow-wrap:anywhere]">
+						<EyeOffIcon aria-label="Only you see this" className="mt-0.5 size-3.5 shrink-0" />
+						{entry.dm.note}
 					</p>
 				) : null}
 				<p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs uppercase tracking-[0.12em]">

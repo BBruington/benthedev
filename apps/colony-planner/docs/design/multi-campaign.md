@@ -252,8 +252,8 @@ Every table below gets the §2.3 treatment. Only the non-obvious parts are liste
 | Table (milestone) | Campaign-scoped keys and references |
 |---|---|
 | `npc` (M2) | `(campaign_id, colony_role_key) → role (campaign_id, key)`; `(campaign_id, current_place_id)`, `(campaign_id, origin_place_id) → place`; `(campaign_id, first_session_id) → session` (M5). The colonist count filters **both** tables: `SUM(unnamed_count) FROM role WHERE campaign_id = @campaign_id` + `COUNT(*) FROM npc WHERE campaign_id = @campaign_id AND colony_role_key IS NOT NULL`. |
-| `place` (M2), `map` (M4) | `(campaign_id, map_id) → map`. **No map is seeded per campaign**; the Eldari art is offered as a starting map when a DM adds their first one (C6). |
-| `quest`, `patron`, `patron_action` (M3) | `(campaign_id, giver_npc_id)`, `(campaign_id, patron_id)` (RESTRICT stays RESTRICT). |
+| `place` (M2), `map` (M4) | `(campaign_id, map_id) → map`. **No map is seeded per campaign**, and the Eldari art is never offered to other campaigns (C6, confirmed below); other DMs upload their own. |
+| `quest`, `patron`, `patron_action` (M3) | `(campaign_id, giver_npc_id)`, `(campaign_id, patron_id)`. As built, the patron and action keys are NO ACTION rather than RESTRICT, so deleting a campaign can cascade while a stray delete still fails (SPEC §5.7). |
 | `request` (M3) | `requested_by`, `on_behalf_of`, `decided_by` → `campaign_member (campaign_id, id)`. Request IDs in bodies and Discord buttons are loaded with the Viewer's campaign (§2.3 rule 5, §6.3). |
 | `timeline_event` link columns (M2–M5) | `(campaign_id, quest_id)` etc., `ON DELETE SET NULL (quest_id)`. |
 | `hex` (M4) | `PRIMARY KEY (campaign_id, q, r)`. |

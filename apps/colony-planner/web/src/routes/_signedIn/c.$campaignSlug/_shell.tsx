@@ -11,7 +11,8 @@ import { TopBar } from "@/components/shell/top-bar";
 import { useCampaign, usePendingCount } from "@/hooks/use-campaign";
 import { useAccount, useMe } from "@/hooks/use-me";
 import { useShellHeaderHeight } from "@/hooks/use-shell-header-height";
-import { isLetIn } from "@/lib/access";
+import { canUseDmTools, isLetIn } from "@/lib/access";
+import { useRequestToasts } from "@/ventures/use-request-alerts";
 
 // A campaign's screens (docs/design/multi-campaign.md §5.1): only for a member the DM has let in, in
 // a campaign that isn't paused. Everyone else goes to the campaign's waiting page, which says why.
@@ -43,6 +44,7 @@ function CampaignShell() {
 	const pendingCount = usePendingCount(me);
 	const letIn = isLetIn(me);
 	useTimelineToasts(campaignId);
+	useRequestToasts(campaignId, slug, letIn && canUseDmTools(me));
 	useShellHeaderHeight(headerRef);
 
 	// Removed, or the campaign paused, while the tab is open: the live "me" topic brings the news. A

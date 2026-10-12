@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
@@ -65,6 +66,29 @@ type sentMessage struct {
 	message   *discordgo.MessageSend
 }
 
+// discordAnswers is Discord's one answer per interaction, shared by every process that receives it. A
+// fake client without one accepts every answer, since most tests reuse one interaction ID.
+type discordAnswers struct {
+	mutex    sync.Mutex
+	answered map[string]bool
+}
+
+// take reports whether this answer is the interaction's first.
+func (answers *discordAnswers) take(interactionID string) bool {
+	if answers == nil {
+		return true
+	}
+	answers.mutex.Lock()
+	defer answers.mutex.Unlock()
+	if answers.answered[interactionID] {
+		return false
+	}
+	answers.answered[interactionID] = true
+	return true
+}
+
+var errAlreadyAcknowledged = errors.New("HTTP 400 Bad Request: Interaction has already been acknowledged")
+
 type fakeDiscordClient struct {
 	mutex            sync.Mutex
 	handlers         []any
@@ -75,14 +99,22 @@ type fakeDiscordClient struct {
 	overwrites       []commandOverwrite
 	responses        []*discordgo.InteractionResponse
 	messages         []sentMessage
+	posted           map[string]*discordgo.Message
+	edits            []*discordgo.MessageEdit
+	followUps        []*discordgo.WebhookParams
+	answers          *discordAnswers
 	directChannels   []string
 	sendError        error
+	readError        error
 	openedSignal     chan struct{}
 	openedSignalOnce sync.Once
 }
 
 func newFakeDiscordClient() *fakeDiscordClient {
-	return &fakeDiscordClient{openedSignal: make(chan struct{})}
+	return &fakeDiscordClient{
+		openedSignal: make(chan struct{}),
+		posted:       map[string]*discordgo.Message{},
+	}
 }
 
 func (fake *fakeDiscordClient) AddHandler(handler any) func() {
@@ -119,7 +151,10 @@ func (fake *fakeDiscordClient) ApplicationCommandBulkOverwrite(applicationID str
 	return commands, nil
 }
 
-func (fake *fakeDiscordClient) InteractionRespond(_ *discordgo.Interaction, response *discordgo.InteractionResponse, _ ...discordgo.RequestOption) error {
+func (fake *fakeDiscordClient) InteractionRespond(interaction *discordgo.Interaction, response *discordgo.InteractionResponse, _ ...discordgo.RequestOption) error {
+	if !fake.answers.take(interaction.ID) {
+		return errAlreadyAcknowledged
+	}
 	fake.mutex.Lock()
 	defer fake.mutex.Unlock()
 	fake.responses = append(fake.responses, response)
@@ -133,7 +168,57 @@ func (fake *fakeDiscordClient) ChannelMessageSendComplex(channelID string, messa
 	if fake.sendError != nil {
 		return nil, fake.sendError
 	}
-	return &discordgo.Message{ChannelID: channelID, Content: message.Content}, nil
+	posted := &discordgo.Message{
+		ID:         fmt.Sprintf("4%017d", len(fake.messages)),
+		ChannelID:  channelID,
+		Content:    message.Content,
+		Components: message.Components,
+		Flags:      message.Flags,
+	}
+	fake.posted[posted.ID] = posted
+	copied := *posted
+	return &copied, nil
+}
+
+func (fake *fakeDiscordClient) ChannelMessage(channelID string, messageID string, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	if fake.readError != nil {
+		return nil, fake.readError
+	}
+	posted, found := fake.posted[messageID]
+	if !found || posted.ChannelID != channelID {
+		return nil, errUnknownMessage
+	}
+	copied := *posted
+	return &copied, nil
+}
+
+var errUnknownMessage = errors.New("HTTP 404 Not Found: Unknown Message")
+
+func (fake *fakeDiscordClient) ChannelMessageEditComplex(edit *discordgo.MessageEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	fake.edits = append(fake.edits, edit)
+	posted, found := fake.posted[edit.ID]
+	if !found || posted.ChannelID != edit.Channel {
+		return nil, errUnknownMessage
+	}
+	if edit.Content != nil {
+		posted.Content = *edit.Content
+	}
+	if edit.Components != nil {
+		posted.Components = *edit.Components
+	}
+	copied := *posted
+	return &copied, nil
+}
+
+func (fake *fakeDiscordClient) FollowupMessageCreate(_ *discordgo.Interaction, _ bool, data *discordgo.WebhookParams, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	fake.followUps = append(fake.followUps, data)
+	return &discordgo.Message{Content: data.Content}, nil
 }
 
 func (fake *fakeDiscordClient) UserChannelCreate(recipientID string, _ ...discordgo.RequestOption) (*discordgo.Channel, error) {
@@ -303,6 +388,7 @@ func newWorld(t *testing.T) *world {
 	test.service = core.New(core.Options{
 		Pool:               database.Pool,
 		Notifier:           test.bot,
+		RequestNotifier:    test.bot,
 		Logger:             quietLogger(),
 		SiteOwnerDiscordID: ownerDiscordID,
 		Directory:          test.bot.Directory(),
@@ -610,6 +696,14 @@ func (failingService) FindRevealedNpc(context.Context, core.Viewer, string) (cor
 	return core.Npc{}, errDatabaseDown
 }
 
+func (failingService) DecideRequestFromDiscord(context.Context, core.Viewer, uuid.UUID, bool) (core.RequestOutcome, error) {
+	return core.RequestOutcome{}, errDatabaseDown
+}
+
+func (failingService) GetRequest(context.Context, core.Viewer, uuid.UUID) (core.Request, error) {
+	return core.Request{}, errDatabaseDown
+}
+
 func TestFailuresGetAGenericReply(t *testing.T) {
 	client := newFakeDiscordClient()
 	benyBot := newBot(Options{Token: "test-token", Logger: quietLogger()}, client, newFakeGatewayState(), newFakeClock().now)
@@ -640,10 +734,10 @@ func TestNonCommandInteractionsAreIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 	benyBot.handleInteraction(t.Context(), &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
-		Type:    discordgo.InteractionMessageComponent,
+		Type:    discordgo.InteractionModalSubmit,
 		GuildID: guildX,
 		Member:  &discordgo.Member{User: &discordgo.User{ID: activeUserID}},
-		Data:    discordgo.MessageComponentInteractionData{CustomID: "req:1:grant"},
+		Data:    discordgo.ModalSubmitInteractionData{CustomID: "req:1:grant"},
 	}})
 	benyBot.handleInteraction(t.Context(), nil)
 	benyBot.handleInteraction(t.Context(), &discordgo.InteractionCreate{})

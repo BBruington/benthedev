@@ -721,6 +721,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/patron-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every patron action the viewer may see, for pickers (filter out archived ones there) */
+        get: operations["listPatronActions"];
+        put?: never;
+        /** Add an action to a patron, hidden unless asked otherwise */
+        post: operations["createPatronAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patron-actions/{actionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace an action's record (visibility and archiving each have their own operation); pending requests keep what they asked for */
+        put: operations["updatePatronAction"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patron-actions/{actionId}/archived": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Archive an action (gone from pickers and players' lists, history kept) or bring it back */
+        put: operations["setPatronActionArchived"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patron-actions/{actionId}/revealed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reveal an action to the players, or hide it again */
+        put: operations["setPatronActionRevealed"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patrons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Patrons with their favor, in the viewer's projection */
+        get: operations["listPatrons"];
+        put?: never;
+        /** Add a patron, hidden unless asked otherwise */
+        post: operations["createPatron"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patrons/{patronId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One patron with its actions and request history; a hidden one is not found for players */
+        get: operations["getPatron"];
+        /** Replace a patron's record (favor, visibility and archiving each have their own operation) */
+        put: operations["updatePatron"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patrons/{patronId}/adjust-favor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change a patron's favor by a delta or set it, below 0 included */
+        post: operations["adjustFavor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patrons/{patronId}/archived": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Archive a patron (gone from pickers and players' lists, history kept) or bring them back */
+        put: operations["setPatronArchived"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/patrons/{patronId}/revealed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reveal a patron to the players, or hide them again */
+        put: operations["setPatronRevealed"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/people": {
         parameters: {
             query?: never;
@@ -820,6 +976,265 @@ export interface paths {
         /** Reveal a place to the players, or hide it again */
         put: operations["setPlaceRevealed"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every quest in the viewer's projection; players get only visible ones */
+        get: operations["listQuests"];
+        put?: never;
+        /** Add a quest, visible or hidden, posting it to the timeline when it starts visible */
+        post: operations["createQuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests/{questId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One quest; a hidden one is not found for players */
+        get: operations["getQuest"];
+        /** Replace a quest's record (status changes through complete, fail and reopen, visibility through setQuestRevealed) */
+        put: operations["updateQuest"];
+        post?: never;
+        /** Delete a quest; its timeline entries keep their text */
+        delete: operations["deleteQuest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests/{questId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete an active quest and pay its reward */
+        post: operations["completeQuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests/{questId}/complete-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What completing a quest would apply, without doing it */
+        get: operations["previewCompleteQuest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests/{questId}/fail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fail an active quest and apply its failure cost */
+        post: operations["failQuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests/{questId}/fail-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What failing a quest would cost, without doing it */
+        get: operations["previewFailQuest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests/{questId}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reopen a failed quest, giving nothing back */
+        post: operations["reopenQuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/quests/{questId}/revealed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Show a quest to the players, posting it to the timeline unless asked not to, or hide it again */
+        put: operations["setQuestRevealed"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The DM's approval queue and history, or the party's history; pending first, then newest */
+        get: operations["listRequests"];
+        put?: never;
+        /** Ask a patron for an action; it must be affordable now */
+        post: operations["createRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/requests/use-action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Use a patron action now, optionally on behalf of a member: a request made and granted at once */
+        post: operations["useActionNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/requests/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One request; one for a hidden patron or action is not found for players */
+        get: operations["getRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/requests/{requestId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Grant a pending request, optionally tweaked for this grant, with an optional note to the requester */
+        post: operations["approveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/requests/{requestId}/approve-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What granting a request would apply and whether it is affordable, without doing it */
+        post: operations["previewApproveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/requests/{requestId}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline a pending request with an optional note only the requester reads */
+        post: operations["declineRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/requests/{requestId}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw one of your own pending requests */
+        post: operations["withdrawRequest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1156,6 +1571,15 @@ export interface components {
             /** @description null keeps the requested address */
             slug: string | null;
         };
+        ApproveRequestInput: {
+            /** @description Effects for this grant only; leave it out to apply what was asked */
+            appliedEffects?: components["schemas"]["Effects"];
+            /** @description At most 500 characters; only the requester and the DM read it */
+            note: string;
+        };
+        ArchiveInput: {
+            archived: boolean;
+        };
         ArrivalRun: {
             /** Format: int64 */
             count: number;
@@ -1285,6 +1709,10 @@ export interface components {
             /** Format: int64 */
             expectedVersion: number;
         };
+        DeclineRequestInput: {
+            /** @description At most 500 characters; only the requester and the DM read it */
+            note: string;
+        };
         DeleteCampaignInput: {
             /** @description The campaign's address, typed to confirm */
             confirmSlug: string;
@@ -1356,6 +1784,32 @@ export interface components {
              */
             type: string;
         };
+        FavorAdjustInput: {
+            /**
+             * Format: int64
+             * @description The change; null when setTo is given
+             */
+            delta: number | null;
+            /** Format: int64 */
+            expectedVersion: number;
+            public: boolean;
+            /** @description At most 200 characters; may be blank */
+            reason: string;
+            /**
+             * Format: int64
+             * @description The new favor; null when delta is given
+             */
+            setTo: number | null;
+        };
+        FavorChangePreview: {
+            /** Format: int64 */
+            after: number;
+            /** Format: int64 */
+            before: number;
+            /** Format: uuid */
+            patronId: string;
+            patronName: string;
+        } | null;
         InvalidateMessage: {
             topics: components["schemas"]["Topic"][];
         };
@@ -1415,6 +1869,17 @@ export interface components {
             /** @description Present only in devauth builds */
             devSignIn?: components["schemas"]["DevSignInAccount"][];
             discordEnabled: boolean;
+        };
+        LootItem: {
+            /** @description At most 500 characters */
+            description: string;
+            /** @description 1 to 80 characters */
+            name: string;
+            /**
+             * Format: int64
+             * @description 1 to 1,000,000
+             */
+            quantity: number;
         };
         Member: {
             avatarUrl: string | null;
@@ -1509,6 +1974,38 @@ export interface components {
             /** @description Blank means UNKNOWN */
             status: components["schemas"]["NpcStatus"];
         };
+        NewPatronActionInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            effects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description 0 or more
+             */
+            favorCost: number;
+            /** @description 1 to 80 characters */
+            name: string;
+            /** Format: uuid */
+            patronId: string;
+            /** @description Visible to players; the create form starts it off */
+            revealed: boolean;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        NewPatronInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description 1 to 80 characters */
+            name: string;
+            /** @description At most 4000 characters */
+            playerNotes: string;
+            /** @description Visible to players; the create form starts it off */
+            revealed: boolean;
+            /** Format: int64 */
+            sortOrder: number;
+        };
         NewPlaceInput: {
             /** @description At most 4000 characters */
             description: string;
@@ -1520,6 +2017,46 @@ export interface components {
             playerNotes: string;
             /** @description Visible to players; the create form starts it on */
             revealed: boolean;
+        };
+        NewQuestInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description The optional failure cost, applied in CLAMP mode when the quest fails */
+            failureEffects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description 0 or more; taken from the patron giver when the quest fails, even below 0
+             */
+            failureFavor: number;
+            /**
+             * Format: uuid
+             * @description null for none
+             */
+            giverNpcId: string | null;
+            /** @description A label with no logic; blank means COLONY */
+            kind: components["schemas"]["QuestKind"];
+            /** @description At most 50 items */
+            loot: components["schemas"]["LootItem"][];
+            /**
+             * Format: uuid
+             * @description The patron giver; null for none. Favor needs one.
+             */
+            patronId: string | null;
+            /** @description Write a PUBLIC QUEST_POSTED entry when the quest is visible; the form starts it on */
+            postToTimeline: boolean;
+            /** @description Visible to players; the create form starts it on */
+            revealed: boolean;
+            /** @description Applied in CLAMP mode on completion */
+            rewardEffects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description 0 or more; paid to the patron giver on completion
+             */
+            rewardFavor: number;
+            /** @description 1 to 120 characters */
+            title: string;
         };
         NewResourceInput: {
             icon: components["schemas"]["ColonyIcon"];
@@ -1643,6 +2180,90 @@ export interface components {
         NpcRelation: "ALLY" | "NEUTRAL" | "SUSPICIOUS" | "ENEMY" | "UNKNOWN";
         /** @enum {string} */
         NpcStatus: "ALIVE" | "DEAD" | "MISSING" | "UNKNOWN";
+        Patron: {
+            archived: boolean;
+            description: string;
+            dm?: components["schemas"]["PatronDm"];
+            /**
+             * Format: int64
+             * @description May be below 0 after a DM adjustment or a failed quest
+             */
+            favor: number;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            playerNotes: string;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        PatronAction: {
+            archived: boolean;
+            description: string;
+            dm?: components["schemas"]["PatronActionDm"];
+            effects: components["schemas"]["Effects"];
+            /** Format: int64 */
+            favorCost: number;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: uuid */
+            patronId: string;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        PatronActionDm: {
+            revealed: boolean;
+        };
+        PatronActionInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            effects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description 0 or more
+             */
+            favorCost: number;
+            /** @description 1 to 80 characters */
+            name: string;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        PatronActionList: {
+            /** @description For players, only revealed, unarchived actions of revealed, unarchived patrons; the DM also gets archived ones, flagged */
+            actions: components["schemas"]["PatronAction"][];
+        };
+        PatronDm: {
+            dmNotes: string;
+            revealed: boolean;
+        };
+        PatronInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description 1 to 80 characters */
+            name: string;
+            /** @description At most 4000 characters */
+            playerNotes: string;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        PatronList: {
+            /** @description Unarchived first, then by position and name */
+            patrons: components["schemas"]["Patron"][];
+        };
+        PatronPage: {
+            /** @description For players, only revealed, unarchived actions */
+            actions: components["schemas"]["PatronAction"][];
+            patron: components["schemas"]["Patron"];
+            /** @description This patron's requests, pending first, then newest */
+            requests: components["schemas"]["Request"][];
+        };
+        PatronReference: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        } | null;
         Place: {
             description: string;
             dm?: components["schemas"]["PlaceDm"];
@@ -1679,12 +2300,192 @@ export interface components {
             /** @description At most 60 characters after trimming; blank or null clears it */
             characterName: string | null;
         };
+        Quest: {
+            /** Format: date-time */
+            createdAt: string;
+            description: string;
+            dm?: components["schemas"]["QuestDm"];
+            /** @description null when unset or hidden from this viewer */
+            giverNpc: components["schemas"]["QuestGiverNpc"];
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["QuestKind"];
+            /** @description Display only */
+            loot: components["schemas"]["LootItem"][];
+            /** @description The patron giver; null when unset or hidden from this viewer */
+            patron: components["schemas"]["PatronReference"];
+            /**
+             * Format: date-time
+             * @description null while active
+             */
+            resolvedAt: string | null;
+            /**
+             * Format: int64
+             * @description The colony day it was completed or failed; null while active
+             */
+            resolvedDay: number | null;
+            rewardEffects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description Favor the patron giver gains on completion; 0 when the patron is hidden from this viewer
+             */
+            rewardFavor: number;
+            status: components["schemas"]["QuestStatus"];
+            title: string;
+        };
+        QuestDm: {
+            dmNotes: string;
+            /** @description Applied in CLAMP mode when the quest fails */
+            failureEffects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description Favor the patron giver loses when the quest fails; it may take favor below 0
+             */
+            failureFavor: number;
+            revealed: boolean;
+        };
+        QuestGiverNpc: {
+            displayName: string;
+            /** Format: uuid */
+            id: string;
+        } | null;
+        QuestInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description The optional failure cost, applied in CLAMP mode when the quest fails */
+            failureEffects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description 0 or more; taken from the patron giver when the quest fails, even below 0
+             */
+            failureFavor: number;
+            /**
+             * Format: uuid
+             * @description null for none
+             */
+            giverNpcId: string | null;
+            /** @description A label with no logic; blank means COLONY */
+            kind: components["schemas"]["QuestKind"];
+            /** @description At most 50 items */
+            loot: components["schemas"]["LootItem"][];
+            /**
+             * Format: uuid
+             * @description The patron giver; null for none. Favor needs one.
+             */
+            patronId: string | null;
+            /** @description Applied in CLAMP mode on completion */
+            rewardEffects: components["schemas"]["Effects"];
+            /**
+             * Format: int64
+             * @description 0 or more; paid to the patron giver on completion
+             */
+            rewardFavor: number;
+            /** @description 1 to 120 characters */
+            title: string;
+        };
+        /** @enum {string} */
+        QuestKind: "MAINLAND" | "COLONY";
+        QuestList: {
+            /** @description Newest first */
+            quests: components["schemas"]["Quest"][];
+        };
+        QuestResolutionPreview: {
+            /** Format: int64 */
+            colonistsAfter: number;
+            /** Format: int64 */
+            colonistsBefore: number;
+            /** @description null when the quest has no patron giver */
+            favor: components["schemas"]["FavorChangePreview"];
+            /** @description Every resource the reward or cost names, sorted by key */
+            resources: components["schemas"]["ResourceChangePreview"][];
+            /** @description e.g. Food 0 → 20 · Morale 98 → 100 (capped) · 3 colonists (Unassigned) · Lady Vex favor 1 → 3 */
+            summary: string;
+        };
+        QuestRevealInput: {
+            /** @description When the quest becomes visible, write a PUBLIC QUEST_POSTED entry */
+            postToTimeline: boolean;
+            revealed: boolean;
+        };
+        /** @enum {string} */
+        QuestStatus: "ACTIVE" | "COMPLETED" | "FAILED";
         RecentTimeline: {
             /** @description Newest first, at most 10 */
             entries: components["schemas"]["TimelineEntry"][];
         };
         /** @enum {string} */
         RemovalKind: "LEFT" | "DENIED" | "REMOVED";
+        Request: {
+            /** @description The DM's tweak to this grant; absent when the request applied as asked or isn't granted */
+            appliedEffects?: components["schemas"]["Effects"];
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description null while pending
+             */
+            decidedAt: string | null;
+            /** @description The DM's note; only the requester and the DM read it, so it is null for anyone else */
+            decisionNote: string | null;
+            /** @description What was asked for */
+            effects: components["schemas"]["Effects"];
+            /** Format: int64 */
+            favorCost: number;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["RequestKind"];
+            /** @description This viewer asked, so may withdraw it while it is pending */
+            mine: boolean;
+            note: string;
+            /** @description The character the DM used the action for; null for none */
+            onBehalfOf: components["schemas"]["RequestMember"];
+            /** Format: uuid */
+            patronActionId: string | null;
+            /** Format: uuid */
+            patronId: string | null;
+            /** @description The patron's name when it was asked */
+            patronName: string;
+            requestedBy: components["schemas"]["RequestMember"];
+            /** Format: int64 */
+            requestedDay: number;
+            status: components["schemas"]["RequestStatus"];
+            /** @description What was asked for, as it was named then */
+            title: string;
+        };
+        RequestApprovalPreview: {
+            affordable: boolean;
+            /** Format: int64 */
+            colonistsAfter: number;
+            /** Format: int64 */
+            colonistsBefore: number;
+            /** @description null for a request with no patron */
+            favor: components["schemas"]["FavorChangePreview"];
+            resources: components["schemas"]["ResourceChangePreview"][];
+            /** @description e.g. Not enough favor: Lady Vex has 2, needs 3; blank when affordable */
+            shortfall: string;
+            /** @description e.g. Lady Vex favor 12 → 9 · Food 40 → 47 */
+            summary: string;
+        };
+        RequestInput: {
+            /** Format: uuid */
+            actionId: string;
+            /** @description At most 500 characters; may be blank */
+            note: string;
+        };
+        /** @enum {string} */
+        RequestKind: "PATRON_ACTION";
+        RequestList: {
+            /** @description Pending first, then newest */
+            requests: components["schemas"]["Request"][];
+        };
+        RequestMember: {
+            /** Format: uuid */
+            memberId: string;
+            name: string;
+        } | null;
+        /** @enum {string} */
+        RequestStatus: "PENDING" | "APPROVED" | "DECLINED" | "WITHDRAWN";
         ResourceChangePreview: {
             /** Format: int64 */
             after: number;
@@ -1877,6 +2678,21 @@ export interface components {
              * @description The NPC this entry is about; null for none, or once that NPC is deleted
              */
             npcId: string | null;
+            /**
+             * Format: uuid
+             * @description The patron this entry names; null for none
+             */
+            patronId: string | null;
+            /**
+             * Format: uuid
+             * @description The quest this entry is about; null for none, or once that quest is deleted
+             */
+            questId: string | null;
+            /**
+             * Format: uuid
+             * @description The request this entry granted; null for none
+             */
+            requestId: string | null;
             title: string;
         };
         TimelineEntryDm: {
@@ -1884,6 +2700,8 @@ export interface components {
             canRecordCargo: boolean;
             /** Format: date-time */
             editedAt: string | null;
+            /** @description DM-only detail, e.g. a hidden patron's favor line; blank for none */
+            note: string;
             /** Format: date-time */
             undoneAt: string | null;
             visibility: components["schemas"]["TimelineVisibility"];
@@ -1901,7 +2719,7 @@ export interface components {
             visibility: components["schemas"]["TimelineVisibility"];
         };
         /** @enum {string} */
-        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED";
         TimelinePage: {
             /**
              * Format: int64
@@ -1928,7 +2746,7 @@ export interface components {
         /** @enum {string} */
         TimelineVisibility: "PUBLIC" | "DM";
         /** @enum {string} */
-        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places";
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests";
         TransferInput: {
             /**
              * Format: int64
@@ -1944,6 +2762,21 @@ export interface components {
         UndoInput: {
             /** Format: uuid */
             groupId: string;
+        };
+        UseActionInput: {
+            /** Format: uuid */
+            actionId: string;
+            /** @description Effects for this use only; leave it out to apply the action's */
+            appliedEffects?: components["schemas"]["Effects"];
+            /** Format: int64 */
+            expectedVersion: number;
+            /** @description At most 500 characters; may be blank */
+            note: string;
+            /**
+             * Format: uuid
+             * @description The member the timeline credits; null credits the DM
+             */
+            onBehalfOf: string | null;
         };
         ViewAsPlayerInput: {
             enabled: boolean;
@@ -3508,6 +4341,434 @@ export interface operations {
             };
         };
     };
+    listPatronActions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronActionList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createPatronAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewPatronActionInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronAction"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updatePatronAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatronActionInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronAction"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setPatronActionArchived: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronAction"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setPatronActionRevealed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                actionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronAction"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listPatrons: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createPatron: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewPatronInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getPatron: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                patronId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updatePatron: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                patronId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatronInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    adjustFavor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                patronId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FavorAdjustInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setPatronArchived: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                patronId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setPatronRevealed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                patronId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatronPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     getWorkforce: {
         parameters: {
             query?: never;
@@ -3808,6 +5069,664 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Place"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listQuests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewQuestInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quest"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quest"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quest"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    completeQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    previewCompleteQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestResolutionPreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    failQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    previewFailQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestResolutionPreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    reopenQuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setQuestRevealed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                questId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuestRevealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quest"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listRequests: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["RequestStatus"];
+                /** @description Only the viewer's own requests */
+                mine?: boolean;
+                /** @description Only this patron's requests */
+                patronId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Request"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    useActionNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UseActionInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Request"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    approveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveRequestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    previewApproveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveRequestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestApprovalPreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    declineRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclineRequestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Request"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    withdrawRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Request"];
                 };
             };
             /** @description Error */

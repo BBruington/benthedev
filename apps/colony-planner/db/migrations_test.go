@@ -250,15 +250,90 @@ func TestTheSchemaKeepsCampaignsApart(t *testing.T) {
 	}
 	insertNpc(secondCampaign, "Old Brisk")
 
+	// Quests, patrons, actions and requests (M3): every link is composite, so it stays inside one campaign.
+	insertRow := func(statement string, arguments ...any) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		if err := database.Pool.QueryRow(testContext, statement, arguments...).Scan(&id); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+		return id
+	}
+	firstPatron := insertRow(`INSERT INTO patron (campaign_id, name) VALUES ($1, 'Lady Vex') RETURNING id`, firstCampaign)
+	secondPatron := insertRow(`INSERT INTO patron (campaign_id, name) VALUES ($1, 'Ridge Council') RETURNING id`, secondCampaign)
+	firstAction := insertRow(`INSERT INTO patron_action (campaign_id, patron_id, name, favor_cost) VALUES ($1, $2, 'Grain Barge', 3) RETURNING id`, firstCampaign, firstPatron)
+	secondAction := insertRow(`INSERT INTO patron_action (campaign_id, patron_id, name) VALUES ($1, $2, 'Timber Levy') RETURNING id`, secondCampaign, secondPatron)
+	firstQuest := insertRow(`INSERT INTO quest (campaign_id, title, patron_id, reward_favor) VALUES ($1, 'Clear the Wolf Den', $2, 2) RETURNING id`, firstCampaign, firstPatron)
+	secondQuest := insertRow(`INSERT INTO quest (campaign_id, title) VALUES ($1, 'Hold the Ridge') RETURNING id`, secondCampaign)
+	secondDm := insertRow(`SELECT id FROM campaign_member WHERE campaign_id = $1 AND role = 'DM'`, secondCampaign)
+	firstRequest := insertRow(`INSERT INTO request (campaign_id, kind, title, patron_id, patron_name, patron_action_id, requested_by, requested_day, made_while_revealed)
+		VALUES ($1, 'PATRON_ACTION', 'Grain Barge', $2, 'Lady Vex', $3, $4, 0, true) RETURNING id`, firstCampaign, firstPatron, firstAction, firstDm)
+	secondRequest := insertRow(`INSERT INTO request (campaign_id, kind, title, patron_id, patron_name, patron_action_id, requested_by, requested_day, made_while_revealed)
+		VALUES ($1, 'PATRON_ACTION', 'Timber Levy', $2, 'Ridge Council', $3, $4, 0, true) RETURNING id`, secondCampaign, secondPatron, secondAction, secondDm)
+
+	requireConstraintViolation(t, execute(`INSERT INTO patron_action (campaign_id, patron_id, name) VALUES ($1, $2, 'Cross')`, firstCampaign, secondPatron), "patron_action_patron_fkey")
+	requireConstraintViolation(t, execute(`UPDATE quest SET patron_id = $1 WHERE id = $2`, secondPatron, firstQuest), "quest_patron_fkey")
+	requireConstraintViolation(t, execute(`UPDATE quest SET giver_npc_id = $1 WHERE id = $2`, secondNpc, firstQuest), "quest_giver_npc_fkey")
+	requireConstraintViolation(t, execute(`UPDATE request SET patron_id = $1 WHERE id = $2`, secondPatron, firstRequest), "request_patron_fkey")
+	requireConstraintViolation(t, execute(`UPDATE request SET patron_action_id = $1 WHERE id = $2`, secondAction, firstRequest), "request_patron_action_fkey")
+	requireConstraintViolation(t, execute(`UPDATE request SET requested_by = $1 WHERE id = $2`, secondDm, firstRequest), "request_requested_by_fkey")
+	requireConstraintViolation(t, execute(`UPDATE request SET on_behalf_of = $1 WHERE id = $2`, secondDm, firstRequest), "request_on_behalf_of_fkey")
+	requireConstraintViolation(t, execute(`UPDATE request SET decided_by = $1 WHERE id = $2`, secondDm, firstRequest), "request_decided_by_fkey")
+	for _, link := range []struct {
+		column, constraint string
+		otherCampaignRow   uuid.UUID
+	}{
+		{"quest_id", "timeline_event_quest_fkey", secondQuest},
+		{"patron_id", "timeline_event_patron_fkey", secondPatron},
+		{"request_id", "timeline_event_request_fkey", secondRequest},
+	} {
+		requireConstraintViolation(t, execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, `+link.column+`)
+			VALUES ($1, 0, 'CUSTOM', 'Cross', 'PUBLIC', $2)`, firstCampaign, link.otherCampaignRow), link.constraint)
+	}
+	// Favor needs a patron giver, for a reward and for a failure cost alike.
+	requireConstraintViolation(t, execute(`INSERT INTO quest (campaign_id, title, reward_favor) VALUES ($1, 'Unpaid', 1)`, firstCampaign), "quest_reward_favor_needs_patron")
+	requireConstraintViolation(t, execute(`INSERT INTO quest (campaign_id, title, failure_favor) VALUES ($1, 'Unpaid', 1)`, firstCampaign), "quest_failure_favor_needs_patron")
+	requireConstraintViolation(t, execute(`UPDATE patron_action SET favor_cost = -1 WHERE id = $1`, firstAction), "patron_action_favor_cost_check")
+	// A quest's favor amounts are never negative, though the patron's own favor may go below 0.
+	requireConstraintViolation(t, execute(`UPDATE quest SET reward_favor = -1 WHERE id = $1`, firstQuest), "quest_reward_favor_check")
+	requireConstraintViolation(t, execute(`UPDATE quest SET failure_favor = -1 WHERE id = $1`, firstQuest), "quest_failure_favor_check")
+	requireConstraintViolation(t, execute(`UPDATE request SET patron_name = NULL WHERE id = $1`, firstRequest), "request_patron_action_names_patron")
+	// Patrons and actions are archived, never deleted: a stray delete fails loudly.
+	requireConstraintViolation(t, execute(`DELETE FROM patron WHERE id = $1`, firstPatron), "patron_action_patron_fkey")
+	requireConstraintViolation(t, execute(`DELETE FROM patron_action WHERE id = $1`, firstAction), "request_patron_action_fkey")
+	// Deleting a quest or an NPC clears only the link column of the rows that name them.
+	if err := execute(`UPDATE quest SET giver_npc_id = $1 WHERE id = $2`, firstNpc, firstQuest); err != nil {
+		t.Fatalf("set a quest giver: %v", err)
+	}
+	if err := execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, quest_id, patron_id, request_id)
+		VALUES ($1, 0, 'QUEST_POSTED', 'New quest: Hold the Ridge', 'PUBLIC', $2, $3, $4)`, secondCampaign, secondQuest, secondPatron, secondRequest); err != nil {
+		t.Fatalf("insert a linked entry: %v", err)
+	}
+	if err := execute(`DELETE FROM quest WHERE id = $1`, secondQuest); err != nil {
+		t.Fatalf("delete quest: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM timeline_event WHERE campaign_id = $1 AND kind = 'QUEST_POSTED'
+		AND quest_id IS NULL AND patron_id = $2 AND request_id = $3`, secondCampaign, secondPatron, secondRequest); count != 1 {
+		t.Fatalf("the entry of a deleted quest = %d rows, want 1 with only the quest link cleared", count)
+	}
+	if err := execute(`DELETE FROM npc WHERE id = $1`, firstNpc); err != nil {
+		t.Fatalf("delete the quest giver: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM quest WHERE id = $1 AND campaign_id = $2 AND giver_npc_id IS NULL AND patron_id = $3`,
+		firstQuest, firstCampaign, firstPatron); count != 1 {
+		t.Fatalf("the quest of a deleted giver = %d rows, want 1 with only the giver cleared", count)
+	}
+
 	// Deleting a campaign takes every campaign-owned row with it and leaves the other campaign alone.
 	if err := execute(`DELETE FROM campaign WHERE id = $1`, firstCampaign); err != nil {
 		t.Fatalf("delete campaign: %v", err)
 	}
-	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member", "npc", "place"} {
+	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member", "npc", "place",
+		"patron", "patron_action", "quest", "request"} {
 		if left := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, firstCampaign); left != 0 {
 			t.Errorf("%s kept %d rows of the deleted campaign", table, left)
 		}
-		if kept := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, secondCampaign); kept == 0 && table != "timeline_event" {
+		if kept := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, secondCampaign); kept == 0 && table != "timeline_event" && table != "quest" {
 			t.Errorf("%s lost the other campaign's rows", table)
 		}
 	}

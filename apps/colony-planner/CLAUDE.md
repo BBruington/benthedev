@@ -41,13 +41,13 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
-| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, and `internal/bot/npc.go` is `/npc view` |
+| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, and `internal/bot/requests.go` is the request prompts with Grant and Decline |
 | `internal/seed/` | the two fictional sample campaigns for `colony seed` |
 | `db/migrations/` | goose SQL, the one schema source (enums included), embedded by `db/embed.go` and applied by `db/migrate.go` |
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
-| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/` and `web/src/places/` hold the pieces their route files render |
+| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/` and `web/src/ventures/` (quests, patrons, requests, the approval sheet) hold the pieces their route files render |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) and `docs/checklists/` |
 
@@ -62,8 +62,9 @@ web/src/** -> web/src/api -> the Go API
   `db` (exceptions: `internal/seed`, a fixture loader; `cmd/colony`, which wires the pool; tests).
   This is an allow-list over the whole module, so new packages are covered automatically.
 - `internal/core` knows none of its callers: no net, net/http, huma, discordgo or oauth2, and no import of
-  app, auth, bot or seed. It reaches outward only through `core.Notifier`, `core.SessionEvictor` and
-  `core.DiscordDirectory` (Beny Bot's channel list, passed in `core.Options` at construction).
+  app, auth, bot or seed. It reaches outward only through `core.Notifier`, `core.RequestNotifier` (request
+  prompts and their outcomes), `core.SessionEvictor` and `core.DiscordDirectory` (Beny Bot's channel list),
+  all passed in `core.Options` at construction.
 - core's exported API never mentions a store or pgx type, because Go infers types and a returned
   `*store.Queries` would leak the database without an import. `internal/core/boundary_test.go` enforces
   this; re-export only enum and value types (see `internal/core/member_status.go`), never queries or pools.
@@ -111,10 +112,11 @@ web/src/** -> web/src/api -> the Go API
 13. Broadcasts are per campaign: `Broker.Publish(campaignID, topics...)`; there is no unscoped publish.
     Sequence numbers and the resume ring are per campaign.
 14. Logs carry IDs, kinds, counts and statuses, never campaign content or message text.
-15. A hidden row (`revealed = false`: NPCs, places) never reaches a player: reads answer 404 exactly like a
-    missing row, and it is absent from lists, search, named colonists, a place's npcsHere, the timeline and
-    Beny Bot. A hidden named colonist still counts, as unnamed, in the player's headcounts. Players get an
-    NPC only by `displayName`; the true name, known name, revealed flag and DM notes live in `NpcDm`.
+15. A hidden row (`revealed = false`: NPCs, places, quests, patrons, patron actions) never reaches a
+    player: reads answer 404 exactly like a missing row, and it is absent from lists, search, named
+    colonists, a place's npcsHere, quest givers, requests, the timeline and Beny Bot. A hidden named
+    colonist still counts, as unnamed, in the player's headcounts. Players get an NPC only by
+    `displayName`; the true name, known name, revealed flag and DM notes live in `NpcDm`.
     Timeline text names NPCs by display name, which is the true name while known_name is blank. So an
     entry about an NPC carries npc_id and npc_name (the display name it was written with, kept after a
     delete), reaches players only while its NPC is revealed, and its PUBLIC text (made public, edited, an
@@ -122,7 +124,24 @@ web/src/** -> web/src/api -> the Go API
     name while a known name is set (`npcEntryRefusal` in `internal/core/timeline.go`). A rename that does
     this moves the NPC's PUBLIC entries to DM, and deleting a hidden NPC moves theirs to DM. Workforce
     entries count in role totals, never unnamed.
-    Beny Bot builds every reply from the player projection, even for the DM.
+    Beny Bot builds every reply from the player projection, even for the DM. The one exception is a
+    request prompt: it goes only to the campaign's DM channel (through `postToCampaign`), so core builds
+    it from the DM's projection.
+16. M3 secrecy (quests, patrons, actions, requests). Visibility and archiving change only through their
+    own switch endpoints, never a full-record PUT (an edit body carrying revealed, archived, status or
+    favor is a 422), and create takes the starting visibility. Archived patrons and actions leave players'
+    lists and every picker, but their history stays. Players get a quest's giver and patron only while
+    those are revealed, and a request whose action or patron is hidden now, or was hidden when it was made
+    (`made_while_revealed`), is absent for them. Timeline
+    entries carry quest_id, patron_id and request_id, and reach players only while the linked quest,
+    patron and action are revealed; a hidden patron's favor line goes in the entry's DM-only `dm.note`.
+    An UNDO carries the links of what it undid, DM-only ones too, and never names an action whose use
+    it undid (that undo deletes the request, the action's only link).
+    Deleting a hidden quest moves its PUBLIC entries to DM before the link clears. A quest's failure cost
+    (failure_effects, failure_favor) and dm_notes live in `QuestDm` until the quest fails. A request's
+    decision note is per viewer, not DM-only: core returns it only to the requester and the DM (not in
+    view as player), because it isn't in a `dm` object and the Transformer won't strip it
+    (`mayReadDecisionNote` in `internal/core/requests.go`).
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.
@@ -173,9 +192,18 @@ fixture in `internal/app/secrecy_fixtures_test.go`, into both campaigns. M2's pe
 fixture already plants every M2 secret (true and known names, NPC and place DM notes, a hidden NPC, a hidden
 place used as a revealed NPC's current place, a hidden named colonist, a PUBLIC entry about an NPC hidden
 since), and hidden rows' IDs are forbidden
-values, so a new link to one is caught too. The secrecy sweep only sees a leak of a planted value. A new
-ID or map field in a request body also goes in `mixedIDFields` in `internal/app/secrecy_test.go`, so the
-sweep puts the other campaign's real IDs and keys into it.
+values, so a new link to one is caught too. M3's quests, patrons and requests fixture plants a hidden
+quest, patron and action with a canary in every field, an action of the hidden patron, a QUEST_POSTED
+entry and a PUBLIC favor entry whose quest and patron were hidden since, a request for an action hidden
+since, Use action now on hidden actions (one renamed and revealed since), an undone Use action now whose
+action is hidden since, a hidden quest's completion, a hidden patron's favor change and a hidden action's
+use each undone with the UNDO made PUBLIC, the revealed quest's and patron's DM notes, the revealed quest's
+failure cost, a quest completed for the hidden patron (its favor line is in `dm.note`), and archived
+patrons and actions. A dedicated requester account no sweep caller uses owns a declined and a granted
+request whose decision notes are canaries, so no other player and no DM viewing as player may see them.
+The secrecy sweep only sees a leak of a planted value. A new ID or map field in a request body also goes
+in `mixedIDFields` in `internal/app/secrecy_test.go`, so the sweep puts the other campaign's real IDs and
+keys into it.
 
 Add an entity, then `mise run gen`:
 1. a migration (the table carries `campaign_id` per Invariant 11) and a queries file in `db/queries/`

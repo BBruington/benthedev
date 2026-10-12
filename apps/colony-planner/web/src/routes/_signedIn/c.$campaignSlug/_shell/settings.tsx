@@ -44,6 +44,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title";
 import { useMe } from "@/hooks/use-me";
 import { cachedMe, canUseDmTools } from "@/lib/access";
 import { inviteLink } from "@/lib/campaigns";
+import { copyToClipboard } from "@/lib/clipboard";
 import { forgetLastCampaign } from "@/lib/last-campaign";
 import { cn } from "@/lib/utils";
 import { RoleSettingsCard } from "@/people/role-settings";
@@ -140,7 +141,7 @@ function SettingsBody({
 }
 
 function copyText(text: string, success: string) {
-	navigator.clipboard.writeText(text).then(
+	copyToClipboard(text).then(
 		() => {
 			toast.success(success);
 		},

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fallbackCampaignName, useCampaign, useColonyNames } from "@/hooks/use-campaign";
 import { type AccountMe, canUseDmTools, type Me } from "@/lib/access";
+import { pendingRequestsQuery } from "@/ventures/use-request-alerts";
 import { CampaignSwitcher } from "./campaign-switcher";
 import { ProfileMenu } from "./profile-menu";
 import { ViewAsPlayerBanner, ViewAsPlayerToggle } from "./view-as-player";
@@ -58,7 +59,7 @@ export function TopBar({
 				)}
 				<LiveDot className="ml-1 shrink-0 px-1.5 sm:ml-2" labelClassName="sr-only sm:not-sr-only" />
 				<div className="ml-auto flex shrink-0 items-center gap-0.5 md:gap-1">
-					{canUseDmTools(me) ? <RequestsButton slug={slug} /> : null}
+					{canUseDmTools(me) ? <RequestsButton /> : null}
 					{me.isDm ? <ViewAsPlayerToggle me={me} /> : null}
 					<ProfileMenu account={account} me={me} />
 				</div>
@@ -68,22 +69,33 @@ export function TopBar({
 	);
 }
 
-/** The DM's way into the request queue; the count arrives with requests in M3. */
-function RequestsButton({ slug }: { slug: string }) {
+/** The DM's way into the request queue, with the number waiting (spec §6.1). */
+function RequestsButton() {
+	const { campaignId, slug } = useCampaign();
+	const pending = useQuery(pendingRequestsQuery(campaignId)).data?.requests ?? [];
+	const label = pending.length === 1 ? "1 request waiting" : `${pending.length} requests waiting`;
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
-				<Button asChild size="icon" variant="ghost">
+				<Button asChild className="relative" size="icon" variant="ghost">
 					<Link
-						aria-label="Requests"
+						aria-label={pending.length > 0 ? `Requests, ${label}` : "Requests"}
 						params={{ campaignSlug: slug }}
 						to="/c/$campaignSlug/requests"
 					>
 						<InboxIcon />
+						{pending.length > 0 ? (
+							<span
+								aria-hidden="true"
+								className="absolute top-1 right-1 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1 font-semibold text-[0.6875rem] text-primary-foreground leading-5 tabular-nums"
+							>
+								{pending.length}
+							</span>
+						) : null}
 					</Link>
 				</Button>
 			</TooltipTrigger>
-			<TooltipContent>Requests: patron asks arrive here in M3</TooltipContent>
+			<TooltipContent>{pending.length > 0 ? label : "Requests: nothing waiting"}</TooltipContent>
 		</Tooltip>
 	);
 }

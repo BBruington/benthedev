@@ -131,9 +131,15 @@ export function needsRetype(days: number): boolean {
 
 type Labelled = { key: string; label: string };
 
+/** "dragon_scales" → "Dragon scales": a resource's key read back as words, for one the board no longer lists. */
+export function labelFromResourceKey(key: string): string {
+	const words = key.replaceAll("_", " ");
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /**
- * "Food −39 · Gold +10 · 4 colonists": an entry's applied deltas in board order, with resources the
- * board no longer lists (archived) named by their key.
+ * "Food −39 · Gold +10 · 4 colonists": an entry's applied deltas in board order. A resource the
+ * board no longer lists (archived) has no label here, so it is named from its key.
  */
 export function describeEffects(
 	effects: { resources?: Record<string, number>; colonists?: number },
@@ -153,7 +159,7 @@ export function describeEffects(
 		first.localeCompare(second),
 	)) {
 		if (!known.has(key) && amount !== 0) {
-			parts.push(`${key} ${formatDelta(amount)}`);
+			parts.push(`${labelFromResourceKey(key)} ${formatDelta(amount)}`);
 		}
 	}
 	const colonists = effects.colonists ?? 0;
@@ -173,6 +179,9 @@ const colonyChangePathPatterns = [
 	/^\/api\/campaigns\/\{campaignId\}\/colony(\/|$)/,
 	/^\/api\/campaigns\/\{campaignId\}\/people\/(transfer|set-count)$/,
 	/^\/api\/campaigns\/\{campaignId\}\/npcs\/\{npcId\}\/(join-colony|change-role|leave-colony)$/,
+	/^\/api\/campaigns\/\{campaignId\}\/quests\/\{questId\}\/(complete|fail|reopen)$/,
+	/^\/api\/campaigns\/\{campaignId\}\/patrons\/\{patronId\}\/adjust-favor$/,
+	/^\/api\/campaigns\/\{campaignId\}\/requests\/(use-action|\{requestId\}\/approve)$/,
 ];
 
 /** A mutation path that goes through the colony write path (spec §5.1) and so writes timeline entries. */

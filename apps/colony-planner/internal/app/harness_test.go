@@ -105,6 +105,21 @@ type campaignFixture struct {
 	keptPlaceID uuid.UUID
 	// hiddenNpcID is a hidden named colonist.
 	hiddenNpcID uuid.UUID
+	// requester is a member no sweep caller signs in as: their declined request's note is DM-only to
+	// everyone else, so only they and the DM may read it.
+	requester account
+	// declinedRequestID is the requester's request whose decision note is a canary.
+	declinedRequestID uuid.UUID
+	// hiddenQuestID, hiddenPatronID and hiddenRequestID are hidden rows players must read exactly like
+	// missing ones. The request was made while its patron and action were hidden, both revealed since.
+	hiddenQuestID   uuid.UUID
+	hiddenPatronID  uuid.UUID
+	hiddenRequestID uuid.UUID
+	// archivedIDs are an archived patron and action: players may still read their history, so they
+	// aren't canaries, but no player list or picker may hold them.
+	archivedIDs []string
+	// failureCost is the revealed quest's DM-only failure cost: its gold delta and failure favor.
+	failureCost []int64
 }
 
 // harness is the whole server on a fresh test schema with the accounts and campaigns of the

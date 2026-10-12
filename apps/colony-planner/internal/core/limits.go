@@ -20,6 +20,16 @@ const (
 	// can't fill the database; they are not game rules.
 	NpcLimit   = 2000
 	PlaceLimit = 1000
+	// QuestLimit, PatronLimit and PatronActionLimit are technical bounds of the same kind. Patrons and
+	// actions are never deleted, so only unarchived ones count (creating or unarchiving one), or the
+	// limit would be a lifetime cap with no way back under it. The ...IncludingArchived ceilings ten
+	// times higher keep a create-and-archive loop from growing the tables forever. Requests have none:
+	// no limits, cooldowns or quotas were designed (Open Question 12).
+	QuestLimit                         = 2000
+	PatronLimit                        = 500
+	PatronLimitIncludingArchived       = 5000
+	PatronActionLimit                  = 2000
+	PatronActionLimitIncludingArchived = 20000
 
 	campaignNameMaxLength = 80
 	slugMinLength         = 3

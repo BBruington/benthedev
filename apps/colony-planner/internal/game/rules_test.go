@@ -171,3 +171,25 @@ func TestFavor(t *testing.T) {
 	_, err = Spend(colony(0, 20, unassignedOnly(1), nil), below, -1, Effects{})
 	assertInvalid(t, err, "favorCost", "A favor cost can't be negative")
 }
+
+func TestResolveQuestFailureCost(t *testing.T) {
+	state := colony(30, 5, unassignedOnly(2), nil)
+	vex := Patron{Name: "Lady Vex", Favor: 1}
+	failed, err := ResolveQuest(state, &vex, Effects{Resources: map[string]int64{"food": -10}}, -3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if food(failed.Effects.After) != 0 || failed.Effects.Applied.Resources["food"] != -5 || !failed.Effects.Changes[0].Clamped {
+		t.Fatalf("a failure cost clamps at the minimum: %+v", failed.Effects.Changes)
+	}
+	if failed.PatronAfter.Favor != -2 || vex.Favor != 1 {
+		t.Fatalf("the favor loss applies in full, below 0 too: %d (input now %d)", failed.PatronAfter.Favor, vex.Favor)
+	}
+
+	nothing, err := ResolveQuest(state, nil, Effects{}, 0)
+	if err != nil || nothing.PatronAfter != nil || len(nothing.Effects.Changes) != 0 {
+		t.Fatalf("a quest with no cost and no patron: %+v, %v", nothing, err)
+	}
+	_, err = ResolveQuest(state, nil, Effects{}, -1)
+	assertInvalid(t, err, "patronId", "Favor needs a patron giver")
+}

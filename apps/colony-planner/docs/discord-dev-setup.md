@@ -181,7 +181,17 @@ Leave every other line as it is. `PUBLIC_URL` stays `http://localhost:5173`.
 9. To see the site owner's notice, have a new person ask to run a campaign (**Run your own campaign**).
    Beny Bot Dev sends you a direct message: "*name* (@*username*) asks to run *campaign*:
    http://localhost:5173/admin". Discord delivers it because you share the test server with Beny Bot Dev.
-10. To unlink, use **Unlink…** on Settings, or run `/unlink` in the server. Removing Beny Bot Dev from the
+10. **Decide a patron request.** In a private window, use Dev sign-in as the sample player Ana (Thorin
+    in Sample Colony) and ask Lady Vex for **Grain Barge** on **Patrons**. Beny Bot Dev posts "Thorin
+    requests **Grain Barge** from Lady Vex (3 favor → Food +7). Favor now 5." in `dm-desk`, with
+    **Grant** and **Decline** buttons. Click **Grant**: a second line says "Granted · Food +7 · favor
+    5 → 2" and the buttons go. Only the campaign's DM can decide there; anyone else who clicks gets
+    "Only the DM can decide." privately. A decision on the website edits the message too, and so do the
+    player withdrawing the request ("Withdrawn") and an undo of the grant ("Undone", with the buttons
+    back). If the patron's favor is too low, Grant keeps the buttons and says "Not enough favor: Lady Vex
+    has 2, needs 3. Open in app." The sample request from Maren Ashgrove was loaded by `mise run fresh`
+    while Beny Bot was off, so it has no Discord message: decide it on **Requests**.
+11. To unlink, use **Unlink…** on Settings, or run `/unlink` in the server. Removing Beny Bot Dev from the
     server unlinks it too, even while the site is stopped: it notices on its next start. Re-inviting it
     then needs a new `/link`.
 
@@ -219,6 +229,11 @@ while Beny Bot is off; its channel lists are empty until it is back.
 | "The DM hasn't let you in yet." | The account is waiting or was removed. The DM lets it in on Players. |
 | "This campaign is paused by the site owner." | The campaign is suspended on Site admin. |
 | No waiting-to-join notice | The server isn't linked; no DM channel is picked on Settings; Beny Bot Dev can't see `dm-desk` (if you made it private, add Beny Bot Dev to it); the person had already asked (opening the link again pings nobody); or five notices were already sent for this campaign in the last hour. The request still appears on Players. |
+| No request prompt in `dm-desk` | The server isn't linked; no DM channel is picked on Settings; or Beny Bot Dev can't see `dm-desk`. The request still appears on Requests, where the DM decides it. |
+| "Only the DM can decide." | Grant and Decline work only for the campaign's DM. |
+| "That request was already decided." | It was granted, declined or withdrawn already, on the website or by an earlier click. Nothing changed. |
+| A prompt keeps its buttons after a decision on the website | The site was stopped while it was decided, or the DM channel changed on Settings after the prompt was posted: Beny Bot Dev edits prompts only in the current DM channel. Its buttons now answer "That request was already decided." |
+| A decided prompt shows only the outcome, not the request line | Beny Bot Dev can't read the message history of `dm-desk`. Give it **Read Message History** in that channel's permissions. |
 | The channel lists on Settings are empty | Beny Bot is off, or the server isn't linked, or it has no text channels Beny Bot can see. |
 | No direct message about a campaign request | `SITE_OWNER_DISCORD_ID` is empty or isn't your user ID; your Discord privacy settings block direct messages from members of the test server; or five were already sent in the last hour. The request still appears on Site admin. |
 | A token or secret was pasted somewhere it shouldn't be | Reset it on the Developer Portal (step 3), update `.env`, and restart. |

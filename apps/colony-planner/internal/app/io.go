@@ -104,7 +104,51 @@ type roleBodyInput[Body any] struct {
 	Body       Body
 }
 
-// RevealInput is the body of the reveal switches on NPCs and places.
+// RevealInput is the body of the reveal switches on NPCs, places, patrons and patron actions.
 type RevealInput struct {
 	Revealed bool `json:"revealed"`
+}
+
+type questPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	QuestID    uuid.UUID `path:"questId" format:"uuid"`
+}
+
+type questBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	QuestID    uuid.UUID `path:"questId" format:"uuid"`
+	Body       Body
+}
+
+type patronPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	PatronID   uuid.UUID `path:"patronId" format:"uuid"`
+}
+
+type patronBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	PatronID   uuid.UUID `path:"patronId" format:"uuid"`
+	Body       Body
+}
+
+type patronActionBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	ActionID   uuid.UUID `path:"actionId" format:"uuid"`
+	Body       Body
+}
+
+type requestPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	RequestID  uuid.UUID `path:"requestId" format:"uuid"`
+}
+
+type requestBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	RequestID  uuid.UUID `path:"requestId" format:"uuid"`
+	Body       Body
+}
+
+// ArchiveInput is the body of the archive switches on patrons and their actions.
+type ArchiveInput struct {
+	Archived bool `json:"archived"`
 }
