@@ -16,6 +16,10 @@ const (
 	OwnerRequestPingsPerHour = 5
 	// LinkCodeLifetime: one live code per campaign, single use.
 	LinkCodeLifetime = 15 * time.Minute
+	// NpcLimit and PlaceLimit are technical bounds well beyond any table's cast, so a runaway script
+	// can't fill the database; they are not game rules.
+	NpcLimit   = 2000
+	PlaceLimit = 1000
 
 	campaignNameMaxLength = 80
 	slugMinLength         = 3

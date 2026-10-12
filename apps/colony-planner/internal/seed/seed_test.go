@@ -109,8 +109,33 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	playerTimeline, err := service.ListTimeline(testContext, player, core.TimelineRangeInput{FromDay: 0, ToDay: 30})
-	if err != nil || len(playerTimeline.Entries) != len(dmTimeline.Entries)-1 {
-		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment (%v)", len(playerTimeline.Entries), len(dmTimeline.Entries), err)
+	if err != nil || len(playerTimeline.Entries) != len(dmTimeline.Entries)-2 {
+		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment and the hidden colonist's joining (%v)",
+			len(playerTimeline.Entries), len(dmTimeline.Entries), err)
+	}
+
+	// M2: the cast and places, some hidden, and three founders named in their roles.
+	for _, check := range []struct {
+		viewer        core.Viewer
+		npcs, places  int
+		hiddenVisible bool
+	}{{dm, 10, 5, true}, {player, 7, 4, false}} {
+		roster, err := service.ListNpcs(testContext, check.viewer, core.NpcFilter{})
+		if err != nil || len(roster.Npcs) != check.npcs {
+			t.Fatalf("roster: %d NPCs, want %d (%v)", len(roster.Npcs), check.npcs, err)
+		}
+		places, err := service.ListPlaces(testContext, check.viewer, "")
+		if err != nil || len(places.Places) != check.places {
+			t.Fatalf("places: %d, want %d (%v)", len(places.Places), check.places, err)
+		}
+		found, err := service.ListNpcs(testContext, check.viewer, core.NpcFilter{Search: "Edric"})
+		if err != nil || (len(found.Npcs) == 1) != check.hiddenVisible {
+			t.Fatalf("searching a hidden NPC's true name found %d (%v)", len(found.Npcs), err)
+		}
+	}
+	colonists, err := service.ListNpcs(testContext, dm, core.NpcFilter{ColonistsOnly: true})
+	if err != nil || len(colonists.Npcs) != 3 {
+		t.Fatalf("named colonists = %d, want 3 (%v)", len(colonists.Npcs), err)
 	}
 
 	// Hollis DMs Second Sample and plays Pell in Sample Colony.

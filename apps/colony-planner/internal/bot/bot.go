@@ -67,6 +67,8 @@ type colonyService interface {
 	LinkGuild(requestContext context.Context, input core.LinkGuildInput) (core.LinkedGuild, error)
 	UnlinkGuildByID(requestContext context.Context, guildID string) (bool, error)
 	ReconcileGuilds(requestContext context.Context, presentGuildIDs []string) (int, error)
+	SuggestRevealedNpcs(requestContext context.Context, viewer core.Viewer, prefix string, limit int) ([]core.Npc, error)
+	FindRevealedNpc(requestContext context.Context, viewer core.Viewer, displayName string) (core.Npc, error)
 }
 
 var (
@@ -79,12 +81,13 @@ var (
 type Bot struct {
 	options Options
 	// client and state are nil when Beny Bot is off.
-	client         discordClient
-	state          gatewayState
-	commands       []command
-	commandLimiter *userRateLimiter
-	waitingPings   *slidingWindowLimiter
-	ownerPings     *slidingWindowLimiter
+	client            discordClient
+	state             gatewayState
+	commands          []command
+	commandLimiter    *userRateLimiter
+	suggestionLimiter *userRateLimiter
+	waitingPings      *slidingWindowLimiter
+	ownerPings        *slidingWindowLimiter
 
 	// mutex guards service, running and stopping. The notifier methods can be called from any request
 	// goroutine, before Run starts or while it shuts down.
@@ -119,13 +122,14 @@ func newBot(options Options, client discordClient, state gatewayState, now func(
 		options.Logger = slog.Default()
 	}
 	return &Bot{
-		options:        options,
-		client:         client,
-		state:          state,
-		commands:       slashCommands(),
-		commandLimiter: newUserRateLimiter(now),
-		waitingPings:   newSlidingWindowLimiter(core.WaitingPingsPerHour, pingWindow, now),
-		ownerPings:     newSlidingWindowLimiter(core.OwnerRequestPingsPerHour, pingWindow, now),
+		options:           options,
+		client:            client,
+		state:             state,
+		commands:          slashCommands(),
+		commandLimiter:    newUserRateLimiter(now, commandBurst, commandRefillInterval),
+		suggestionLimiter: newUserRateLimiter(now, suggestionBurst, suggestionRefillInterval),
+		waitingPings:      newSlidingWindowLimiter(core.WaitingPingsPerHour, pingWindow, now),
+		ownerPings:        newSlidingWindowLimiter(core.OwnerRequestPingsPerHour, pingWindow, now),
 	}
 }
 
@@ -315,8 +319,9 @@ func (benyBot *Bot) handleInteraction(lifetimeContext context.Context, event *di
 		return
 	}
 	interaction := event.Interaction
-	// Buttons (M3) and autocomplete (M2) are routed here once they exist, through the same guild routing.
-	if interaction.Type != discordgo.InteractionApplicationCommand {
+	// Buttons (M3) are routed here once they exist, through the same guild routing.
+	isAutocomplete := interaction.Type == discordgo.InteractionApplicationCommandAutocomplete
+	if interaction.Type != discordgo.InteractionApplicationCommand && !isAutocomplete {
 		return
 	}
 	data, isCommand := interaction.Data.(discordgo.ApplicationCommandInteractionData)
@@ -335,6 +340,10 @@ func (benyBot *Bot) handleInteraction(lifetimeContext context.Context, event *di
 
 	interactionContext, cancel := context.WithTimeout(lifetimeContext, interactionDeadline)
 	defer cancel()
+	if isAutocomplete {
+		benyBot.respondWithChoices(interactionContext, logger, interaction, benyBot.suggestionsFor(interactionContext, logger, interaction, data, discordUserID))
+		return
+	}
 	reply := func(content string) {
 		benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: content})
 	}
@@ -358,33 +367,92 @@ func (benyBot *Bot) handleInteraction(lifetimeContext context.Context, event *di
 		return
 	}
 
-	viewer, err := service.ViewerForGuild(interactionContext, interaction.GuildID, discordUserID)
-	if err != nil {
-		// Not linked, paused, not in this campaign, not let in: core's typed errors carry the words.
-		if operationError, isOperationError := core.AsError(err); isOperationError {
-			reply(operationError.Message)
-			return
-		}
-		logger.Error("Beny Bot couldn't look up the caller", slog.Any("error", err))
-		reply(failureMessage)
+	viewer, refusal := viewerFor(interactionContext, logger, service, interaction.GuildID, discordUserID)
+	if refusal != "" {
+		reply(refusal)
 		return
 	}
-	// Discord is not the place for DM detail: Beny Bot answers from the player projection, even when the
-	// DM runs the command (spec §7.2), so core's player filters apply to every command.
-	viewer = viewer.AsPlayer()
-
 	if !found {
 		logger.Warn("Beny Bot received a command it doesn't register")
 		reply(unknownCommandMessage)
 		return
 	}
-	response, err := slashCommand.handle(interactionContext, viewer, data)
+	response, err := slashCommand.handle(interactionContext, service, viewer, data)
 	if err != nil {
-		logger.Error("Beny Bot's command failed", slog.Any("error", err))
-		reply(failureMessage)
+		reply(refusalFor(logger, err, "Beny Bot's command failed"))
 		return
 	}
 	benyBot.replyEphemeral(interactionContext, logger, interaction, response)
+}
+
+// viewerFor routes the server to its linked campaign and the caller to their membership. refusal is
+// the line to answer with instead, or empty when the caller is let in.
+func viewerFor(interactionContext context.Context, logger *slog.Logger, service colonyService, guildID string, discordUserID string) (viewer core.Viewer, refusal string) {
+	viewer, err := service.ViewerForGuild(interactionContext, guildID, discordUserID)
+	if err != nil {
+		return core.Viewer{}, refusalFor(logger, err, "Beny Bot couldn't look up the caller")
+	}
+	// Discord is not the place for DM detail: Beny Bot answers from the player projection, even when the
+	// DM runs the command (spec §7.2), so core's player filters apply to every command.
+	return viewer.AsPlayer(), ""
+}
+
+// refusalFor is the line a failed lookup answers with: core's typed errors carry their own words (not
+// linked, paused, not in this campaign, not let in, not found); anything else is logged and generic.
+func refusalFor(logger *slog.Logger, err error, logMessage string) string {
+	if operationError, isOperationError := core.AsError(err); isOperationError {
+		return operationError.Message
+	}
+	logger.Error(logMessage, slog.Any("error", err))
+	return failureMessage
+}
+
+// suggestionsFor answers an autocomplete request through the same routing as a command. Discord shows
+// no message beside suggestions, so a refusal is the one choice offered: picking it runs the command,
+// which answers with the whole line.
+func (benyBot *Bot) suggestionsFor(interactionContext context.Context, logger *slog.Logger, interaction *discordgo.Interaction, data discordgo.ApplicationCommandInteractionData, discordUserID string) []*discordgo.ApplicationCommandOptionChoice {
+	if !benyBot.suggestionLimiter.allow(discordUserID) {
+		return refusalChoice(slowDownMessage)
+	}
+	service := benyBot.currentService()
+	if service == nil {
+		return refusalChoice(failureMessage)
+	}
+	if interaction.GuildID == "" {
+		return refusalChoice(useInServerMessage)
+	}
+	viewer, refusal := viewerFor(interactionContext, logger, service, interaction.GuildID, discordUserID)
+	if refusal != "" {
+		return refusalChoice(refusal)
+	}
+	slashCommand, found := benyBot.findCommand(data.Name)
+	if !found || slashCommand.suggest == nil {
+		logger.Warn("Beny Bot received autocomplete for a command that offers none")
+		return refusalChoice(unknownCommandMessage)
+	}
+	choices, err := slashCommand.suggest(interactionContext, service, viewer, data)
+	if err != nil {
+		return refusalChoice(refusalFor(logger, err, "Beny Bot's suggestions failed"))
+	}
+	return choices
+}
+
+// refusalChoice offers a line as the only choice, cut to Discord's 100-character limit.
+func refusalChoice(line string) []*discordgo.ApplicationCommandOptionChoice {
+	text := fitText(line, choiceMaxLength, keepText)
+	return []*discordgo.ApplicationCommandOptionChoice{{Name: text, Value: text}}
+}
+
+// respondWithChoices answers an autocomplete request. Discord shows suggestions to the typist alone,
+// so they need no ephemeral flag.
+func (benyBot *Bot) respondWithChoices(interactionContext context.Context, logger *slog.Logger, interaction *discordgo.Interaction, choices []*discordgo.ApplicationCommandOptionChoice) {
+	err := benyBot.client.InteractionRespond(interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+		Data: &discordgo.InteractionResponseData{Choices: choices},
+	}, discordgo.WithContext(interactionContext))
+	if err != nil {
+		logger.Warn("Beny Bot couldn't suggest", slog.Any("error", err))
+	}
 }
 
 // runServerCommand runs /link and /unlink: they act for the server, not for a campaign member, so they

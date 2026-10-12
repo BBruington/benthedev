@@ -46,6 +46,7 @@ import { cachedMe, canUseDmTools } from "@/lib/access";
 import { inviteLink } from "@/lib/campaigns";
 import { forgetLastCampaign } from "@/lib/last-campaign";
 import { cn } from "@/lib/utils";
+import { RoleSettingsCard } from "@/people/role-settings";
 
 type Settings = Schemas["Settings"];
 type SettingsInput = Schemas["SettingsInput"];
@@ -131,6 +132,7 @@ function SettingsBody({
 			<SettingsForm settings={settings.data} />
 			<InviteLink />
 			<ResourceSettingsCard />
+			<RoleSettingsCard />
 			<DeleteCampaign campaignName={settings.data.campaignName} />
 			<ComingLater />
 		</>
@@ -494,7 +496,6 @@ function useDiscordLink(settings: Settings) {
 }
 
 const laterSettings: { label: string; arrivesIn: string }[] = [
-	{ arrivesIn: "M2", label: "Colonist roles" },
 	{ arrivesIn: "M5", label: "Discord event location and the calendar (ICS) link" },
 ];
 

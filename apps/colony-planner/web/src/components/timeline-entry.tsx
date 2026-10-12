@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
 	CalendarClockIcon,
 	EyeOffIcon,
@@ -9,9 +10,13 @@ import {
 	ShipIcon,
 	SunriseIcon,
 	Undo2Icon,
+	UserMinusIcon,
+	UserPlusIcon,
+	UsersIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Schemas } from "@/api/client";
+import { useCampaign } from "@/hooks/use-campaign";
 import { dayName } from "@/lib/colony";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +28,16 @@ type Glyph = { icon: LucideIcon; label: string; tone: string };
 /** Each kind's typed glyph (spec §6.6); the Record fails typechecking when a kind is added. */
 export const timelineKinds: Record<TimelineKind, Glyph> = {
 	CARGO_RECORDED: { icon: PackageOpenIcon, label: "Cargo", tone: "bg-moss/14 text-moss-ink" },
+	COLONIST_JOINED: {
+		icon: UserPlusIcon,
+		label: "Colonist joined",
+		tone: "bg-verdigris/14 text-verdigris-ink",
+	},
+	COLONIST_LEFT: {
+		icon: UserMinusIcon,
+		label: "Colonist left",
+		tone: "bg-ember/12 text-ember-ink",
+	},
 	CUSTOM: { icon: FeatherIcon, label: "Note", tone: "bg-gilt/12 text-gilt-ink" },
 	DAY_CORRECTED: {
 		icon: HourglassIcon,
@@ -42,11 +57,17 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 	},
 	STOCK_ADJUSTED: { icon: ScaleIcon, label: "Stock adjusted", tone: "bg-gilt/12 text-gilt-ink" },
 	UNDO: { icon: Undo2Icon, label: "Undo", tone: "bg-ember/12 text-ember-ink" },
+	WORKFORCE_CHANGED: {
+		icon: UsersIcon,
+		label: "Workforce",
+		tone: "bg-verdigris/14 text-verdigris-ink",
+	},
 };
 
 /**
  * One timeline entry with its glyph, title and narration. For the DM, a DM-only entry carries an
- * eye-slash and an undone one is struck through (spec §5.8); players never receive either.
+ * eye-slash and an undone one is struck through (spec §5.8); players never receive either. An
+ * entry about an NPC links its title to their page; players only receive those whose NPC they know.
  */
 export function TimelineEntry({
 	entry,
@@ -61,6 +82,7 @@ export function TimelineEntry({
 	actions?: ReactNode;
 	className?: string;
 }) {
+	const { slug } = useCampaign();
 	const glyph = timelineKinds[entry.kind];
 	const isDmOnly = entry.dm?.visibility === "DM";
 	const isUndone = Boolean(entry.dm?.undoneAt);
@@ -93,7 +115,17 @@ export function TimelineEntry({
 						isUndone && "line-through decoration-ember-ink/70",
 					)}
 				>
-					{entry.title}
+					{entry.npcId ? (
+						<Link
+							className="underline decoration-gilt-ink/50 underline-offset-4 hover:decoration-gilt-ink"
+							params={{ campaignSlug: slug, npcId: entry.npcId }}
+							to="/c/$campaignSlug/npcs/$npcId"
+						>
+							{entry.title}
+						</Link>
+					) : (
+						entry.title
+					)}
 				</h3>
 				{entry.body ? (
 					<p

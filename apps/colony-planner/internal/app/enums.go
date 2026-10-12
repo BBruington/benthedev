@@ -42,6 +42,11 @@ var enumTypes = []enumType{
 	newEnumType("TimelineKind", core.AllTimelineKinds),
 	newEnumType("AdjustSource", core.AllAdjustSources),
 	newEnumType("RemovalKind", core.AllRemovalKinds),
+	newEnumType("NpcStatus", core.AllNpcStatusValues),
+	newEnumType("NpcHealth", core.AllNpcHealthValues),
+	newEnumType("NpcRelation", core.AllNpcRelationValues),
+	newEnumType("JoinMode", core.AllJoinModes),
+	newEnumType("LeaveMode", core.AllLeaveModes),
 }
 
 var enumNamesByType = func() map[reflect.Type]string {

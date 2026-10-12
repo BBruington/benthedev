@@ -504,7 +504,7 @@ func TestServersNeverReachAnotherCampaign(t *testing.T) {
 	var dmFlags []bool
 	test.bot.commands = append(test.bot.commands, command{
 		definition: &discordgo.ApplicationCommand{Name: "whereami", Description: "test"},
-		handle: func(_ context.Context, viewer core.Viewer, _ discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error) {
+		handle: func(_ context.Context, _ colonyService, viewer core.Viewer, _ discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error) {
 			reached = append(reached, viewer.CampaignID())
 			dmFlags = append(dmFlags, viewer.IsDM())
 			return &discordgo.InteractionResponseData{Content: "ok"}, nil
@@ -539,7 +539,7 @@ func TestCommandsSeeThePlayerProjection(t *testing.T) {
 	var received core.Viewer
 	test.bot.commands = append(test.bot.commands, command{
 		definition: &discordgo.ApplicationCommand{Name: "whoami", Description: "test"},
-		handle: func(_ context.Context, viewer core.Viewer, _ discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error) {
+		handle: func(_ context.Context, _ colonyService, viewer core.Viewer, _ discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error) {
 			received = viewer
 			return &discordgo.InteractionResponseData{Content: "ok"}, nil
 		},
@@ -600,6 +600,14 @@ func (failingService) UnlinkGuildByID(context.Context, string) (bool, error) {
 
 func (failingService) ReconcileGuilds(context.Context, []string) (int, error) {
 	return 0, errDatabaseDown
+}
+
+func (failingService) SuggestRevealedNpcs(context.Context, core.Viewer, string, int) ([]core.Npc, error) {
+	return nil, errDatabaseDown
+}
+
+func (failingService) FindRevealedNpc(context.Context, core.Viewer, string) (core.Npc, error) {
+	return core.Npc{}, errDatabaseDown
 }
 
 func TestFailuresGetAGenericReply(t *testing.T) {
@@ -716,7 +724,7 @@ func TestReadyRegistersCommandsGloballyAndClearsTheLegacyGuild(t *testing.T) {
 			if global.guildID != "" || global.applicationID != testCase.expectedApplicationID {
 				t.Errorf("command registration went to application %q, guild %q; want global", global.applicationID, global.guildID)
 			}
-			if names := commandNames(global.commands); !slices.Equal(names, []string{"beny", "link", "unlink"}) {
+			if names := commandNames(global.commands); !slices.Equal(names, []string{"beny", "link", "unlink", "npc"}) {
 				t.Errorf("global commands = %v", names)
 			}
 			for _, definition := range global.commands {

@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { useCampaignId } from "@/hooks/use-campaign";
 import { useSheetState } from "@/hooks/use-sheet-state";
 import { formatNumber, parseWholeNumber } from "@/lib/colony";
+import { forgetFailedSaves } from "@/lib/forms";
 import { cn } from "@/lib/utils";
 
 type ResourceSettings = Schemas["ResourceSettings"];
@@ -235,6 +236,10 @@ function ResourceSheet({
 		label.trim() !== "" && minError === undefined && maxError === undefined && !isSaving;
 	const showGeneralError = error !== null && Object.keys(serverErrors).length === 0;
 
+	function edited() {
+		forgetFailedSaves(create, update);
+	}
+
 	function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		if (!canSave || typeof minAmount !== "number" || maxAmount === "invalid") {
@@ -287,12 +292,19 @@ function ResourceSheet({
 						maxLength={40}
 						onChange={(event) => {
 							setLabel(event.target.value);
+							edited();
 						}}
 						placeholder="For example, Timber"
 						value={label}
 					/>
 				</Field>
-				<IconPicker onChange={setIcon} value={icon} />
+				<IconPicker
+					onChange={(nextIcon) => {
+						setIcon(nextIcon);
+						edited();
+					}}
+					value={icon}
+				/>
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Field error={minError} id="resource-min" label="Minimum">
 						<Input
@@ -301,6 +313,7 @@ function ResourceSheet({
 							inputMode="numeric"
 							onChange={(event) => {
 								setMinText(event.target.value);
+								edited();
 							}}
 							value={minText}
 						/>
@@ -318,6 +331,7 @@ function ResourceSheet({
 							inputMode="numeric"
 							onChange={(event) => {
 								setMaxText(event.target.value);
+								edited();
 							}}
 							placeholder="No maximum"
 							value={maxText}
@@ -338,7 +352,10 @@ function ResourceSheet({
 							checked={archived}
 							disabled={existing.isSystem}
 							id="resource-archived"
-							onCheckedChange={setArchived}
+							onCheckedChange={(checked) => {
+								setArchived(checked);
+								edited();
+							}}
 						/>
 					</div>
 				) : null}
@@ -367,12 +384,15 @@ function ResourceSheet({
 }
 
 /** The curated icons as a radio group: arrow keys move through them, as in any radio group. */
-function IconPicker({
+export function IconPicker({
 	value,
 	onChange,
+	groupName = "resource-icon",
 }: {
 	value: ColonyIconName;
 	onChange: (icon: ColonyIconName) => void;
+	/** The radio group's name, unique on the page. */
+	groupName?: string;
 }) {
 	return (
 		<fieldset className="grid gap-2">
@@ -397,7 +417,7 @@ function IconPicker({
 							<input
 								checked={isSelected}
 								className="sr-only"
-								name="resource-icon"
+								name={groupName}
 								onChange={() => {
 									onChange(name);
 								}}

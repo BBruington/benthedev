@@ -19,7 +19,10 @@ const linkCodeOptionMaxLength = 32
 //
 // handle serves a campaign command: the router has already checked the rate limit, routed the server
 // to its campaign and checked that the caller is an ACTIVE member, so it only builds the content from
-// what the (player projection) viewer may see.
+// what the (player projection) viewer may see. A core error it returns is answered with core's words.
+//
+// suggest, when set, answers the command's autocomplete through the same routing, with the same
+// player-projection viewer.
 //
 // handleServer serves a command that acts for the server rather than a campaign (/link, /unlink): the
 // router has checked the rate limit and Manage Server instead.
@@ -27,7 +30,8 @@ const linkCodeOptionMaxLength = 32
 // Either way the router makes the reply ephemeral and mention-free.
 type command struct {
 	definition   *discordgo.ApplicationCommand
-	handle       func(requestContext context.Context, viewer core.Viewer, data discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error)
+	handle       func(requestContext context.Context, service colonyService, viewer core.Viewer, data discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error)
+	suggest      func(requestContext context.Context, service colonyService, viewer core.Viewer, data discordgo.ApplicationCommandInteractionData) ([]*discordgo.ApplicationCommandOptionChoice, error)
 	handleServer func(requestContext context.Context, service colonyService, invocation serverInvocation) (*discordgo.InteractionResponseData, error)
 }
 
@@ -75,6 +79,28 @@ func slashCommands() []command {
 			},
 			handleServer: unlinkServer,
 		},
+		{
+			definition: &discordgo.ApplicationCommand{
+				Name:        "npc",
+				Description: "Look up an NPC the party knows",
+				Contexts:    &inServersOnly,
+				Options: []*discordgo.ApplicationCommandOption{{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        npcViewSubcommand,
+					Description: "Show what the party knows about an NPC",
+					Options: []*discordgo.ApplicationCommandOption{{
+						Type:         discordgo.ApplicationCommandOptionString,
+						Name:         npcNameOption,
+						Description:  "The name the party knows them by",
+						Required:     true,
+						Autocomplete: true,
+						MaxLength:    choiceMaxLength,
+					}},
+				}},
+			},
+			handle:  viewNpc,
+			suggest: suggestNpcs,
+		},
 	}
 }
 
@@ -87,7 +113,7 @@ func (benyBot *Bot) findCommand(name string) (command, bool) {
 	return command{}, false
 }
 
-func answerBeny(context.Context, core.Viewer, discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error) {
+func answerBeny(context.Context, colonyService, core.Viewer, discordgo.ApplicationCommandInteractionData) (*discordgo.InteractionResponseData, error) {
 	return &discordgo.InteractionResponseData{Content: "Boy!"}, nil
 }
 
@@ -96,7 +122,7 @@ func answerBeny(context.Context, core.Viewer, discordgo.ApplicationCommandIntera
 // suspended campaign, with its own words.
 func linkServer(requestContext context.Context, service colonyService, invocation serverInvocation) (*discordgo.InteractionResponseData, error) {
 	linked, err := service.LinkGuild(requestContext, core.LinkGuildInput{
-		Code:          stringOption(invocation.data, "code"),
+		Code:          stringOption(invocation.data.Options, "code"),
 		GuildID:       invocation.guildID,
 		GuildName:     invocation.guildName,
 		DiscordUserID: invocation.discordUserID,
@@ -123,9 +149,19 @@ func unlinkServer(requestContext context.Context, service colonyService, invocat
 	}, nil
 }
 
-// stringOption reads a string option without discordgo's StringValue, which panics on another type.
-func stringOption(data discordgo.ApplicationCommandInteractionData, name string) string {
+// subcommandOptions reads the options of the subcommand called name, or reports that another ran.
+func subcommandOptions(data discordgo.ApplicationCommandInteractionData, name string) ([]*discordgo.ApplicationCommandInteractionDataOption, bool) {
 	for _, option := range data.Options {
+		if option != nil && option.Type == discordgo.ApplicationCommandOptionSubCommand && option.Name == name {
+			return option.Options, true
+		}
+	}
+	return nil, false
+}
+
+// stringOption reads a string option without discordgo's StringValue, which panics on another type.
+func stringOption(options []*discordgo.ApplicationCommandInteractionDataOption, name string) string {
+	for _, option := range options {
 		if option == nil || option.Name != name {
 			continue
 		}

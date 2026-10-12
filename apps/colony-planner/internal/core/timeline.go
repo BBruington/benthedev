@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -32,9 +35,13 @@ type TimelineEntry struct {
 	// folded beyond 12 arrivals).
 	Arrivals *ArrivalRun `json:"arrivals,omitempty" doc:"SHIPMENT_ARRIVED only; absent otherwise"`
 	// ArrivalEntryID is set on CARGO_RECORDED: the arrival the cargo came on.
-	ArrivalEntryID *uuid.UUID       `json:"arrivalEntryId" format:"uuid" nullable:"true" doc:"CARGO_RECORDED only; null otherwise"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	Dm             *TimelineEntryDm `json:"dm,omitempty"`
+	ArrivalEntryID *uuid.UUID `json:"arrivalEntryId" format:"uuid" nullable:"true" doc:"CARGO_RECORDED only; null otherwise"`
+	// NpcID links an entry about an NPC to their page. Players only get entries whose NPC is revealed
+	// or unlinked, so it never names a hidden NPC to them. The name the entry was written with stays
+	// out: it can be a name the party doesn't know (Invariant 15).
+	NpcID     *uuid.UUID       `json:"npcId" format:"uuid" nullable:"true" doc:"The NPC this entry is about; null for none, or once that NPC is deleted"`
+	CreatedAt time.Time        `json:"createdAt"`
+	Dm        *TimelineEntryDm `json:"dm,omitempty"`
 }
 
 // TimelineEntryDm is what only the DM sees about an entry: its visibility (eye-slash when DM),
@@ -246,6 +253,16 @@ func (service *Service) UpdateTimelineEntry(requestContext context.Context, view
 			message := "Only a custom entry can move to another day."
 			return Invalid(message, FieldError{Field: "day", Message: message})
 		}
+		// Checked whenever PUBLIC text changes, not only when an entry turns PUBLIC, so the rule holds
+		// for everything players can read.
+		goingPublic := existing.Visibility != TimelineVisibilityPublic
+		textChanged := existing.Title != cleaned.Title || existing.Body != cleaned.Body
+		if cleaned.Visibility == TimelineVisibilityPublic && (goingPublic || textChanged) {
+			entry := npcEntry{npcID: existing.NpcID, npcName: existing.NpcName, title: cleaned.Title, body: cleaned.Body}
+			if err := checkNpcEntryCanGoPublic(requestContext, queries, viewer.campaignID, entry, goingPublic); err != nil {
+				return err
+			}
+		}
 		row, err = queries.UpdateTimelineEvent(requestContext, store.UpdateTimelineEventParams{
 			CampaignID: viewer.campaignID,
 			ID:         timelineEntryID,
@@ -283,6 +300,116 @@ func (service *Service) DeleteCustomEntry(requestContext context.Context, viewer
 	}
 	service.broker.Publish(viewer.campaignID, TopicTimeline)
 	return nil
+}
+
+// npcEntry is what decides whether an entry about an NPC may be PUBLIC: its link, the display name
+// the app wrote it with, and its text.
+type npcEntry struct {
+	npcID   *uuid.UUID
+	npcName string
+	title   string
+	body    string
+}
+
+// npcEntryRefusal says why players can't be shown an entry, or "" when they can (Invariant 15): its
+// NPC is hidden (checked only when requireRevealed), or its text names the NPC by a name the party
+// doesn't know. Those are the name the entry was written with once it is no longer the display name,
+// and the true name while a known name is set. Text the DM typed in some other form is theirs to
+// judge. Once the NPC is deleted, the name it was written with stays, unless players knew it by that
+// name (PrepareNpcTimelineEventsForDelete).
+func npcEntryRefusal(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, entry npcEntry, requireRevealed bool) (string, error) {
+	if entry.npcID == nil {
+		if entry.npcName != "" && namesUnknownName(entry.title+"\n"+entry.body, "", entry.npcName) {
+			return "This entry names an NPC who was deleted, by a name the party may not know; edit the text first.", nil
+		}
+		return "", nil
+	}
+	npc, err := queries.GetNpc(requestContext, store.GetNpcParams{CampaignID: campaignID, ID: *entry.npcID})
+	if err != nil {
+		return "", err
+	}
+	if requireRevealed && !npc.Revealed {
+		return npc.DisplayName + " is hidden from players. Reveal them first.", nil
+	}
+	var unknownNames []string
+	if entry.npcName != "" && entry.npcName != npc.DisplayName {
+		unknownNames = append(unknownNames, entry.npcName)
+	}
+	if npc.Name != npc.DisplayName {
+		unknownNames = append(unknownNames, npc.Name)
+	}
+	if namesUnknownName(entry.title+"\n"+entry.body, npc.DisplayName, unknownNames...) {
+		return "This entry names them by a name the party doesn't know; edit the text first.", nil
+	}
+	return "", nil
+}
+
+// checkNpcEntryCanGoPublic is npcEntryRefusal as a field error on visibility.
+func checkNpcEntryCanGoPublic(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, entry npcEntry, requireRevealed bool) error {
+	message, err := npcEntryRefusal(requestContext, queries, campaignID, entry, requireRevealed)
+	if err != nil || message == "" {
+		return err
+	}
+	return Invalid(message, FieldError{Field: "visibility", Message: message})
+}
+
+// namesUnknownName reports whether text holds one of unknownNames as whole words, ignoring case and
+// reading any run of whitespace or invisible format characters as one space, except where the match
+// is part of the display name itself ("Tam" inside "Old Tam").
+func namesUnknownName(text string, displayName string, unknownNames ...string) bool {
+	text = normalizeName(text)
+	var knownSpans [][2]int
+	if known := normalizeName(displayName); known != "" {
+		knownSpans = wholeWordSpans(text, known)
+	}
+	for _, unknownName := range unknownNames {
+		unknown := normalizeName(unknownName)
+		if unknown == "" {
+			continue
+		}
+		for _, span := range wholeWordSpans(text, unknown) {
+			insideKnown := slices.ContainsFunc(knownSpans, func(known [2]int) bool { return known[0] <= span[0] && span[1] <= known[1] })
+			if !insideKnown {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeName(text string) string {
+	visible := strings.Map(func(character rune) rune {
+		if unicode.Is(unicode.Cf, character) {
+			return ' '
+		}
+		return character
+	}, text)
+	return strings.Join(strings.Fields(strings.ToLower(visible)), " ")
+}
+
+// wholeWordSpans is every [start, end) where name occurs in text not joined to a letter or digit.
+func wholeWordSpans(text string, name string) [][2]int {
+	var spans [][2]int
+	for offset := 0; offset < len(text); {
+		index := strings.Index(text[offset:], name)
+		if index < 0 {
+			break
+		}
+		start := offset + index
+		end := start + len(name)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if !isWordRune(before) && !isWordRune(after) {
+			spans = append(spans, [2]int{start, end})
+		}
+		_, width := utf8.DecodeRuneInString(text[start:])
+		offset = start + width
+	}
+	return spans
+}
+
+func isWordRune(character rune) bool {
+	return character != utf8.RuneError && (unicode.IsLetter(character) || unicode.IsDigit(character))
 }
 
 // cleanTimelineEntryInput checks a custom entry or an edit, and returns it trimmed.
@@ -334,6 +461,7 @@ func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 		Kind:      kind,
 		Title:     row.Title,
 		Body:      row.Body,
+		NpcID:     row.NpcID,
 		CreatedAt: row.CreatedAt.UTC(),
 		Dm: &TimelineEntryDm{
 			Visibility:     row.Visibility,

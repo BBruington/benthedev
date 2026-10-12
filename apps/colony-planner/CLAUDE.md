@@ -41,13 +41,13 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
-| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, and `postToCampaign` in `internal/bot/notify.go` sends every campaign post |
+| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, and `internal/bot/npc.go` is `/npc view` |
 | `internal/seed/` | the two fictional sample campaigns for `colony seed` |
 | `db/migrations/` | goose SQL, the one schema source (enums included), embedded by `db/embed.go` and applied by `db/migrate.go` |
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
-| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build |
+| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/` and `web/src/places/` hold the pieces their route files render |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) and `docs/checklists/` |
 
@@ -111,6 +111,18 @@ web/src/** -> web/src/api -> the Go API
 13. Broadcasts are per campaign: `Broker.Publish(campaignID, topics...)`; there is no unscoped publish.
     Sequence numbers and the resume ring are per campaign.
 14. Logs carry IDs, kinds, counts and statuses, never campaign content or message text.
+15. A hidden row (`revealed = false`: NPCs, places) never reaches a player: reads answer 404 exactly like a
+    missing row, and it is absent from lists, search, named colonists, a place's npcsHere, the timeline and
+    Beny Bot. A hidden named colonist still counts, as unnamed, in the player's headcounts. Players get an
+    NPC only by `displayName`; the true name, known name, revealed flag and DM notes live in `NpcDm`.
+    Timeline text names NPCs by display name, which is the true name while known_name is blank. So an
+    entry about an NPC carries npc_id and npc_name (the display name it was written with, kept after a
+    delete), reaches players only while its NPC is revealed, and its PUBLIC text (made public, edited, an
+    UNDO repeating it) never names the NPC by npc_name once that isn't the display name, or by the true
+    name while a known name is set (`npcEntryRefusal` in `internal/core/timeline.go`). A rename that does
+    this moves the NPC's PUBLIC entries to DM, and deleting a hidden NPC moves theirs to DM. Workforce
+    entries count in role totals, never unnamed.
+    Beny Bot builds every reply from the player projection, even for the DM.
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.
@@ -153,11 +165,17 @@ Add a field (four hand edits), then `mise run gen` and follow the compiler error
 3. the DTO field, its mapping and its input field in the feature's file in `internal/core/` (a secret
    field goes in the Dm sub-struct); free text goes through `cleanText` (`internal/core/text.go`), and
    core, not a huma tag, checks lengths and formats so the person reads core's message;
-4. its display and input in the screen under web/src/routes/_signedIn/c.$campaignSlug/_shell/.
+4. its display and input in the screen under web/src/routes/_signedIn/c.$campaignSlug/_shell/, or in the
+   feature folder's pieces that screen renders. For an NPC: display in `npcs.$npcId.tsx` (prose) or
+   `web/src/npcs/npc-profile.tsx` (short facts), input in `web/src/npcs/npc-sheet.tsx`.
 A secret field also needs a canary: plant a canary for every new Dm field or hidden row in its feature's
-fixture in `internal/app/secrecy_fixtures_test.go`, into both campaigns. The secrecy sweep only sees a leak
-of a planted value. A new ID or map field in a request body also goes in `mixedIDFields` in
-`internal/app/secrecy_test.go`, so the sweep puts the other campaign's real IDs and keys into it.
+fixture in `internal/app/secrecy_fixtures_test.go`, into both campaigns. M2's people, NPCs and places
+fixture already plants every M2 secret (true and known names, NPC and place DM notes, a hidden NPC, a hidden
+place used as a revealed NPC's current place, a hidden named colonist, a PUBLIC entry about an NPC hidden
+since), and hidden rows' IDs are forbidden
+values, so a new link to one is caught too. The secrecy sweep only sees a leak of a planted value. A new
+ID or map field in a request body also goes in `mixedIDFields` in `internal/app/secrecy_test.go`, so the
+sweep puts the other campaign's real IDs and keys into it.
 
 Add an entity, then `mise run gen`:
 1. a migration (the table carries `campaign_id` per Invariant 11) and a queries file in `db/queries/`
@@ -170,7 +188,8 @@ Add an entity, then `mise run gen`:
 4. a thin handler file in `internal/app/` registered from `app.New`;
 5. a secrecy fixture in `internal/app/secrecy_fixtures_test.go`: plant into both campaigns (`canaryA` in
    A's DM-only values, `canaryB` in every value of B, `canaryBdm` in B's DM-only values; SPEC §8.11 has the
-   details), name a real row for every path parameter, and list a GET where the DM sees the canary;
+   details), name a real row for every path parameter, and list a GET where the DM sees the canary (the
+   sweep runs DELETE routes last, so a delete can't remove a row a later GET needs);
 6. its reads in `web/src/api/queries.ts` (factories that take the campaignId) and its topic's entry in
    `topicQueryKeys` in `web/src/api/topics.ts`;
 7. a route file under web/src/routes/_signedIn/c.$campaignSlug/_shell/ (screens get the campaign from

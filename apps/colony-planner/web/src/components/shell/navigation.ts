@@ -84,7 +84,6 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug/maps",
 	},
 	npcs: {
-		arrivesIn: "M2",
 		icon: DramaIcon,
 		id: "npcs",
 		label: "NPCs",
@@ -100,7 +99,6 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug/patrons",
 	},
 	people: {
-		arrivesIn: "M2",
 		icon: UsersIcon,
 		id: "people",
 		label: "People",
@@ -109,7 +107,6 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug/people",
 	},
 	places: {
-		arrivesIn: "M2",
 		icon: MapPinIcon,
 		id: "places",
 		label: "Places",
@@ -154,7 +151,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		icon: Settings2Icon,
 		id: "settings",
 		label: "Settings",
-		summary: "The campaign's name, time zone, resources and Discord channels.",
+		summary: "The campaign's name, time zone, resources, roles and Discord channels.",
 		to: "/c/$campaignSlug/settings",
 	},
 	timeline: {

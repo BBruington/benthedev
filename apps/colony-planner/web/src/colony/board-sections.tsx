@@ -74,6 +74,7 @@ export function ResourceTiles({ resources }: { resources: readonly ColonyResourc
 
 /** "62 colonists · 5 unassigned", with each role's headcount; Unassigned stands out when > 0. */
 export function ColonistsStrip({ board }: { board: ColonyBoard }) {
+	const { slug } = useCampaign();
 	const roles = board.roles.filter((role) => role.total > 0 || role.isSystem);
 	return (
 		<section
@@ -87,9 +88,15 @@ export function ColonistsStrip({ board }: { board: ColonyBoard }) {
 				>
 					<UsersIcon className="size-[1.125rem]" />
 				</span>
-				<h2 className="font-semibold text-lg leading-snug" id="colonists-heading">
+				<h2 className="min-w-0 flex-1 font-semibold text-lg leading-snug" id="colonists-heading">
 					{colonistsLine(board.colonists, board.unassigned)}
 				</h2>
+				<Button asChild size="sm" variant="ghost">
+					<Link params={{ campaignSlug: slug }} to="/c/$campaignSlug/people">
+						People
+						<ArrowRightIcon />
+					</Link>
+				</Button>
 			</div>
 			{roles.length > 0 ? (
 				<ul aria-label="Colonists by role" className="flex flex-wrap gap-2">

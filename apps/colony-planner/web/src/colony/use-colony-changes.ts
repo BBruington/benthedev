@@ -6,9 +6,13 @@ import {
 	adjustPreviewQueryKeyPrefix,
 	advancePreviewQueryKeyPrefix,
 	colonyBoardQuery,
+	npcQueryKeyPrefix,
+	npcsQueryKeyPrefix,
 	recentTimelineQuery,
 	resourcesQuery,
+	rolesQuery,
 	timelineQueryKeyPrefix,
+	workforceQuery,
 } from "@/api/queries";
 import { useCampaignId } from "@/hooks/use-campaign";
 import { isPublicEntry } from "@/lib/colony";
@@ -20,13 +24,14 @@ const undoToastDurationInMilliseconds = 12_000;
 
 /**
  * Brings this tab up to date after the DM's own change, without waiting for the live stream: the
- * board comes back with the change, and everything it touched is read again.
+ * board comes back with the change, and everything it touched is read again. It settles once the
+ * workforce and the roles are fresh, the version the next workforce sheet starts from.
  */
 function refreshAfter(
 	queryClient: QueryClient,
 	campaignId: string,
 	change: ColonyChange | undefined,
-) {
+): Promise<unknown> {
 	if (change) {
 		queryClient.setQueryData(colonyBoardQuery(campaignId).queryKey, change.board);
 	} else {
@@ -37,6 +42,12 @@ function refreshAfter(
 	queryClient.invalidateQueries({ queryKey: timelineQueryKeyPrefix(campaignId) });
 	queryClient.invalidateQueries({ queryKey: recentTimelineQuery(campaignId).queryKey });
 	queryClient.invalidateQueries({ queryKey: resourcesQuery(campaignId).queryKey });
+	queryClient.invalidateQueries({ queryKey: npcsQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: npcQueryKeyPrefix(campaignId) });
+	return Promise.all([
+		queryClient.invalidateQueries({ queryKey: workforceQuery(campaignId).queryKey }),
+		queryClient.invalidateQueries({ queryKey: rolesQuery(campaignId).queryKey }),
+	]);
 }
 
 /** The DM's toast for their own change: its public text, and Undo (spec §6.3). */
@@ -65,7 +76,7 @@ export function isConflict(error: unknown): boolean {
 }
 
 /**
- * Every colony write the DM makes from the board and the timeline. The callbacks live on the
+ * Every colony write the DM makes from the board, the timeline, /people and an NPC's page. The callbacks live on the
  * mutations themselves, so a toast's Undo still works after the screen that made the change closes.
  * Each screen adds its own callbacks when it calls mutate (closing a sheet, moving focus).
  */
@@ -96,15 +107,22 @@ export function useColonyChanges() {
 				refreshAfter(queryClient, campaignId, undefined);
 			}
 		},
+		// Returning the refresh keeps the mutation pending until it lands, so a screen's own onSuccess
+		// (closing its sheet) runs only once the next sheet would open on the new version.
 		onSuccess: (change: ColonyChange) => {
-			refreshAfter(queryClient, campaignId, change);
 			toastChange(change, undoGroup);
+			return refreshAfter(queryClient, campaignId, change);
 		},
 	};
 
 	return {
 		adjust: api.useMutation("post", "/api/campaigns/{campaignId}/colony/adjust", changeOptions),
 		advance: api.useMutation("post", "/api/campaigns/{campaignId}/colony/advance", changeOptions),
+		changeColonyRole: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/npcs/{npcId}/change-role",
+			changeOptions,
+		),
 		clearShipments: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/colony/shipments/clear",
@@ -117,9 +135,29 @@ export function useColonyChanges() {
 		),
 		/** The path parameters every change sends: the campaign on screen. */
 		inCampaign,
+		joinColony: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/npcs/{npcId}/join-colony",
+			changeOptions,
+		),
+		leaveColony: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/npcs/{npcId}/leave-colony",
+			changeOptions,
+		),
+		setRoleCount: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/people/set-count",
+			changeOptions,
+		),
 		setShipments: api.useMutation(
 			"put",
 			"/api/campaigns/{campaignId}/colony/shipments",
+			changeOptions,
+		),
+		transferColonists: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/people/transfer",
 			changeOptions,
 		),
 		undo,

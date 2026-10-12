@@ -87,6 +87,9 @@ func New(options Options) (*Server, error) {
 	featureHandlers.registerColony(api)
 	featureHandlers.registerTimeline(api)
 	featureHandlers.registerResources(api)
+	featureHandlers.registerPeople(api)
+	featureHandlers.registerNpcs(api)
+	featureHandlers.registerPlaces(api)
 	nullableEnumFields(api.OpenAPI())
 
 	openAPIJSON, err := json.Marshal(api.OpenAPI())

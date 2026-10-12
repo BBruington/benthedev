@@ -83,6 +83,9 @@ const (
 	TimelineKindDayCorrected            TimelineKind = "DAY_CORRECTED"
 	TimelineKindUndo                    TimelineKind = "UNDO"
 	TimelineKindCustom                  TimelineKind = "CUSTOM"
+	TimelineKindWorkforceChanged        TimelineKind = "WORKFORCE_CHANGED"
+	TimelineKindColonistJoined          TimelineKind = "COLONIST_JOINED"
+	TimelineKindColonistLeft            TimelineKind = "COLONIST_LEFT"
 )
 
 // AllTimelineKinds lists every kind, for the API's enum schema and the DM's filter chips.
@@ -96,6 +99,9 @@ func AllTimelineKinds() []TimelineKind {
 		TimelineKindDayCorrected,
 		TimelineKindUndo,
 		TimelineKindCustom,
+		TimelineKindWorkforceChanged,
+		TimelineKindColonistJoined,
+		TimelineKindColonistLeft,
 	}
 }
 

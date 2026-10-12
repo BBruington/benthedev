@@ -126,20 +126,22 @@ func sweepRoutes(t *testing.T, server *Server) ([]sweepRoute, map[string]any) {
 	return routes, document
 }
 
-// campaignRoutesLeaveLast lists the campaign routes with POST .../leave at the end, so a caller who
-// leaves does so after every other call.
+// campaignRoutesLeaveLast lists the campaign routes with every DELETE and then POST .../leave at the
+// end, so the rows a fixture names stay for every other call and a caller who leaves does so last.
 func campaignRoutesLeaveLast(routes []sweepRoute) []sweepRoute {
-	var campaignRoutes, leave []sweepRoute
+	var campaignRoutes, deletes, leave []sweepRoute
 	for _, route := range routes {
 		switch {
 		case !route.inCampaign():
 		case route.isLeave():
 			leave = append(leave, route)
+		case route.method == http.MethodDelete:
+			deletes = append(deletes, route)
 		default:
 			campaignRoutes = append(campaignRoutes, route)
 		}
 	}
-	return append(campaignRoutes, leave...)
+	return append(append(campaignRoutes, deletes...), leave...)
 }
 
 var pathParameter = regexp.MustCompile(`\{[^}]+\}`)
@@ -581,7 +583,7 @@ func TestCampaignsStaySealed(t *testing.T) {
 // bodyField is one value in a request body that pass 4 replaces with campaign B's.
 type bodyField struct {
 	path []string
-	// kind is "uuid" (an ID), "map" (an object keyed by resource or role keys) or "key".
+	// kind is "uuid" (an ID), "key" (a role key) or "map" (an object keyed by resource keys).
 	kind string
 }
 
@@ -590,6 +592,11 @@ type bodyField struct {
 var mixedIDFields = map[string]string{
 	"arrivalEntryId": "uuid",
 	"groupId":        "uuid",
+	"currentPlaceId": "uuid",
+	"originPlaceId":  "uuid",
+	"roleKey":        "key",
+	"fromRoleKey":    "key",
+	"toRoleKey":      "key",
 	"deltas":         "map",
 	"setTo":          "map",
 }
@@ -608,9 +615,6 @@ func bodyFields(t *testing.T, label string, document map[string]any, schema map[
 		switch {
 		case format == "uuid", isMap, isKey:
 			kind, classified := mixedIDFields[name]
-			if isKey {
-				kind, classified = "key", true
-			}
 			if !classified {
 				t.Errorf("%s: body field %s names other rows but pass 4 doesn't classify it; add it to mixedIDFields", label, strings.Join(path, "."))
 				continue
@@ -658,8 +662,23 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	valuesOfB := map[string]any{
 		"arrivalEntryId": campaignB.arrivalEntryID.String(),
 		"groupId":        lastGroupB.Dm.LastChange.GroupID.String(),
+		"currentPlaceId": campaignB.keptPlaceID.String(),
+		"originPlaceId":  campaignB.keptPlaceID.String(),
+		"roleKey":        campaignB.pathIDs["roleKey"],
+		"fromRoleKey":    campaignB.pathIDs["roleKey"],
+		"toRoleKey":      campaignB.pathIDs["roleKey"],
 	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
+	roleKeyA := campaignA.pathIDs["roleKey"]
+	npcRecord := func() map[string]any {
+		return map[string]any{
+			"name": "Pass Four", "knownName": "", "aliases": []string{}, "labels": []string{},
+			"race": "", "characterClass": "", "level": 2, "age": "", "appearance": "", "personality": "",
+			"backstory": "", "playerNotes": "", "dmNotes": "", "status": string(core.NpcStatusAlive),
+			"health": string(core.NpcHealthHealthy), "relation": string(core.NpcRelationUnknown),
+			"currentPlaceId": campaignA.keptPlaceID.String(), "originPlaceId": campaignA.keptPlaceID.String(),
+		}
+	}
 
 	// Valid bodies in A, built at call time because they carry the colony's current version.
 	validBodies := map[string]func() map[string]any{
@@ -679,6 +698,25 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		},
 	}
 	validBodies["/colony/adjust"] = validBodies["/colony/adjust-preview"]
+	validBodies["/npcs"] = func() map[string]any {
+		body := npcRecord()
+		body["revealed"] = false
+		return body
+	}
+	validBodies["/npcs/{npcId}"] = npcRecord
+	// The {npcId} row is a named colonist, so join-colony has no valid body; change-role proves roleKey.
+	validBodies["/npcs/{npcId}/change-role"] = func() map[string]any {
+		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "roleKey": "HEALER", "public": false}
+	}
+	validBodies["/people/transfer"] = func() map[string]any {
+		return map[string]any{
+			"expectedVersion": boardOf(dmViewerA).Version, "fromRoleKey": "UNASSIGNED", "toRoleKey": roleKeyA,
+			"count": 1, "public": false,
+		}
+	}
+	validBodies["/people/set-count"] = func() map[string]any {
+		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "roleKey": roleKeyA, "count": 2, "public": false}
+	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
 		build, found := validBodies[suffix]
@@ -726,13 +764,10 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			body := baseline()
 			fieldName := field.path[len(field.path)-1]
 			substituted[fieldName] = true
-			switch field.kind {
-			case "uuid":
-				setBodyField(body, field.path, valuesOfB[fieldName])
-			case "map":
+			if field.kind == "map" {
 				setBodyField(body, field.path, map[string]any{keyOfB: 1})
-			case "key":
-				setBodyField(body, field.path, keyOfB)
+			} else {
+				setBodyField(body, field.path, valuesOfB[fieldName])
 			}
 			encoded, _ := json.Marshal(body)
 			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.dmA), campaignA.pathIDs, string(encoded))
@@ -775,8 +810,10 @@ func (testHarness *harness) fingerprint(campaign *campaignFixture, onlyThere ...
 		tables = append(tables, table)
 	}
 	rows.Close()
-	if len(tables) < 5 {
-		testHarness.t.Fatalf("found only %v with a campaign_id column", tables)
+	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event"} {
+		if !slices.Contains(tables, required) {
+			testHarness.t.Fatalf("found only %v with a campaign_id column; %s is missing", tables, required)
+		}
 	}
 	const rowsAsText = `SELECT coalesce(string_agg(row_text, '|' ORDER BY row_text), '') FROM (
 		SELECT (to_jsonb(row_value) - 'last_seen_at' - 'expires_at')::text AS row_text FROM %s row_value WHERE %s) hashed`
@@ -912,6 +949,152 @@ func TestStreamMessagesCarryOnlyTopics(t *testing.T) {
 		}
 		if name != "player" && fmt.Sprint(topics) != fmt.Sprint([]core.Topic{core.TopicMe}) {
 			t.Errorf("%s: should hear only its own me topic once, got %v", name, topics)
+		}
+	}
+}
+
+// TestPlayersFindOnlyWhatTheyKnow is the M2 sweep's targeted half, run as every kind of player of each
+// campaign: a true name hidden behind a known name, and every value of a hidden NPC or place, finds
+// nothing in search; filters return no hidden NPC; a hidden row's page reads exactly like a missing
+// one; and /people counts a hidden named colonist without listing them. A search that wrongly matched
+// a true name would answer with only the known name, which no canary catches, so this counts results.
+func TestPlayersFindOnlyWhatTheyKnow(t *testing.T) {
+	testHarness := newHarness(t)
+	plantCanaries(t, testHarness)
+	campaignA, campaignB := testHarness.campaignA, testHarness.campaignB
+	playersOf := map[*campaignFixture][]sweepCaller{
+		campaignA: {
+			{name: "ana", who: &testHarness.ana},
+			{name: "dmB (DM of B)", who: &testHarness.dmB},
+			{name: "dmA viewing as player", who: &testHarness.dmA, viewAsPlayer: true},
+		},
+		campaignB: {
+			{name: "ana", who: &testHarness.ana},
+			{name: "dmA (DM of A)", who: &testHarness.dmA},
+			{name: "dmB viewing as player", who: &testHarness.dmB, viewAsPlayer: true},
+		},
+	}
+	for _, side := range testHarness.sides() {
+		campaign := side.campaign
+		forbidden := joinValues(testHarness.dmOnlyValues(campaignA), testHarness.dmOnlyValues(campaignB))
+		if campaign == campaignA {
+			forbidden = append(forbidden, canaryB)
+		}
+		read := func(label, token, suffix string, into any, ownValues ...string) *httptest.ResponseRecorder {
+			t.Helper()
+			path := campaignPathOf(campaign, suffix)
+			response := testHarness.do(http.MethodGet, path, requestOptions{token: token})
+			checkResponse(t, label+": GET "+suffix, path, forbidden, response, ownValues...)
+			if into != nil && response.Code == http.StatusOK {
+				if err := json.Unmarshal(response.Body.Bytes(), into); err != nil {
+					t.Fatalf("%s: decode %s: %v", label, suffix, err)
+				}
+			}
+			return response
+		}
+		npcCount := func(label, token, suffix string) int {
+			t.Helper()
+			var list core.NpcList
+			testHarness.expectStatus(read(label, token, suffix, &list), http.StatusOK)
+			return len(list.Npcs)
+		}
+
+		dmViewer := testHarness.enter(side.dm, campaign.id)
+		dmToken := testHarness.signIn(side.dm)
+		// Controls: the DM finds what players must not, so a zero below is the projection's doing.
+		for _, search := range []string{"Selwyn", "Mason", "Corrow", "Quiet"} {
+			found, err := testHarness.core.ListNpcs(testHarness.context, dmViewer, core.NpcFilter{Search: search})
+			if err != nil || len(found.Npcs) == 0 {
+				t.Errorf("the DM of %s searching %q found no NPC (%v)", campaign.name, search, err)
+			}
+		}
+		dmWorkforce, err := testHarness.core.GetWorkforce(testHarness.context, dmViewer)
+		if err != nil {
+			t.Fatalf("the DM's /people: %v", err)
+		}
+		dmTotals := map[string]int64{}
+		for _, role := range dmWorkforce.Roles {
+			dmTotals[role.Key] = role.Total
+		}
+		missingNpc := testHarness.do(http.MethodGet, campaignPathOf(campaign, "/npcs/"+uuid.NewString()), requestOptions{token: dmToken})
+		missingPlace := testHarness.do(http.MethodGet, campaignPathOf(campaign, "/places/"+uuid.NewString()), requestOptions{token: dmToken})
+		firstPlayerRecent := ""
+
+		for _, caller := range playersOf[campaign] {
+			token := testHarness.tokenFor(caller, campaign)
+			label := caller.name + " in " + campaign.name
+			for _, search := range []string{"Selwyn", "Mason", "Corrow", "Quiet", side.dmSecret} {
+				if count := npcCount(label, token, "/npcs?search="+url.QueryEscape(search)); count != 0 {
+					t.Errorf("%s: searching %q found %d NPCs, want none", label, search, count)
+				}
+			}
+			for _, search := range []string{"Hooded", "Hood"} {
+				if count := npcCount(label, token, "/npcs?search="+search); count != 1 {
+					t.Errorf("%s: searching %q found %d NPCs, want the revealed one", label, search, count)
+				}
+			}
+			for _, filter := range []string{
+				"/npcs?revealed=false",
+				"/npcs?colonistsOnly=true",
+				"/npcs?roleKey=" + url.QueryEscape(campaign.pathIDs["roleKey"]),
+				"/npcs?placeId=" + campaign.pathIDs["placeId"],
+				"/npcs?status=MISSING",
+			} {
+				testHarness.expectStatus(read(label, token, filter, nil), http.StatusOK)
+			}
+			for _, search := range []string{"Chapel", side.dmSecret} {
+				var places core.PlaceList
+				testHarness.expectStatus(read(label, token, "/places?search="+url.QueryEscape(search), &places), http.StatusOK)
+				if len(places.Places) != 0 {
+					t.Errorf("%s: searching places for %q found %d, want none", label, search, len(places.Places))
+				}
+			}
+
+			hiddenNpcID, hiddenPlaceID := campaign.hiddenNpcID.String(), campaign.keptPlaceID.String()
+			for _, hiddenRow := range []struct {
+				suffix  string
+				id      string
+				missing *httptest.ResponseRecorder
+			}{
+				{"/npcs/" + hiddenNpcID, hiddenNpcID, missingNpc},
+				{"/places/" + hiddenPlaceID, hiddenPlaceID, missingPlace},
+			} {
+				response := read(label, token, hiddenRow.suffix, nil, hiddenRow.id)
+				if response.Code != http.StatusNotFound || response.Body.String() != hiddenRow.missing.Body.String() {
+					t.Errorf("%s: a hidden row answered %d %s; a missing one answers %d %s", label, response.Code, response.Body.String(), hiddenRow.missing.Code, hiddenRow.missing.Body.String())
+				}
+			}
+
+			// read fails on any hidden NPC's ID, and the fixture links a PUBLIC entry to one. This proves
+			// the revealed NPC's link is there, and that every player, the DM viewing as player included,
+			// reads the same entries.
+			var recent core.RecentTimeline
+			recentResponse := read(label, token, "/timeline/recent", &recent)
+			testHarness.expectStatus(recentResponse, http.StatusOK)
+			if !slices.ContainsFunc(recent.Entries, func(entry core.TimelineEntry) bool {
+				return entry.NpcID != nil && entry.NpcID.String() == campaign.pathIDs["npcId"]
+			}) {
+				t.Errorf("%s: no recent entry links to the revealed NPC: %s", label, recentResponse.Body.String())
+			}
+			if firstPlayerRecent == "" {
+				firstPlayerRecent = recentResponse.Body.String()
+			} else if recentResponse.Body.String() != firstPlayerRecent {
+				t.Errorf("%s: recent entries %s differ from another player's %s", label, recentResponse.Body.String(), firstPlayerRecent)
+			}
+
+			var workforce core.Workforce
+			testHarness.expectStatus(read(label, token, "/people", &workforce), http.StatusOK)
+			if workforce.Colonists != dmWorkforce.Colonists {
+				t.Errorf("%s: /people counts %d colonists, the DM %d", label, workforce.Colonists, dmWorkforce.Colonists)
+			}
+			for _, role := range workforce.Roles {
+				if role.Total != dmTotals[role.Key] {
+					t.Errorf("%s: %s totals %d, the DM's %d", label, role.Key, role.Total, dmTotals[role.Key])
+				}
+				if role.UnnamedCount+role.NamedCount != role.Total || int64(len(role.NamedColonists)) != role.NamedCount {
+					t.Errorf("%s: %s's counts don't add up: %+v", label, role.Key, role)
+				}
+			}
 		}
 	}
 }

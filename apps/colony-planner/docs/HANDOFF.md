@@ -1,6 +1,6 @@
 # Handoff: Colony Planner
 
-**Last updated:** 2026-10-11, at the end of M1.5 (PR #2 open, not yet merged).
+**Last updated:** 2026-10-12, after the M2 debrief fixes. M2 is [PR #3](https://github.com/BBruington/colony-planner/pull/3) (branch `claude/m2-people-and-secrecy`), awaiting the author's checklist run and merge.
 **For:** the author, and any future session or AI agent picking this project up cold.
 
 This document carries the context that isn't in the code: why the project exists, what the author decided and why, how the author likes to work, what's pending, and what bit us along the way. Read it with:
@@ -26,8 +26,8 @@ It replaces `~/myCodeSpace/party-planner`: the author's earlier, unfinished, gen
 |---|---|---|
 | M0 | Skeleton, direct Discord OAuth2 sign-in, server sessions, DM approval of players, app shell, Beny Bot core | On `main`, committed by the author (`47e58c1`) |
 | M1 | Colony clock and books: Advance N days with preview, shipments (exact cadence), Adjust, Record cargo, Correct day, single-level Undo, timeline, live updates; plus the M0 review hardening | Merged ([PR #1](https://github.com/BBruington/colony-planner/pull/1)) |
-| M1.5 | Multi-campaign: accounts and memberships, site owner, invite links, DM requests and owner approval, one shared Beny Bot with `/link`, cross-campaign isolation; then a cleanup pass that squashed migrations into one `0001` | **Open: [PR #2](https://github.com/BBruington/colony-planner/pull/2)**, branch `claude/m1.5-multi-campaign`, commits `3243239` + `e1a81b0` |
-| M2 | People and secrecy: workforce screen (transfers, set counts), named NPC colonists, NPC roster with server-side secrecy, places | **Next** |
+| M1.5 | Multi-campaign: accounts and memberships, site owner, invite links, DM requests and owner approval, one shared Beny Bot with `/link`, cross-campaign isolation; then a cleanup pass that squashed migrations into one `0001` | Merged ([PR #2](https://github.com/BBruington/colony-planner/pull/2)) |
+| M2 | People and secrecy: `/people` (transfers, set counts, named colonists joining and leaving), NPC roster with server-side secrecy, places (unpinned), Settings roles card, Beny Bot `/npc view` | In [PR #3](https://github.com/BBruington/colony-planner/pull/3) (branch `claude/m2-people-and-secrecy`) with the debrief fixes, awaiting the author's checklist run (`docs/checklists/M2.md`) and merge |
 | M3 | Quests (Effects rewards, favor to patron givers), patrons and actions, player requests with DM approval (Discord Grant/Decline buttons) | Planned |
 | M4 | Hex map (players chart the new world; no fog of war, no history), the mainland map with pins | Planned |
 | M5 | Sessions (local time + time zone), Discord events, reminders, recaps, ICS feed | Planned |
@@ -97,7 +97,7 @@ Most of these came from conversations, not documents. When code or docs disagree
 
 Roughly in order:
 
-- [ ] **Merge PR #2.** After merging, the author runs `mise run fresh` once. The startup guard refuses the old migration history (versions 1, 2, 3) until then, and fresh **erases local data**.
+- [ ] **Try M2** with `docs/checklists/M2.md` (it starts with `mise run fresh`, which **erases local data** and loads the new sample NPCs and places), then merge PR #3. Step 15 (`/npc view` in real Discord) can only be checked by the author.
 - [ ] **Remove Beny Bot's legacy guild-command cleanup.** That's `DISCORD_GUILD_ID` / `LegacyGuildID` in `internal/bot/bot.go`, `cmd/colony/serve.go` and `cmd/colony/config.go`, plus its tests and docs. Waiting on the author: if `/beny` appears only once in their Discord test server, the old command is gone. Then delete `DISCORD_GUILD_ID` from `.env` and remove the code.
 - [ ] **Bump Go to 1.27.2 on or after 2026-10-22** (in `mise.toml` and `go.mod`), then remove the 10 accepted stdlib advisories from `scripts/vulncheck.sh`. The author was asked whether to take these security fixes earlier and hasn't answered.
 - [ ] **Offered, not yet decided:**
@@ -113,8 +113,15 @@ Roughly in order:
   - The owner-ping limiter counts a failed DM toward its hourly cap.
   - The broker's `memberActive` map is never pruned (tiny memory growth).
   - A campaign with no DM row (only possible by editing the database directly) disappears from Site admin.
+- [ ] **Known small things, fine for now** (from the M2 debrief):
+  - A narrow race: setting an NPC's known name in one tab while joining that NPC to the colony in another can write a PUBLIC entry that uses the true name.
+  - Renames only ever move an NPC's entries to DM-only and never move them back. Changing a revealed NPC's known name also hides entries that use the old name, which the party did know.
+  - Web tests still cover helpers only, not screens (the NPC and place sheets and pages, People, the timeline's NPC links).
+  - Beny Bot's `/npc view` needs the exact known name and doesn't match aliases, and NPCs who share a display name can't be reached there.
 
-The full open-question list, with defaults, is SPEC.md §11. Ask the ones marked "Before M2" when M2 starts (alias secrecy, starting visibility, first-encountered session, Beny Bot reply privacy).
+The full open-question list, with defaults, is SPEC.md §11. The "Before M2" questions were answered on 2026-10-11 (all defaults). Ask the "Before M3" ones, plus the quest half of question 9, when M3 starts.
+
+M2 sequencing decided on 2026-10-11: columns arrive with the tables they point at. `npc.first_session_id` comes with sessions in M5; NPC portraits (`npc.avatar_url`) and place pins (`place.map_id`, `pin_x`, `pin_y`) come with images and maps in M4. M2 shows initials avatars.
 
 ---
 
@@ -169,4 +176,6 @@ Ana plays in both. Wren has a pending request to run a campaign. These sandbox s
 
 - **2026-10-09 to 10:** analyzed party-planner and wrote a verified brief and stack assessment. The author chose a clean-room rebuild in a new folder, keeping Go. A judge panel of three drafts, two judges and a critic produced SPEC.md. Decisions followed: local only, no import, direct Discord OAuth, huma on trial.
 - **2026-10-10:** M0 built; it took 12 hours because of stalled agents. The bot was renamed "Beny" → "Beny Bot". Seams were closed and enforced by lint and tests. The repo was created as the private `BBruington/colony-planner`, and the Go module path changed from `TheBenDev` to `BBruington`. M0 was reviewed (go-with-fixes). M1 was built in about 1½ hours. DbGate was added.
-- **2026-10-11:** the author decided to support other DMs. The multi-campaign design was written, critiqued and approved with C1–C6. M1.5 was built in about 2 hours, with independent browser verification. A cleanup pass squashed migrations (schema proven byte-identical), removed the upgrade scaffolding and applied the pre-merge fixes. This handoff was written.
+- **2026-10-11:** the author decided to support other DMs. The multi-campaign design was written, critiqued and approved with C1–C6. M1.5 was built in about 2 hours, with independent browser verification. A cleanup pass squashed migrations (schema proven byte-identical), removed the upgrade scaffolding and applied the pre-merge fixes. This handoff was written. PR #2 was merged.
+- **2026-10-11 (evening):** the author answered the "Before M2" questions (all defaults). M2 was built in about 1 hour 40 minutes (9 agents). The first review found 11 issues, including a hidden NPC's true name reaching players through a timeline entry; all were fixed, then a second adversarial round re-checked the fixes.
+- **2026-10-12:** M2 went up as PR #3. After the debrief the author approved follow-up fixes for it: an NPC's or place's visibility now changes only through the switch on its page (edits and stale edit sheets can't reveal it again), a server field error no longer keeps Save disabled after it's corrected, timeline entries about an NPC link to their page, and some wording and switch polish.

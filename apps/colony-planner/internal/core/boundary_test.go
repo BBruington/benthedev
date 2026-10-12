@@ -82,6 +82,23 @@ var allowedDataReferences = map[string]string{
 	"CampaignRequestStatusApproved":  "a campaign_request_status value",
 	"CampaignRequestStatusDenied":    "a campaign_request_status value",
 	"CampaignRequestStatusWithdrawn": "a campaign_request_status value",
+	"NpcStatus":                      "the npc_status enum, re-exported so callers never import store",
+	"NpcStatusAlive":                 "an npc_status value",
+	"NpcStatusDead":                  "an npc_status value",
+	"NpcStatusMissing":               "an npc_status value",
+	"NpcStatusUnknown":               "an npc_status value",
+	"NpcHealth":                      "the npc_health enum, re-exported so callers never import store",
+	"NpcHealthHealthy":               "an npc_health value",
+	"NpcHealthInjured":               "an npc_health value",
+	"NpcHealthSick":                  "an npc_health value",
+	"NpcHealthUnknown":               "an npc_health value",
+	"NpcHealthDead":                  "an npc_health value",
+	"NpcRelation":                    "the npc_relation enum, re-exported so callers never import store",
+	"NpcRelationAlly":                "an npc_relation value",
+	"NpcRelationNeutral":             "an npc_relation value",
+	"NpcRelationSuspicious":          "an npc_relation value",
+	"NpcRelationEnemy":               "an npc_relation value",
+	"NpcRelationUnknown":             "an npc_relation value",
 }
 
 func TestCoreAPIExposesNoDataTypes(t *testing.T) {

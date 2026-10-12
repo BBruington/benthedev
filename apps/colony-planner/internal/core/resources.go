@@ -228,6 +228,16 @@ func labelTaken(label string, ownKey string, existing []store.Resource) *FieldEr
 // resourceKeyFor derives a new resource's key from its label ("Dragon Scales" → dragon_scales), with
 // a numeric suffix when it is taken. Keys never change afterwards: Effects JSON names resources by key.
 func resourceKeyFor(label string, existing []store.Resource) string {
+	taken := make(map[string]bool, len(existing))
+	for _, resource := range existing {
+		taken[resource.Key] = true
+	}
+	return uniqueKey(keyBase(label, "resource"), taken)
+}
+
+// keyBase is a label as a lowercase key ("Dragon Scales" → dragon_scales), prefixed when it would not
+// start with a letter, and short enough to leave room for uniqueKey's suffix within the key CHECKs.
+func keyBase(label string, fallbackPrefix string) string {
 	var builder strings.Builder
 	separator := false
 	for _, character := range strings.ToLower(label) {
@@ -243,17 +253,18 @@ func resourceKeyFor(label string, existing []store.Resource) string {
 	}
 	base := builder.String()
 	if base == "" || (base[0] >= '0' && base[0] <= '9') {
-		base = "resource_" + base
+		base = fallbackPrefix + "_" + base
 	}
 	base = strings.TrimSuffix(base, "_")
 	// Room for a suffix such as _12 within the key CHECK.
 	if len(base) > resourceKeyMaxLength-4 {
 		base = strings.TrimRight(base[:resourceKeyMaxLength-4], "_")
 	}
-	taken := make(map[string]bool, len(existing))
-	for _, resource := range existing {
-		taken[resource.Key] = true
-	}
+	return base
+}
+
+// uniqueKey is base, or base with the first free numeric suffix (_2, _3, ...).
+func uniqueKey(base string, taken map[string]bool) string {
 	key := base
 	for suffix := 2; taken[key]; suffix++ {
 		key = base + "_" + strconv.Itoa(suffix)
