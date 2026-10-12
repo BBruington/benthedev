@@ -270,6 +270,24 @@ export function approveRequestPreviewQuery(
 // Key prefixes that match every parameterized read of one path in one campaign, for live
 // invalidation. TanStack Query matches the trailing object partially, so the query parameters and
 // bodies of each read don't matter.
+// M4: world maps, place pins and the hex map. Players get revealed maps only, and a map's pins name
+// revealed places only; the hex map has no secrets.
+
+export function mapsQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/maps", inCampaign(campaignId));
+}
+
+export function mapQuery(campaignId: string, mapId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/maps/{mapId}", {
+		params: { path: { campaignId, mapId } },
+	});
+}
+
+/** Every charted hex; a hexes invalidation refetches the whole map (spec §5.10). */
+export function hexesQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/hexes", inCampaign(campaignId));
+}
+
 export function timelineQueryKeyPrefix(campaignId: string) {
 	return ["get", "/api/campaigns/{campaignId}/timeline", inCampaign(campaignId)] as const;
 }
@@ -347,4 +365,8 @@ export function approveRequestPreviewQueryKeyPrefix(campaignId: string) {
 		"/api/campaigns/{campaignId}/requests/{requestId}/approve-preview",
 		inCampaign(campaignId),
 	] as const;
+}
+
+export function mapQueryKeyPrefix(campaignId: string) {
+	return ["get", "/api/campaigns/{campaignId}/maps/{mapId}", inCampaign(campaignId)] as const;
 }

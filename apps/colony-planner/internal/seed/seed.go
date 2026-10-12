@@ -26,6 +26,8 @@ type Options struct {
 	OwnerDiscordID string
 	// Hexes is how many sample hexes to paint (M4); zero means the default handful.
 	Hexes int
+	// MainlandArt is the Eldari art (MainlandArtPath), uploaded as Sample Colony's Mainland.
+	MainlandArt []byte
 }
 
 // ErrDatabaseInUse stops a seed on a database that already has data.
@@ -102,8 +104,8 @@ var secondSamplePlayers = []sampleMembership{
 // and a pending campaign request. On a database that already has accounts it stops with
 // ErrDatabaseInUse.
 func Run(requestContext context.Context, options Options) error {
-	if options.Hexes > 0 {
-		return errors.New("--hexes needs the hex map, which arrives in M4")
+	if options.Hexes < 0 || options.Hexes > core.HexLimit {
+		return fmt.Errorf("--hexes takes 0 to %d", core.HexLimit)
 	}
 	if options.OwnerDiscordID == "" {
 		return errors.New("seed: the site owner needs a Discord ID (SITE_OWNER_DISCORD_ID or core.SeedDmDiscordID)")
@@ -165,6 +167,21 @@ func Run(requestContext context.Context, options Options) error {
 	if err := seedColony(requestContext, options.Core, queries, dm, enterSampleColony); err != nil {
 		return fmt.Errorf("seed the colony: %w", err)
 	}
+	if err := seedMainland(requestContext, options.Core, dm, options.MainlandArt); err != nil {
+		return fmt.Errorf("seed the Mainland: %w", err)
+	}
+	// Ana (Thorin) charts the new world, as players do.
+	thorin, err := enterSampleColony("seed:ana")
+	if err != nil {
+		return err
+	}
+	terrains, labels := sampleColonyHexes, sampleColonyHexLabels
+	if options.Hexes > 0 {
+		terrains, labels = manySampleHexes(options.Hexes)
+	}
+	if err := seedHexes(requestContext, options.Core, thorin, terrains, labels); err != nil {
+		return fmt.Errorf("seed the hex map: %w", err)
+	}
 
 	// Second Sample, through the real request and approval path: DM Hollis.
 	hollis := callerOf("seed:hollis")
@@ -184,6 +201,14 @@ func Run(requestContext context.Context, options Options) error {
 	}
 	if err := seedSecondColony(requestContext, options.Core, queries, secondDm, enterSecondSample); err != nil {
 		return fmt.Errorf("seed the second colony: %w", err)
+	}
+	// Second Sample has a few hexes and no map: its DM hasn't uploaded any art.
+	brisa, err := enterSecondSample("seed:ana")
+	if err != nil {
+		return err
+	}
+	if err := seedHexes(requestContext, options.Core, brisa, secondSampleHexes, secondSampleHexLabels); err != nil {
+		return fmt.Errorf("seed the second hex map: %w", err)
 	}
 
 	// Wren asks to run a campaign; the owner hasn't decided.

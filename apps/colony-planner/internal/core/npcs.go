@@ -15,24 +15,26 @@ import (
 
 // Npc is one NPC as a projection sees it (spec §4.3, §5.9). Players get only revealed NPCs, under
 // displayName; the true name, the known name, the revealed switch and dm_notes live in Dm (Open
-// Question 8). Every other field stays visible once the NPC is revealed. Avatars are initials of
-// displayName until portraits arrive with images (M4).
+// Question 8). Every other field stays visible once the NPC is revealed. Without a portrait, the avatar
+// is displayName's initials.
 type Npc struct {
-	ID             uuid.UUID   `json:"id" format:"uuid"`
-	DisplayName    string      `json:"displayName" doc:"The known name when the DM set one, else the true name: the only name players get"`
-	Aliases        []string    `json:"aliases"`
-	Labels         []string    `json:"labels"`
-	Race           string      `json:"race"`
-	CharacterClass string      `json:"characterClass"`
-	Level          *int64      `json:"level" doc:"null when unknown"`
-	Age            string      `json:"age"`
-	Appearance     string      `json:"appearance"`
-	Personality    string      `json:"personality"`
-	Backstory      string      `json:"backstory"`
-	PlayerNotes    string      `json:"playerNotes"`
-	Status         NpcStatus   `json:"status"`
-	Health         NpcHealth   `json:"health"`
-	Relation       NpcRelation `json:"relation"`
+	ID          uuid.UUID `json:"id" format:"uuid"`
+	DisplayName string    `json:"displayName" doc:"The known name when the DM set one, else the true name: the only name players get"`
+	// PortraitImageID is served at /api/campaigns/{campaignId}/images/{imageId}.
+	PortraitImageID *uuid.UUID  `json:"portraitImageId" format:"uuid" nullable:"true" doc:"The portrait image; null shows initials"`
+	Aliases         []string    `json:"aliases"`
+	Labels          []string    `json:"labels"`
+	Race            string      `json:"race"`
+	CharacterClass  string      `json:"characterClass"`
+	Level           *int64      `json:"level" doc:"null when unknown"`
+	Age             string      `json:"age"`
+	Appearance      string      `json:"appearance"`
+	Personality     string      `json:"personality"`
+	Backstory       string      `json:"backstory"`
+	PlayerNotes     string      `json:"playerNotes"`
+	Status          NpcStatus   `json:"status"`
+	Health          NpcHealth   `json:"health"`
+	Relation        NpcRelation `json:"relation"`
 	// CurrentPlace and OriginPlace are null when unset or when the place is hidden from this viewer.
 	CurrentPlace *PlaceReference `json:"currentPlace" doc:"null when unset or hidden from this viewer"`
 	OriginPlace  *PlaceReference `json:"originPlace" doc:"null when unset or hidden from this viewer"`
@@ -105,6 +107,11 @@ type NpcInput struct {
 	Relation       NpcRelation `json:"relation" doc:"Blank means UNKNOWN"`
 	CurrentPlaceID *uuid.UUID  `json:"currentPlaceId" format:"uuid" nullable:"true" doc:"null for none"`
 	OriginPlaceID  *uuid.UUID  `json:"originPlaceId" format:"uuid" nullable:"true" doc:"null for none"`
+}
+
+// NpcPortraitInput sets an NPC's portrait to one of the campaign's images, or clears it with null.
+type NpcPortraitInput struct {
+	ImageID *uuid.UUID `json:"imageId" format:"uuid" nullable:"true" doc:"An image from POST .../images; null clears the portrait"`
 }
 
 // NewNpcInput adds an NPC: its record and whether players start out seeing them.
@@ -327,6 +334,43 @@ func (service *Service) SetNpcRevealed(requestContext context.Context, viewer Vi
 	return npc, nil
 }
 
+// SetNpcPortrait sets or clears an NPC's portrait (DM only). Players see it only while the NPC is
+// revealed; the replaced image is deleted once nothing else uses it.
+func (service *Service) SetNpcPortrait(requestContext context.Context, viewer Viewer, npcID uuid.UUID, input NpcPortraitInput) (Npc, error) {
+	if err := requireDm(viewer); err != nil {
+		return Npc{}, err
+	}
+	var npc Npc
+	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, so a concurrent upload can't count the old image as in use and then lose it.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		var portraitImageID *uuid.UUID
+		if input.ImageID != nil {
+			image, err := loadImage(requestContext, queries, viewer.campaignID, *input.ImageID, "imageId")
+			if err != nil {
+				return err
+			}
+			portraitImageID = &image.ID
+		}
+		previous, err := queries.SetNpcPortrait(requestContext, store.SetNpcPortraitParams{CampaignID: viewer.campaignID, ID: npcID, PortraitImageID: portraitImageID})
+		if err != nil {
+			return npcGone(err)
+		}
+		if err := releaseImage(requestContext, queries, viewer.campaignID, previous); err != nil {
+			return err
+		}
+		npc, err = readNpc(requestContext, queries, viewer.campaignID, npcID, true)
+		return err
+	})
+	if err != nil {
+		return Npc{}, err
+	}
+	service.broker.Publish(viewer.campaignID, TopicNpcs)
+	return npc, nil
+}
+
 // DeleteNpc deletes an NPC who isn't a colonist. A colonist must leave the colony first, because
 // leaving is a colony mutation with its own entry and undo, so the colonist total never changes
 // silently (spec §5.5).
@@ -355,8 +399,10 @@ func (service *Service) DeleteNpc(requestContext context.Context, viewer Viewer,
 		}); err != nil {
 			return err
 		}
-		_, err = queries.DeleteNpc(requestContext, store.DeleteNpcParams{CampaignID: viewer.campaignID, ID: npcID})
-		return err
+		if _, err := queries.DeleteNpc(requestContext, store.DeleteNpcParams{CampaignID: viewer.campaignID, ID: npcID}); err != nil {
+			return err
+		}
+		return releaseImage(requestContext, queries, viewer.campaignID, row.PortraitImageID)
 	})
 	if err != nil {
 		return err
@@ -412,21 +458,22 @@ func npcGone(err error) error {
 // already NULL for places the projection can't see, so a hidden place's ID never leaves here.
 func npcFromView(row store.GetNpcViewRow) Npc {
 	npc := Npc{
-		ID:             row.Npc.ID,
-		DisplayName:    row.Npc.DisplayName,
-		Aliases:        nonNilStrings(row.Npc.Aliases),
-		Labels:         nonNilStrings(row.Npc.Labels),
-		Race:           row.Npc.Race,
-		CharacterClass: row.Npc.CharacterClass,
-		Level:          int64Pointer(row.Npc.Level),
-		Age:            row.Npc.Age,
-		Appearance:     row.Npc.Appearance,
-		Personality:    row.Npc.Personality,
-		Backstory:      row.Npc.Backstory,
-		PlayerNotes:    row.Npc.PlayerNotes,
-		Status:         row.Npc.Status,
-		Health:         row.Npc.Health,
-		Relation:       row.Npc.Relation,
+		ID:              row.Npc.ID,
+		DisplayName:     row.Npc.DisplayName,
+		PortraitImageID: row.Npc.PortraitImageID,
+		Aliases:         nonNilStrings(row.Npc.Aliases),
+		Labels:          nonNilStrings(row.Npc.Labels),
+		Race:            row.Npc.Race,
+		CharacterClass:  row.Npc.CharacterClass,
+		Level:           int64Pointer(row.Npc.Level),
+		Age:             row.Npc.Age,
+		Appearance:      row.Npc.Appearance,
+		Personality:     row.Npc.Personality,
+		Backstory:       row.Npc.Backstory,
+		PlayerNotes:     row.Npc.PlayerNotes,
+		Status:          row.Npc.Status,
+		Health:          row.Npc.Health,
+		Relation:        row.Npc.Relation,
 		Dm: &NpcDm{
 			Name:      row.Npc.Name,
 			KnownName: row.Npc.KnownName,

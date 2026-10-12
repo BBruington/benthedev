@@ -135,7 +135,7 @@ function NpcDetail({ npc, isDm }: { npc: Npc; isDm: boolean }) {
 		<div className="flex flex-col gap-6">
 			<BackToRoster />
 			<header className="flex flex-wrap items-start gap-4">
-				<NpcAvatar displayName={npc.displayName} size="xl" />
+				<NpcAvatar displayName={npc.displayName} portraitImageId={npc.portraitImageId} size="xl" />
 				<div className="min-w-0 flex-1 space-y-2">
 					<h1
 						className="font-display font-semibold text-3xl tracking-wide outline-none [overflow-wrap:anywhere] md:text-4xl"

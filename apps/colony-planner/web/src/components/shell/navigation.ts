@@ -67,7 +67,6 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug",
 	},
 	explore: {
-		arrivesIn: "M4",
 		icon: HexagonIcon,
 		id: "explore",
 		label: "Explore",
@@ -76,11 +75,10 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug/explore",
 	},
 	mainland: {
-		arrivesIn: "M4",
 		icon: MapIcon,
 		id: "mainland",
 		label: "Mainland",
-		summary: "The map of Eldari, with pins for every place the party knows.",
+		summary: "The Mainland and the DM's other maps, with pins for the places the party knows.",
 		to: "/c/$campaignSlug/maps",
 	},
 	npcs: {

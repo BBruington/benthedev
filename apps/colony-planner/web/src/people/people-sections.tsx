@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRightLeftIcon, EyeOffIcon, LogOutIcon, UserPlusIcon, UsersIcon } from "lucide-react";
 import type { Schemas } from "@/api/client";
+import { imageUrl } from "@/api/images";
 import { ColonyIcon } from "@/components/colony-icon";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -169,15 +170,19 @@ type NamedColonistActions = {
 	onLeave: (target: ColonistTarget, roleLabel: string) => void;
 };
 
-/** A person's avatar: initials of the name the party uses, since portraits arrive with M4. */
+/** An NPC's portrait, or the initials of the name the party uses when there is none. */
 export function NpcAvatar({
 	displayName,
+	portraitImageId = null,
 	size = "md",
 }: {
 	displayName: string;
+	portraitImageId?: string | null;
 	size?: "sm" | "md" | "lg" | "xl";
 }) {
-	return <MemberAvatar avatarUrl={null} name={displayName} size={size} />;
+	const { campaignId } = useCampaign();
+	const portraitUrl = portraitImageId ? imageUrl(campaignId, portraitImageId) : null;
+	return <MemberAvatar avatarUrl={portraitUrl} name={displayName} size={size} />;
 }
 
 /** Marks a row players can't see, in the DM's view (spec §5.9); players never receive hidden rows. */

@@ -5,10 +5,12 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -27,6 +29,10 @@ type Options struct {
 	// StreamHeartbeat and StreamLifetime default to 20 seconds and 10 minutes; tests shorten them.
 	StreamHeartbeat time.Duration
 	StreamLifetime  time.Duration
+	// ImageUploadReadTimeout bounds reading one image upload; it defaults to 2 minutes.
+	ImageUploadReadTimeout time.Duration
+	// RequestReadTimeout bounds reading any other request, body included; it defaults to 30 seconds.
+	RequestReadTimeout time.Duration
 }
 
 // Route is one entry of the route table: every non-huma route, each with its access level.
@@ -40,8 +46,13 @@ type Server struct {
 	api     huma.API
 	handler http.Handler
 	// routes is the route table, kept so the secrecy test can call every entry.
-	routes []Route
+	routes             []Route
+	requestReadTimeout time.Duration
 }
+
+// defaultRequestReadTimeout is far longer than any request but the two that set their own deadline:
+// the image upload extends it and the event stream clears it.
+const defaultRequestReadTimeout = 30 * time.Second
 
 // handlers carries the dependencies the per-feature handler files use.
 type handlers struct {
@@ -50,6 +61,8 @@ type handlers struct {
 	logger          *slog.Logger
 	streamHeartbeat time.Duration
 	streamLifetime  time.Duration
+	// imageUploadReadTimeout bounds reading one image upload's body.
+	imageUploadReadTimeout time.Duration
 }
 
 func New(options Options) (*Server, error) {
@@ -64,11 +77,15 @@ func New(options Options) (*Server, error) {
 	registerSchemas(api)
 
 	featureHandlers := &handlers{
-		core:            options.Core,
-		auth:            options.Auth,
-		logger:          logger,
-		streamHeartbeat: options.StreamHeartbeat,
-		streamLifetime:  options.StreamLifetime,
+		core:                   options.Core,
+		auth:                   options.Auth,
+		logger:                 logger,
+		streamHeartbeat:        options.StreamHeartbeat,
+		streamLifetime:         options.StreamLifetime,
+		imageUploadReadTimeout: options.ImageUploadReadTimeout,
+	}
+	if featureHandlers.imageUploadReadTimeout <= 0 {
+		featureHandlers.imageUploadReadTimeout = defaultImageUploadReadTimeout
 	}
 	if featureHandlers.streamHeartbeat <= 0 {
 		featureHandlers.streamHeartbeat = defaultStreamHeartbeat
@@ -93,6 +110,9 @@ func New(options Options) (*Server, error) {
 	featureHandlers.registerQuests(api)
 	featureHandlers.registerPatrons(api)
 	featureHandlers.registerRequests(api)
+	featureHandlers.registerImages(api)
+	featureHandlers.registerMaps(api)
+	featureHandlers.registerHexes(api)
 	nullableEnumFields(api.OpenAPI())
 
 	openAPIJSON, err := json.Marshal(api.OpenAPI())
@@ -129,11 +149,28 @@ func New(options Options) (*Server, error) {
 	handler = options.Auth.RequireKnownHost(handler)
 	handler = securityHeaders(handler)
 	handler = logRequests(handler, logger)
-	return &Server{api: api, handler: handler, routes: routes}, nil
+	requestReadTimeout := options.RequestReadTimeout
+	if requestReadTimeout <= 0 {
+		requestReadTimeout = defaultRequestReadTimeout
+	}
+	return &Server{api: api, handler: handler, routes: routes, requestReadTimeout: requestReadTimeout}, nil
 }
 
 func (server *Server) Handler() http.Handler {
 	return server.handler
+}
+
+// HTTPServer serves Handler with read limits. ReadTimeout covers the body too, so a body that stalls
+// frees its connection even when it is answered unread (net/http drains up to 256 KB of it first).
+// There is no WriteTimeout, which would end every event stream.
+func (server *Server) HTTPServer(baseContext func(net.Listener) context.Context) *http.Server {
+	return &http.Server{
+		Handler:           server.handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       server.requestReadTimeout,
+		IdleTimeout:       2 * time.Minute,
+		BaseContext:       baseContext,
+	}
 }
 
 // OpenAPI returns the API description that `colony openapi` writes to web/src/api/openapi.json.
@@ -166,12 +203,24 @@ func serveHealth(writer http.ResponseWriter, _ *http.Request) {
 }
 
 // requireJSONBodies rejects any request body that isn't JSON, so an HTML form can never drive a
-// mutation (spec §2.2, item 7).
+// mutation (spec §2.2, item 7). The image upload alone takes multipart, still behind
+// CrossOriginProtection, and its size is capped here before anything reads the body.
 func requireJSONBodies(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.ContentLength != 0 && request.Method != http.MethodGet && request.Method != http.MethodHead {
 			mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-			if err != nil || mediaType != "application/json" {
+			switch {
+			case isImageUpload(request):
+				if err != nil || mediaType != "multipart/form-data" {
+					auth.WriteProblem(writer, http.StatusUnsupportedMediaType, "Upload images as multipart/form-data.")
+					return
+				}
+				if request.ContentLength > imageUploadMaxBodyBytes {
+					auth.WriteProblem(writer, http.StatusRequestEntityTooLarge, imageTooLargeMessage)
+					return
+				}
+				request.Body = http.MaxBytesReader(writer, request.Body, imageUploadMaxBodyBytes)
+			case err != nil || mediaType != "application/json":
 				auth.WriteProblem(writer, http.StatusUnsupportedMediaType, "Request bodies must be application/json.")
 				return
 			}

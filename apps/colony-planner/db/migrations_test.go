@@ -324,16 +324,67 @@ func TestTheSchemaKeepsCampaignsApart(t *testing.T) {
 		t.Fatalf("the quest of a deleted giver = %d rows, want 1 with only the giver cleared", count)
 	}
 
+	// World maps (M4): images, maps, pins and portraits stay inside one campaign.
+	insertImage := func(campaignID uuid.UUID, uploadedBy any, digest byte) uuid.UUID {
+		t.Helper()
+		return insertRow(`INSERT INTO image (campaign_id, content_type, bytes, sha256, width, height, uploaded_by)
+			VALUES ($1, 'image/png', '\x89504e47'::bytea, decode(repeat(lpad(to_hex($3::integer), 2, '0'), 32), 'hex'), 4, 3, $2) RETURNING id`,
+			campaignID, uploadedBy, int(digest))
+	}
+	firstImage := insertImage(firstCampaign, firstDm, 1)
+	secondImage := insertImage(secondCampaign, secondDm, 1)
+	requireConstraintViolation(t, execute(`INSERT INTO image (campaign_id, content_type, bytes, sha256, width, height)
+		SELECT campaign_id, content_type, bytes, sha256, width, height FROM image WHERE id = $1`, firstImage), "image_campaign_sha256_key")
+	requireConstraintViolation(t, execute(`UPDATE image SET uploaded_by = $1 WHERE id = $2`, secondDm, firstImage), "image_uploaded_by_fkey")
+	requireConstraintViolation(t, execute(`UPDATE image SET content_type = 'image/svg+xml' WHERE id = $1`, firstImage), "image_content_type_check")
+	firstMap := insertRow(`INSERT INTO map (campaign_id, name, image_id, width, height) VALUES ($1, 'Mainland', $2, 4, 3) RETURNING id`, firstCampaign, firstImage)
+	secondMap := insertRow(`INSERT INTO map (campaign_id, name, image_id, width, height, is_mainland) VALUES ($1, 'Ridge', $2, 4, 3, true) RETURNING id`, secondCampaign, secondImage)
+	requireConstraintViolation(t, execute(`INSERT INTO map (campaign_id, name, image_id, width, height) VALUES ($1, 'Cross', $2, 4, 3)`, firstCampaign, secondImage), "map_image_fkey")
+	requireConstraintViolation(t, execute(`INSERT INTO map (campaign_id, name, external_url, width, height) VALUES ($1, 'Bundled', '/eldari.webp', 4, 3)`, firstCampaign), "map_external_url_check")
+	requireConstraintViolation(t, execute(`INSERT INTO map (campaign_id, name, width, height) VALUES ($1, 'No art', 4, 3)`, firstCampaign), "map_one_source")
+	if err := execute(`INSERT INTO map (campaign_id, name, external_url, width, height, is_mainland) VALUES ($1, 'Elsewhere', 'https://example.com/a.png', 4, 3, true)`, firstCampaign); err != nil {
+		t.Fatalf("insert an external Mainland: %v", err)
+	}
+	requireConstraintViolation(t, execute(`UPDATE map SET is_mainland = true WHERE id = $1`, firstMap), "map_one_mainland")
+	requireConstraintViolation(t, execute(`DELETE FROM image WHERE id = $1`, firstImage), "map_image_fkey")
+	secondPlaceID := insertPlace(secondCampaign, "Pinned")
+	requireConstraintViolation(t, execute(`UPDATE place SET map_id = $1, pin_x = 0.5, pin_y = 0.5 WHERE id = $2`, firstMap, secondPlaceID), "place_map_fkey")
+	requireConstraintViolation(t, execute(`UPDATE place SET map_id = $1, pin_x = 0.5 WHERE id = $2`, secondMap, secondPlaceID), "place_pin_both")
+	requireConstraintViolation(t, execute(`UPDATE place SET map_id = $1, pin_x = 1.5, pin_y = 0.5 WHERE id = $2`, secondMap, secondPlaceID), "place_pin_x_check")
+	if err := execute(`UPDATE place SET map_id = $1, pin_x = 0.25, pin_y = 0.75 WHERE id = $2`, secondMap, secondPlaceID); err != nil {
+		t.Fatalf("pin a place: %v", err)
+	}
+	portraitNpc := insertNpc(secondCampaign, "Portrait Sitter")
+	requireConstraintViolation(t, execute(`UPDATE npc SET portrait_image_id = $1 WHERE id = $2`, firstImage, portraitNpc), "npc_portrait_image_fkey")
+	if err := execute(`UPDATE npc SET portrait_image_id = $1 WHERE id = $2`, secondImage, portraitNpc); err != nil {
+		t.Fatalf("set a portrait: %v", err)
+	}
+	requireConstraintViolation(t, execute(`INSERT INTO hex (campaign_id, q, r, terrain) VALUES ($1, 100001, 0, 'FOREST')`, firstCampaign), "hex_q_check")
+	requireConstraintViolation(t, execute(`INSERT INTO hex (campaign_id, q, r, terrain) VALUES ($1, 0, -100001, 'FOREST')`, firstCampaign), "hex_r_check")
+	requireConstraintViolation(t, execute(`INSERT INTO hex (campaign_id, q, r, terrain, label) VALUES ($1, 0, 0, 'FOREST', repeat('x', 41))`, firstCampaign), "hex_label_check")
+	for _, campaignID := range []uuid.UUID{firstCampaign, secondCampaign} {
+		if err := execute(`INSERT INTO hex (campaign_id, q, r, terrain, label) VALUES ($1, 100000, -100000, 'WATER', 'Far shore')`, campaignID); err != nil {
+			t.Fatalf("chart a hex: %v", err)
+		}
+	}
+	// Deleting a map clears only the pinned place's map column; the place stays.
+	if err := execute(`DELETE FROM map WHERE id = $1`, secondMap); err != nil {
+		t.Fatalf("delete map: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM place WHERE id = $1 AND campaign_id = $2 AND map_id IS NULL`, secondPlaceID, secondCampaign); count != 1 {
+		t.Fatalf("the place of a deleted map = %d rows, want 1 with no map", count)
+	}
+
 	// Deleting a campaign takes every campaign-owned row with it and leaves the other campaign alone.
 	if err := execute(`DELETE FROM campaign WHERE id = $1`, firstCampaign); err != nil {
 		t.Fatalf("delete campaign: %v", err)
 	}
 	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member", "npc", "place",
-		"patron", "patron_action", "quest", "request"} {
+		"patron", "patron_action", "quest", "request", "image", "map", "hex"} {
 		if left := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, firstCampaign); left != 0 {
 			t.Errorf("%s kept %d rows of the deleted campaign", table, left)
 		}
-		if kept := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, secondCampaign); kept == 0 && table != "timeline_event" && table != "quest" {
+		if kept := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, secondCampaign); kept == 0 && table != "timeline_event" && table != "quest" && table != "map" {
 			t.Errorf("%s lost the other campaign's rows", table)
 		}
 	}

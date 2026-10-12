@@ -2,6 +2,8 @@ package app
 
 import (
 	"github.com/google/uuid"
+
+	"github.com/BBruington/colony-planner/internal/core"
 )
 
 // bodyOutput and bodyInput wrap a core DTO as a huma response or request body. huma names the schema
@@ -151,4 +153,27 @@ type requestBodyInput[Body any] struct {
 // ArchiveInput is the body of the archive switches on patrons and their actions.
 type ArchiveInput struct {
 	Archived bool `json:"archived"`
+}
+
+type mapPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	MapID      uuid.UUID `path:"mapId" format:"uuid"`
+}
+
+type mapBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	MapID      uuid.UUID `path:"mapId" format:"uuid"`
+	Body       Body
+}
+
+// MainlandInput is the body of a map's Mainland switch.
+type MainlandInput struct {
+	Mainland bool `json:"mainland" doc:"true makes this map the Mainland, taking the flag from any other map"`
+}
+
+type hexLabelBodyInput struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	Q          int64     `path:"q" doc:"The hex's axial q coordinate"`
+	R          int64     `path:"r" doc:"The hex's axial r coordinate"`
+	Body       core.HexLabelInput
 }

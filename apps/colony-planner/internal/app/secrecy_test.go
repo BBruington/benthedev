@@ -1,16 +1,19 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -304,12 +307,40 @@ func (testHarness *harness) call(route sweepRoute, document map[string]any, toke
 	testHarness.t.Helper()
 	path := fillPath(testHarness.t, route.path, pathIDs)
 	options := requestOptions{token: token, body: body}
+	if isMultipartOperation(route.operation) {
+		options.body, options.headers = sampleImageUpload(testHarness.t)
+	}
 	if route.isStream() {
 		streamContext, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		options.context = streamContext
 	}
 	return path, testHarness.do(route.method, path+fillQuery(document, route.operation, uuid.New()), options)
+}
+
+func isMultipartOperation(operation *documentedOperation) bool {
+	if operation == nil || operation.requestBody == nil {
+		return false
+	}
+	content, _ := operation.requestBody["content"].(map[string]any)
+	_, isMultipart := content["multipart/form-data"]
+	return isMultipart
+}
+
+// sampleImageUpload is a real image in a multipart body, so the upload's data path runs too.
+func sampleImageUpload(t *testing.T) (string, map[string]string) {
+	t.Helper()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("image", "sample.png")
+	if err != nil {
+		t.Fatalf("build an upload: %v", err)
+	}
+	_, _ = part.Write(testImage(t, 240))
+	if err := form.Close(); err != nil {
+		t.Fatalf("build an upload: %v", err)
+	}
+	return body.String(), map[string]string{"Content-Type": form.FormDataContentType()}
 }
 
 // expectedCampaignAnswer is the status the access layer must give a caller on a campaign route, or 0
@@ -338,8 +369,15 @@ func checkResponse(t *testing.T, label string, path string, forbidden []string, 
 	if response.Code >= http.StatusInternalServerError {
 		t.Errorf("%s: status %d; body: %s", label, response.Code, response.Body.String())
 	}
-	if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/") {
-		if cacheControl := response.Header().Get("Cache-Control"); !strings.Contains(cacheControl, "no-store") {
+	cacheControl := response.Header().Get("Cache-Control")
+	switch {
+	case response.Code == http.StatusOK && strings.HasPrefix(response.Header().Get("Content-Type"), "image/"):
+		// An image never changes and only members may read it, so only the reader's own browser keeps it.
+		if !strings.HasPrefix(cacheControl, "private,") {
+			t.Errorf("%s: an image's Cache-Control %q, want private", label, cacheControl)
+		}
+	case strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/"):
+		if !strings.Contains(cacheControl, "no-store") {
 			t.Errorf("%s: Cache-Control %q, want no-store", label, cacheControl)
 		}
 	}
@@ -583,7 +621,8 @@ func TestCampaignsStaySealed(t *testing.T) {
 // bodyField is one value in a request body that pass 4 replaces with campaign B's.
 type bodyField struct {
 	path []string
-	// kind is "uuid" (an ID), "key" (a role key) or "map" (an object keyed by resource keys).
+	// kind is "uuid" (an ID), "uuids" (a list of IDs), "key" (a role key) or "map" (an object keyed by
+	// resource keys).
 	kind string
 }
 
@@ -603,6 +642,9 @@ var mixedIDFields = map[string]string{
 	"onBehalfOf":     "uuid",
 	"giverNpcId":     "uuid",
 	"patronId":       "uuid",
+	"mapId":          "uuid",
+	"imageId":        "uuid",
+	"mapIds":         "uuids",
 	// Every Effects (rewardEffects, failureEffects, effects, appliedEffects) keys resources here.
 	"resources": "map",
 }
@@ -616,10 +658,12 @@ func bodyFields(t *testing.T, label string, document map[string]any, schema map[
 		propertySchema := resolveSchema(document, property.(map[string]any))
 		path := append(slices.Clone(prefix), name)
 		format, _ := propertySchema["format"].(string)
+		items, _ := propertySchema["items"].(map[string]any)
+		itemFormat, _ := resolveSchema(document, items)["format"].(string)
 		_, isMap := propertySchema["additionalProperties"].(map[string]any)
 		isKey := schemaType(propertySchema) == "string" && (strings.HasSuffix(name, "Key") || name == "key")
 		switch {
-		case format == "uuid", isMap, isKey:
+		case format == "uuid", itemFormat == "uuid", isMap, isKey:
 			kind, classified := mixedIDFields[name]
 			if !classified {
 				t.Errorf("%s: body field %s names other rows but pass 4 doesn't classify it; add it to mixedIDFields", label, strings.Join(path, "."))
@@ -677,6 +721,9 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"onBehalfOf":     campaignB.members["bOnly"].String(),
 		"giverNpcId":     campaignB.pathIDs["npcId"],
 		"patronId":       campaignB.pathIDs["patronId"],
+		"mapId":          campaignB.pathIDs["mapId"],
+		"imageId":        campaignB.pathIDs["imageId"],
+		"mapIds":         []string{campaignB.pathIDs["mapId"]},
 	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
@@ -778,6 +825,46 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			"onBehalfOf": campaignA.members["ana"].String(), "appliedEffects": effectsOfA(), "note": "",
 		}
 	}
+	// Pass 3 deleted A's {mapId} map and {placeId} place, so pins, art and portraits get a live map, a
+	// place and an image of A's own.
+	passFourImage, err := testHarness.core.UploadImage(testHarness.context, dmViewerA, testImage(t, 200))
+	if err != nil {
+		t.Fatalf("upload A's pass 4 image: %v", err)
+	}
+	passFourMap, err := testHarness.core.CreateMap(testHarness.context, dmViewerA, core.NewMapInput{
+		MapInput: core.MapInput{Name: "Pass Four"}, MapArtInput: core.MapArtInput{ImageID: &passFourImage.ID},
+	})
+	if err != nil {
+		t.Fatalf("add A's pass 4 map: %v", err)
+	}
+	campaignA.pathIDs["mapId"] = passFourMap.ID.String()
+	campaignA.pathIDs["placeId"] = campaignA.keptPlaceID.String()
+	artOfA := func() map[string]any {
+		return map[string]any{"imageId": passFourImage.ID.String(), "externalUrl": "", "width": 0, "height": 0}
+	}
+	validBodies["/maps"] = func() map[string]any {
+		body := artOfA()
+		body["name"], body["revealed"], body["mainland"] = "Pass Four", false, false
+		return body
+	}
+	validBodies["/maps/{mapId}/art"] = artOfA
+	validBodies["/maps/order"] = func() map[string]any {
+		list, err := testHarness.core.ListMaps(testHarness.context, dmViewerA)
+		if err != nil {
+			t.Fatalf("list A's maps: %v", err)
+		}
+		mapIDs := make([]string, 0, len(list.Maps))
+		for _, worldMap := range list.Maps {
+			mapIDs = append(mapIDs, worldMap.ID.String())
+		}
+		return map[string]any{"mapIds": mapIDs}
+	}
+	validBodies["/places/{placeId}/pin"] = func() map[string]any {
+		return map[string]any{"mapId": passFourMap.ID.String(), "x": 0.5, "y": 0.5}
+	}
+	validBodies["/npcs/{npcId}/portrait"] = func() map[string]any {
+		return map[string]any{"imageId": passFourImage.ID.String()}
+	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
 		build, found := validBodies[suffix]
@@ -848,6 +935,20 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			}
 		}
 	}
+	// Hex coordinates are a per-campaign keyspace, not IDs: B's charted cells painted and erased through
+	// A's routes change only A, which the fingerprint of B proves.
+	q, _ := strconv.ParseInt(campaignB.pathIDs["q"], 10, 64)
+	r, _ := strconv.ParseInt(campaignB.pathIDs["r"], 10, 64)
+	paintedOfB, _ := json.Marshal(map[string]any{"cells": []map[string]any{{"q": q, "r": r, "terrain": string(core.TerrainDesert)}}})
+	erasedOfB, _ := json.Marshal(map[string]any{"cells": []map[string]any{{"q": q, "r": r}}})
+	for suffix, body := range map[string][]byte{"/hexes/paint": paintedOfB, "/hexes/erase": erasedOfB} {
+		path := campaignPathOf(campaignA, suffix)
+		response := testHarness.do(http.MethodPost, path, requestOptions{token: testHarness.signIn(testHarness.dmA), body: string(body)})
+		checkResponse(t, "dmA: "+suffix+" with B's cells", path, forbidden, response)
+		if response.Code != http.StatusNoContent {
+			t.Errorf("dmA: %s with B's cells answered %d, want 204 in A; body: %s", suffix, response.Code, response.Body.String())
+		}
+	}
 	for fieldName := range mixedIDFields {
 		if !substituted[fieldName] {
 			t.Errorf("pass 4 found no body field %q to fill with B's value; the schema walk missed it", fieldName)
@@ -876,7 +977,7 @@ func (testHarness *harness) fingerprint(campaign *campaignFixture, onlyThere ...
 		tables = append(tables, table)
 	}
 	rows.Close()
-	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request"} {
+	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request", "map", "hex", "image"} {
 		if !slices.Contains(tables, required) {
 			testHarness.t.Fatalf("found only %v with a campaign_id column; %s is missing", tables, required)
 		}
@@ -926,6 +1027,55 @@ func TestDmSeesTheCanaries(t *testing.T) {
 				if !slices.ContainsFunc(secrets, func(secret string) bool { return strings.Contains(response.Body.String(), secret) }) {
 					t.Errorf("%s in %s: the DM's %s lacks every DM-only value: %s", fixture.feature, side.campaign.name, suffix, response.Body.String())
 				}
+			}
+		}
+	}
+}
+
+// TestPlayersGetHiddenImagesAsMissing: an image only hidden things use, or nothing uses, reads exactly
+// like a missing one for players and for the DM viewing as player, while the DM reads it. Image bytes
+// carry no canary, so the sweep can't see this leak by itself.
+func TestPlayersGetHiddenImagesAsMissing(t *testing.T) {
+	testHarness := newHarness(t)
+	plantCanaries(t, testHarness)
+	for _, side := range testHarness.sides() {
+		campaign := side.campaign
+		imagePath := func(imageID string) string { return campaignPathOf(campaign, "/images/"+imageID) }
+		dmToken := testHarness.signIn(side.dm)
+		missing := testHarness.do(http.MethodGet, imagePath(uuid.NewString()), requestOptions{token: dmToken})
+		testHarness.expectStatus(missing, http.StatusNotFound)
+		players := map[string]string{
+			"ana":                testHarness.signIn(testHarness.ana),
+			"the DM as a player": testHarness.tokenFor(sweepCaller{who: &side.dm, isMember: true, isDM: true, viewAsPlayer: true}, campaign),
+		}
+		for name, token := range players {
+			shown := testHarness.do(http.MethodGet, imagePath(campaign.pathIDs["imageId"]), requestOptions{token: token})
+			testHarness.expectStatus(shown, http.StatusOK)
+			for _, imageID := range campaign.hiddenImageIDs {
+				// A browser shared with the DM revalidates the DM's cached copy with its ETag.
+				for _, headers := range []map[string]string{nil, {"If-None-Match": `"` + imageID.String() + `"`}} {
+					response := testHarness.do(http.MethodGet, imagePath(imageID.String()), requestOptions{token: token, headers: headers})
+					if response.Code != missing.Code || response.Body.String() != missing.Body.String() {
+						t.Errorf("%s in %s: a hidden image (headers %v) answered %d %s, want exactly the missing image's %d %s",
+							name, campaign.name, headers, response.Code, response.Body.String(), missing.Code, missing.Body.String())
+					}
+				}
+			}
+		}
+		for _, imageID := range campaign.hiddenImageIDs {
+			response := testHarness.do(http.MethodGet, imagePath(imageID.String()), requestOptions{token: dmToken})
+			testHarness.expectStatus(response, http.StatusOK)
+			if response.Header().Get("Content-Type") != "image/png" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Errorf("the DM's image in %s came with headers %v", campaign.name, response.Header())
+			}
+			// The same URL is 404 for players, so no browser may reuse the DM's copy without asking.
+			entityTag := response.Header().Get("ETag")
+			if response.Header().Get("Cache-Control") != imageFileCacheControl || entityTag != `"`+imageID.String()+`"` {
+				t.Errorf("the DM's image in %s came with Cache-Control %q and ETag %q", campaign.name, response.Header().Get("Cache-Control"), entityTag)
+			}
+			revalidated := testHarness.do(http.MethodGet, imagePath(imageID.String()), requestOptions{token: dmToken, headers: map[string]string{"If-None-Match": entityTag}})
+			if revalidated.Code != http.StatusNotModified || revalidated.Body.Len() != 0 {
+				t.Errorf("the DM's revalidation in %s = %d with %d bytes, want 304 and none", campaign.name, revalidated.Code, revalidated.Body.Len())
 			}
 		}
 	}

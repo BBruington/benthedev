@@ -11,6 +11,55 @@ import (
 	"github.com/google/uuid"
 )
 
+const clearMapPins = `-- name: ClearMapPins :exec
+UPDATE place
+SET map_id = NULL, pin_x = NULL, pin_y = NULL, updated_at = now()
+WHERE campaign_id = $1 AND map_id = $2
+`
+
+type ClearMapPinsParams struct {
+	CampaignID uuid.UUID
+	MapID      *uuid.UUID
+}
+
+// Before a map is deleted: the foreign key would clear only map_id and leave the fractions behind.
+func (q *Queries) ClearMapPins(ctx context.Context, arg ClearMapPinsParams) error {
+	_, err := q.db.Exec(ctx, clearMapPins, arg.CampaignID, arg.MapID)
+	return err
+}
+
+const clearPlacePin = `-- name: ClearPlacePin :one
+UPDATE place
+SET map_id = NULL, pin_x = NULL, pin_y = NULL, updated_at = now()
+WHERE campaign_id = $1 AND id = $2
+RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id, map_id, pin_x, pin_y
+`
+
+type ClearPlacePinParams struct {
+	CampaignID uuid.UUID
+	ID         uuid.UUID
+}
+
+func (q *Queries) ClearPlacePin(ctx context.Context, arg ClearPlacePinParams) (Place, error) {
+	row := q.db.QueryRow(ctx, clearPlacePin, arg.CampaignID, arg.ID)
+	var i Place
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.PlayerNotes,
+		&i.DmNotes,
+		&i.Revealed,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CampaignID,
+		&i.MapID,
+		&i.PinX,
+		&i.PinY,
+	)
+	return i, err
+}
+
 const countPlaces = `-- name: CountPlaces :one
 SELECT count(*) FROM place WHERE campaign_id = $1
 `
@@ -25,7 +74,7 @@ func (q *Queries) CountPlaces(ctx context.Context, campaignID uuid.UUID) (int64,
 const createPlace = `-- name: CreatePlace :one
 INSERT INTO place (campaign_id, name, description, player_notes, dm_notes, revealed)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id
+RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id, map_id, pin_x, pin_y
 `
 
 type CreatePlaceParams struct {
@@ -57,6 +106,9 @@ func (q *Queries) CreatePlace(ctx context.Context, arg CreatePlaceParams) (Place
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.MapID,
+		&i.PinX,
+		&i.PinY,
 	)
 	return i, err
 }
@@ -80,7 +132,7 @@ func (q *Queries) DeletePlace(ctx context.Context, arg DeletePlaceParams) (int64
 }
 
 const getPlace = `-- name: GetPlace :one
-SELECT id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id FROM place WHERE campaign_id = $1 AND id = $2
+SELECT id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id, map_id, pin_x, pin_y FROM place WHERE campaign_id = $1 AND id = $2
 `
 
 type GetPlaceParams struct {
@@ -103,72 +155,102 @@ func (q *Queries) GetPlace(ctx context.Context, arg GetPlaceParams) (Place, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.MapID,
+		&i.PinX,
+		&i.PinY,
 	)
 	return i, err
 }
 
 const getPlaceView = `-- name: GetPlaceView :one
-SELECT id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id FROM place WHERE campaign_id = $1 AND id = $2 AND ($3::boolean OR revealed)
+SELECT place.id, place.name, place.description, place.player_notes, place.dm_notes, place.revealed, place.created_at, place.updated_at, place.campaign_id, place.map_id, place.pin_x, place.pin_y, pin_map.name AS pin_map_name
+FROM place
+LEFT JOIN map AS pin_map ON pin_map.campaign_id = place.campaign_id
+    AND pin_map.id = place.map_id AND ($1::boolean OR pin_map.revealed)
+WHERE place.campaign_id = $2 AND place.id = $3 AND ($1::boolean OR place.revealed)
 `
 
 type GetPlaceViewParams struct {
+	DmProjection bool
 	CampaignID   uuid.UUID
 	ID           uuid.UUID
-	DmProjection bool
 }
 
-func (q *Queries) GetPlaceView(ctx context.Context, arg GetPlaceViewParams) (Place, error) {
-	row := q.db.QueryRow(ctx, getPlaceView, arg.CampaignID, arg.ID, arg.DmProjection)
-	var i Place
+type GetPlaceViewRow struct {
+	Place      Place
+	PinMapName *string
+}
+
+func (q *Queries) GetPlaceView(ctx context.Context, arg GetPlaceViewParams) (GetPlaceViewRow, error) {
+	row := q.db.QueryRow(ctx, getPlaceView, arg.DmProjection, arg.CampaignID, arg.ID)
+	var i GetPlaceViewRow
 	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Description,
-		&i.PlayerNotes,
-		&i.DmNotes,
-		&i.Revealed,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CampaignID,
+		&i.Place.ID,
+		&i.Place.Name,
+		&i.Place.Description,
+		&i.Place.PlayerNotes,
+		&i.Place.DmNotes,
+		&i.Place.Revealed,
+		&i.Place.CreatedAt,
+		&i.Place.UpdatedAt,
+		&i.Place.CampaignID,
+		&i.Place.MapID,
+		&i.Place.PinX,
+		&i.Place.PinY,
+		&i.PinMapName,
 	)
 	return i, err
 }
 
 const listPlaces = `-- name: ListPlaces :many
 
-SELECT id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id FROM place
-WHERE campaign_id = $1
-  AND ($2::boolean OR revealed)
-  AND ($3::text IS NULL OR name ILIKE $3)
-ORDER BY lower(name), created_at, id
+SELECT place.id, place.name, place.description, place.player_notes, place.dm_notes, place.revealed, place.created_at, place.updated_at, place.campaign_id, place.map_id, place.pin_x, place.pin_y, pin_map.name AS pin_map_name
+FROM place
+LEFT JOIN map AS pin_map ON pin_map.campaign_id = place.campaign_id
+    AND pin_map.id = place.map_id AND ($1::boolean OR pin_map.revealed)
+WHERE place.campaign_id = $2
+  AND ($1::boolean OR place.revealed)
+  AND ($3::text IS NULL OR place.name ILIKE $3)
+ORDER BY lower(place.name), place.created_at, place.id
 `
 
 type ListPlacesParams struct {
-	CampaignID   uuid.UUID
 	DmProjection bool
+	CampaignID   uuid.UUID
 	Search       *string
 }
 
+type ListPlacesRow struct {
+	Place      Place
+	PinMapName *string
+}
+
 // Place reads take dm_projection (viewer.SeesDmFields()): players see only revealed places.
-func (q *Queries) ListPlaces(ctx context.Context, arg ListPlacesParams) ([]Place, error) {
-	rows, err := q.db.Query(ctx, listPlaces, arg.CampaignID, arg.DmProjection, arg.Search)
+// pin_map_name is NULL when the place has no pin or its map is hidden from this projection, so core
+// never shows a player a pin on a hidden map.
+func (q *Queries) ListPlaces(ctx context.Context, arg ListPlacesParams) ([]ListPlacesRow, error) {
+	rows, err := q.db.Query(ctx, listPlaces, arg.DmProjection, arg.CampaignID, arg.Search)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Place
+	var items []ListPlacesRow
 	for rows.Next() {
-		var i Place
+		var i ListPlacesRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Description,
-			&i.PlayerNotes,
-			&i.DmNotes,
-			&i.Revealed,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.CampaignID,
+			&i.Place.ID,
+			&i.Place.Name,
+			&i.Place.Description,
+			&i.Place.PlayerNotes,
+			&i.Place.DmNotes,
+			&i.Place.Revealed,
+			&i.Place.CreatedAt,
+			&i.Place.UpdatedAt,
+			&i.Place.CampaignID,
+			&i.Place.MapID,
+			&i.Place.PinX,
+			&i.Place.PinY,
+			&i.PinMapName,
 		); err != nil {
 			return nil, err
 		}
@@ -180,8 +262,50 @@ func (q *Queries) ListPlaces(ctx context.Context, arg ListPlacesParams) ([]Place
 	return items, nil
 }
 
+const setPlacePin = `-- name: SetPlacePin :one
+UPDATE place
+SET map_id = $1, pin_x = $2, pin_y = $3, updated_at = now()
+WHERE campaign_id = $4 AND id = $5
+RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id, map_id, pin_x, pin_y
+`
+
+type SetPlacePinParams struct {
+	MapID      *uuid.UUID
+	PinX       *float32
+	PinY       *float32
+	CampaignID uuid.UUID
+	ID         uuid.UUID
+}
+
+// A pin is a fraction of its map's art (0..1, y from the top), set with its map in one write.
+func (q *Queries) SetPlacePin(ctx context.Context, arg SetPlacePinParams) (Place, error) {
+	row := q.db.QueryRow(ctx, setPlacePin,
+		arg.MapID,
+		arg.PinX,
+		arg.PinY,
+		arg.CampaignID,
+		arg.ID,
+	)
+	var i Place
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.PlayerNotes,
+		&i.DmNotes,
+		&i.Revealed,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CampaignID,
+		&i.MapID,
+		&i.PinX,
+		&i.PinY,
+	)
+	return i, err
+}
+
 const setPlaceRevealed = `-- name: SetPlaceRevealed :one
-UPDATE place SET revealed = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id
+UPDATE place SET revealed = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id, map_id, pin_x, pin_y
 `
 
 type SetPlaceRevealedParams struct {
@@ -203,6 +327,9 @@ func (q *Queries) SetPlaceRevealed(ctx context.Context, arg SetPlaceRevealedPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.MapID,
+		&i.PinX,
+		&i.PinY,
 	)
 	return i, err
 }
@@ -215,7 +342,7 @@ SET name = $1,
     dm_notes = $4,
     updated_at = now()
 WHERE campaign_id = $5 AND id = $6
-RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id
+RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id, map_id, pin_x, pin_y
 `
 
 type UpdatePlaceParams struct {
@@ -248,6 +375,9 @@ func (q *Queries) UpdatePlace(ctx context.Context, arg UpdatePlaceParams) (Place
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.MapID,
+		&i.PinX,
+		&i.PinY,
 	)
 	return i, err
 }

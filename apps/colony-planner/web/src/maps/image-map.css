@@ -1,0 +1,59 @@
+/* Leaflet's panes use z-indexes up to 1000; isolating the map keeps them under sheets and menus. */
+.image-map.leaflet-container {
+	isolation: isolate;
+	background: var(--surface-sunken);
+	font: inherit;
+	outline: none;
+}
+
+.image-map.leaflet-container:focus-visible {
+	box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--gilt) 60%, transparent);
+}
+
+.image-map.is-editing {
+	cursor: crosshair;
+}
+
+.map-pin {
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	background: none;
+	border: none;
+}
+
+.map-pin svg {
+	filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35));
+	transition: transform 120ms ease-out;
+	transform-origin: 50% 100%;
+}
+
+.map-pin:hover svg,
+.map-pin:focus-visible svg {
+	transform: scale(1.12);
+}
+
+.map-pin:focus-visible {
+	outline: 3px solid var(--gilt);
+	outline-offset: 2px;
+	border-radius: 0.5rem;
+}
+
+.image-map.is-editing .map-pin {
+	cursor: grab;
+}
+
+.image-map.is-editing .map-pin.leaflet-drag-target {
+	cursor: grabbing;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.map-pin svg {
+		transition: none;
+	}
+
+	.map-pin:hover svg,
+	.map-pin:focus-visible svg {
+		transform: none;
+	}
+}

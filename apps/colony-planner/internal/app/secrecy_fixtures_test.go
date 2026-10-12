@@ -1,7 +1,12 @@
 package app
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -583,6 +588,75 @@ var secrecyFixtures = []secrecyFixture{
 		dmProof: []string{"/quests", "/patrons", "/patron-actions", "/requests", "/timeline/recent"},
 	},
 	{
+		feature: "maps, pins, hexes and images",
+		// A revealed Mainland (the {mapId} row, its art the {imageId} row) carrying a pin of the hidden
+		// place, and a hidden map with its own art pinning the revealed {placeId} place, so that place's
+		// pin must be null for players. The hidden NPC gets a portrait, and one upload is used by nothing.
+		// Every image only hidden things use is a DM-only literal. Hexes have no secrets: B's labels carry
+		// canaryB, and B's labelled hex is uncharted in A, so pass 4's coordinates name nothing there.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			secret, visible := side.dmSecret, side.playerVisible
+			// Distinct bytes per image and campaign, since identical bytes return the stored image.
+			shade := uint8(10)
+			if side.campaign == testHarness.campaignB {
+				shade = 130
+			}
+			upload := func(offset uint8) core.UploadedImage {
+				uploaded, err := testHarness.core.UploadImage(testHarness.context, dmViewer, testImage(t, shade+offset))
+				if err != nil {
+					t.Fatalf("upload an image to %s: %v", side.campaign.name, err)
+				}
+				return uploaded
+			}
+			mainlandArt, hiddenArt, hiddenPortrait, unused := upload(0), upload(1), upload(2), upload(3)
+			createMap := func(input core.NewMapInput) core.WorldMap {
+				created, err := testHarness.core.CreateMap(testHarness.context, dmViewer, input)
+				if err != nil {
+					t.Fatalf("plant map %q: %v", input.Name, err)
+				}
+				return created
+			}
+			mainland := createMap(core.NewMapInput{
+				MapInput: core.MapInput{Name: "Mainland" + visible}, MapArtInput: core.MapArtInput{ImageID: &mainlandArt.ID},
+				Revealed: true, Mainland: true,
+			})
+			hiddenMap := createMap(core.NewMapInput{MapInput: core.MapInput{Name: secret + " Sunken Isles"}, MapArtInput: core.MapArtInput{ImageID: &hiddenArt.ID}})
+			pin := func(placeID uuid.UUID, mapID uuid.UUID) {
+				if _, err := testHarness.core.SetPlacePin(testHarness.context, dmViewer, placeID, core.PinInput{MapID: mapID, X: 0.25, Y: 0.75}); err != nil {
+					t.Fatalf("pin a place in %s: %v", side.campaign.name, err)
+				}
+			}
+			pin(side.campaign.keptPlaceID, mainland.ID)
+			pin(uuid.MustParse(side.campaign.pathIDs["placeId"]), hiddenMap.ID)
+			if _, err := testHarness.core.SetNpcPortrait(testHarness.context, dmViewer, side.campaign.hiddenNpcID, core.NpcPortraitInput{ImageID: &hiddenPortrait.ID}); err != nil {
+				t.Fatalf("give the hidden NPC a portrait: %v", err)
+			}
+			side.campaign.pathIDs["mapId"] = mainland.ID.String()
+			side.campaign.pathIDs["imageId"] = mainlandArt.ID.String()
+			side.campaign.hiddenImageIDs = append(side.campaign.hiddenImageIDs, hiddenArt.ID, hiddenPortrait.ID, unused.ID)
+			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, hiddenMap.ID.String(), hiddenArt.ID.String(), hiddenPortrait.ID.String(), unused.ID.String())
+
+			labelled := core.HexCoordinate{Q: 0, R: 0}
+			if side.campaign == testHarness.campaignB {
+				labelled = core.HexCoordinate{Q: 5, R: -3}
+			}
+			if err := testHarness.core.PaintHexes(testHarness.context, dmViewer, core.PaintHexesInput{Cells: []core.PaintedHex{
+				{Q: labelled.Q, R: labelled.R, Terrain: core.TerrainForest},
+				{Q: labelled.Q + 1, R: labelled.R, Terrain: core.TerrainWater},
+			}}); err != nil {
+				t.Fatalf("chart hexes in %s: %v", side.campaign.name, err)
+			}
+			if err := testHarness.core.SetHexLabel(testHarness.context, dmViewer, labelled, core.HexLabelInput{Label: "Camp" + visible}); err != nil {
+				t.Fatalf("label a hex in %s: %v", side.campaign.name, err)
+			}
+			side.campaign.pathIDs["q"] = strconv.FormatInt(labelled.Q, 10)
+			side.campaign.pathIDs["r"] = strconv.FormatInt(labelled.R, 10)
+		},
+		dmProof: []string{"/maps"},
+	},
+	{
 		feature: "invite link",
 		// The invite code is DM-only: the harness's forbidden lists hold it as a literal.
 		plant:   func(*testing.T, *harness, campaignSide) {},
@@ -626,4 +700,19 @@ func (testHarness *harness) refreshInviteCode(campaign *campaignFixture, dm acco
 		campaign.linkCodes = append(campaign.linkCodes, campaign.inviteCode)
 		campaign.inviteCode = invite.InviteCode
 	}
+}
+
+// testImage is a small PNG whose bytes differ with shade.
+func testImage(t *testing.T, shade uint8) []byte {
+	t.Helper()
+	picture := image.NewGray(image.Rect(0, 0, 4, 3))
+	for index := range picture.Pix {
+		picture.Pix[index] = shade
+	}
+	picture.SetGray(0, 0, color.Gray{Y: shade + 1})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, picture); err != nil {
+		t.Fatalf("encode a test image: %v", err)
+	}
+	return encoded.Bytes()
 }

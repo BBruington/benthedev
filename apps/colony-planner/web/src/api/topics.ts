@@ -1,4 +1,4 @@
-import type { QueryKey } from "@tanstack/react-query";
+import { hashKey, type QueryKey } from "@tanstack/react-query";
 import type { Schemas } from "./client";
 import {
 	adjustPreviewQueryKeyPrefix,
@@ -7,7 +7,10 @@ import {
 	campaignMeQuery,
 	colonyBoardQuery,
 	discordChannelsQuery,
+	hexesQuery,
 	inviteLinkQuery,
+	mapQueryKeyPrefix,
+	mapsQuery,
 	membersQuery,
 	meQuery,
 	myCampaignsQuery,
@@ -48,6 +51,14 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 			...questPreviewQueryKeyPrefixes(campaignId),
 			approveRequestPreviewQueryKeyPrefix(campaignId),
 		],
+		hexes: [hexesQuery(campaignId).queryKey],
+		// A map's page carries its pins, and a place's page names the map it is pinned on.
+		maps: [
+			mapsQuery(campaignId).queryKey,
+			mapQueryKeyPrefix(campaignId),
+			placesQueryKeyPrefix(campaignId),
+			placeQueryKeyPrefix(campaignId),
+		],
 		// The caller's own membership or session changed: their status here, the picker's card, and
 		// view as player (a session toggle that the account read carries too).
 		me: [campaignMeQuery(campaignId).queryKey, myCampaignsQuery.queryKey, meQuery.queryKey],
@@ -80,7 +91,12 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 		],
 		// Role settings live beside /people: both show headcounts.
 		people: [workforceQuery(campaignId).queryKey, rolesQuery(campaignId).queryKey],
-		places: [placesQueryKeyPrefix(campaignId), placeQueryKeyPrefix(campaignId)],
+		// Pins carry their place's name and leave players' maps when the place is hidden.
+		places: [
+			placesQueryKeyPrefix(campaignId),
+			placeQueryKeyPrefix(campaignId),
+			mapQueryKeyPrefix(campaignId),
+		],
 		quests: [
 			questsQueryKeyPrefix(campaignId),
 			questQueryKeyPrefix(campaignId),
@@ -119,14 +135,18 @@ export function queryKeysForTopics(
 	topics: readonly string[],
 ): readonly QueryKey[] | "everything" {
 	const known = topicQueryKeys(campaignId);
-	const keys: QueryKey[] = [];
+	// Topics share keys (the server sends maps and places together), and a key invalidated twice while
+	// its read is in flight would be read twice more.
+	const keys = new Map<string, QueryKey>();
 	for (const topic of topics) {
 		if (!isKnownTopic(topic, known)) {
 			return "everything";
 		}
-		keys.push(...known[topic]);
+		for (const queryKey of known[topic]) {
+			keys.set(hashKey(queryKey), queryKey);
+		}
 	}
-	return keys;
+	return [...keys.values()];
 }
 
 export function isInvalidateMessage(value: unknown): value is { topics: string[] } {

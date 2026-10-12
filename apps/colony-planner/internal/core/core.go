@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +37,8 @@ type Options struct {
 	Directory DiscordDirectory
 	// BotInviteURL adds Beny Bot to a Discord server; it is empty without DISCORD_CLIENT_ID.
 	BotInviteURL string
+	// PublicURL is the site's own address; a map's external art may not point at this host (C6).
+	PublicURL string
 	// Now is the clock for link-code expiry; nil means time.Now. Tests move it.
 	Now func() time.Time
 }
@@ -63,6 +67,7 @@ type Service struct {
 	directory          DiscordDirectory
 	broker             *Broker
 	botInviteURL       string
+	siteHost           string
 	linkCodes          *linkCodeStore
 }
 
@@ -77,6 +82,7 @@ func New(options Options) *Service {
 		directory:          options.Directory,
 		broker:             NewBroker(),
 		botInviteURL:       options.BotInviteURL,
+		siteHost:           siteHostOf(options.PublicURL),
 		linkCodes:          newLinkCodeStore(options.Now),
 	}
 	if options.Pool != nil {
@@ -95,6 +101,15 @@ func New(options Options) *Service {
 		service.sessions = noopSessionEvictor{}
 	}
 	return service
+}
+
+// siteHostOf is PUBLIC_URL's host name in lower case, or empty when it is unset or unparsable.
+func siteHostOf(publicURL string) string {
+	parsed, err := url.Parse(publicURL)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
 }
 
 // SetDirectory attaches Beny Bot's channel directory once the bot exists (cmd/colony builds core

@@ -17,6 +17,9 @@ import (
 // The site owner of every core test. Tests never read SITE_OWNER_DISCORD_ID.
 const testOwnerDiscordID = "500000000000000005"
 
+// testPublicURL is the site's own address, as PUBLIC_URL would give it.
+const testPublicURL = "https://colony.example"
+
 type countingNotifier struct {
 	mutex    sync.Mutex
 	waiting  []core.WaitingMember
@@ -121,6 +124,7 @@ func newFixture(t *testing.T) *fixture {
 		Sessions:           test.evictor,
 		Directory:          test.directory,
 		Now:                test.clock.Now,
+		PublicURL:          testPublicURL,
 	})
 	test.owner = test.caller(testOwnerDiscordID, "owner")
 	return test

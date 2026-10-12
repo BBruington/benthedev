@@ -40,6 +40,7 @@ import { focusFirstVisible } from "@/lib/focus";
 import { ProseBlock } from "@/npcs/npc-profile";
 import { HiddenBadge, NpcAvatar, NpcNameLink } from "@/people/people-sections";
 import { placeHeadingId, placesPageHeadingId } from "@/places/place-ids";
+import { PlacePinSection } from "@/places/place-pin";
 import { PlaceSheet } from "@/places/place-sheet";
 
 type Place = Schemas["Place"];
@@ -159,6 +160,7 @@ function PlaceDetail({ place, isDm }: { place: Place; isDm: boolean }) {
 					{place.dm ? <ProseBlock dmOnly text={place.dm.dmNotes} title="DM notes" /> : null}
 				</section>
 			) : null}
+			<PlacePinSection isDm={isDm} place={place} />
 			<section aria-labelledby="npcs-here-heading" className="flex flex-col gap-3">
 				<h2 className="font-display font-semibold text-2xl tracking-wide" id="npcs-here-heading">
 					NPCs who are here

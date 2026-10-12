@@ -65,7 +65,7 @@ export function NpcCard({ npc }: { npc: Npc }) {
 	const trueName = hiddenTrueName(npc);
 	return (
 		<li className="relative flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-card transition-colors focus-within:ring-[3px] focus-within:ring-ring/40 hover:border-gilt/40">
-			<NpcAvatar displayName={npc.displayName} />
+			<NpcAvatar displayName={npc.displayName} portraitImageId={npc.portraitImageId} />
 			<div className="min-w-0 flex-1">
 				<h2 className="font-semibold text-base leading-snug [overflow-wrap:anywhere]">
 					<Link
