@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCampaignId } from "@/hooks/use-campaign";
 import { parseWholeNumber } from "@/lib/colony";
+import { forgetFailedSaves } from "@/lib/forms";
 import {
 	enumValues,
 	npcHealthLabels,
@@ -70,8 +71,6 @@ function toDraft(npc: Npc | null): Draft {
 			playerNotes: "",
 			race: "",
 			relation: "UNKNOWN",
-			// New NPCs start hidden (spec §5.9, Open Question 9).
-			revealed: false,
 			status: "ALIVE",
 		};
 	}
@@ -93,7 +92,6 @@ function toDraft(npc: Npc | null): Draft {
 		playerNotes: npc.playerNotes,
 		race: npc.race,
 		relation: npc.relation,
-		revealed: npc.dm?.revealed ?? true,
 		status: npc.status,
 	};
 }
@@ -112,7 +110,8 @@ function FormSection({ title, children }: { title: string; children: ReactNode }
 /**
  * Create or fully edit an NPC (spec §4.3, §5.9): the DM's whole record, sent as one PUT. Players
  * never see the true name, the known name or the DM notes; the name players see is the known name
- * when there is one.
+ * when there is one. Only a new NPC's visibility is set here: an edit sheet left open must not undo
+ * a hide made since, so afterwards the switch on their page is the one way to change it.
  */
 export function NpcSheet({
 	open,
@@ -130,6 +129,8 @@ export function NpcSheet({
 	const campaignId = useCampaignId();
 	const places = useQuery(placesQuery(campaignId));
 	const [draft, setDraft] = useState(() => toDraft(npc));
+	// New NPCs start hidden (spec §5.9, Open Question 9).
+	const [revealed, setRevealed] = useState(false);
 
 	function settle() {
 		queryClient.invalidateQueries({ queryKey: npcsQueryKeyPrefix(campaignId) });
@@ -157,6 +158,7 @@ export function NpcSheet({
 
 	function set<Key extends keyof Draft>(key: Key, value: Draft[Key]) {
 		setDraft((current) => ({ ...current, [key]: value }));
+		forgetFailedSaves(create, update);
 	}
 
 	function textProps(key: TextKey, maxLength: number) {
@@ -195,7 +197,7 @@ export function NpcSheet({
 			return;
 		}
 		create.mutate(
-			{ body, params: { path: { campaignId } } },
+			{ body: { ...body, revealed }, params: { path: { campaignId } } },
 			{
 				onSuccess: (created) => {
 					toast.success(
@@ -243,7 +245,7 @@ export function NpcSheet({
 			className="md:max-w-2xl"
 			description={
 				npc
-					? "Everything about them. Players see the known name (or the true name when it's empty), never the true name behind it or your notes."
+					? "Everything about them. Players see the known name (or the true name when it's empty), never the true name behind it or your notes. Show or hide them with the switch on their page."
 					: "New NPCs start hidden from players. Turn on Visible to players when the party meets them."
 			}
 			onOpenChange={onOpenChange}
@@ -294,19 +296,22 @@ export function NpcSheet({
 							value={draft.aliasesText}
 						/>
 					</Field>
-					<SwitchRow
-						checked={draft.revealed}
-						description={
-							draft.revealed
-								? "Players see them under the known name."
-								: "Hidden: players can't find them anywhere."
-						}
-						id="npc-revealed"
-						label="Visible to players"
-						onCheckedChange={(checked) => {
-							set("revealed", checked);
-						}}
-					/>
+					{npc ? null : (
+						<SwitchRow
+							checked={revealed}
+							description={
+								revealed
+									? "Players see them under the known name."
+									: "Hidden: players can't find them anywhere."
+							}
+							id="npc-revealed"
+							label="Visible to players"
+							onCheckedChange={(checked) => {
+								setRevealed(checked);
+								forgetFailedSaves(create, update);
+							}}
+						/>
+					)}
 				</FormSection>
 				<FormSection title="Who they are">
 					<div className="grid gap-4 sm:grid-cols-2">

@@ -105,12 +105,13 @@ function PlacePage() {
 function usePlaceSettled() {
 	const queryClient = useQueryClient();
 	const campaignId = useCampaignId();
-	return () => {
-		queryClient.invalidateQueries({ queryKey: placesQueryKeyPrefix(campaignId) });
-		queryClient.invalidateQueries({ queryKey: placeQueryKeyPrefix(campaignId) });
-		queryClient.invalidateQueries({ queryKey: npcsQueryKeyPrefix(campaignId) });
-		queryClient.invalidateQueries({ queryKey: npcQueryKeyPrefix(campaignId) });
-	};
+	return () =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: placesQueryKeyPrefix(campaignId) }),
+			queryClient.invalidateQueries({ queryKey: placeQueryKeyPrefix(campaignId) }),
+			queryClient.invalidateQueries({ queryKey: npcsQueryKeyPrefix(campaignId) }),
+			queryClient.invalidateQueries({ queryKey: npcQueryKeyPrefix(campaignId) }),
+		]);
 }
 
 function PlaceDetail({ place, isDm }: { place: Place; isDm: boolean }) {
@@ -164,7 +165,7 @@ function PlaceDetail({ place, isDm }: { place: Place; isDm: boolean }) {
 				</h2>
 				{place.npcsHere.length === 0 ? (
 					<p className="rounded-xl border border-border border-dashed px-4 py-6 text-center text-muted-foreground">
-						Nobody the party knows is here.
+						{isDm ? "No NPCs are here." : "Nobody the party knows is here."}
 					</p>
 				) : (
 					<ul className="grid gap-2 md:grid-cols-2">
@@ -202,6 +203,8 @@ function RevealSwitch({ place, revealed }: { place: Place; revealed: boolean }) 
 		onError: (error) => {
 			toast.error(problemMessage(error, "Its visibility couldn't be changed."));
 		},
+		// Returned, so the mutation stays pending until the refetch lands and the switch never
+		// snaps back to the old value in between.
 		onSettled: settle,
 		onSuccess: (saved) => {
 			toast.success(
@@ -211,11 +214,14 @@ function RevealSwitch({ place, revealed }: { place: Place; revealed: boolean }) 
 			);
 		},
 	});
+	const shownRevealed = mutation.isPending
+		? (mutation.variables?.body?.revealed ?? revealed)
+		: revealed;
 	return (
 		<SwitchRow
-			checked={mutation.isPending ? (mutation.variables?.body?.revealed ?? revealed) : revealed}
+			checked={shownRevealed}
 			description={
-				revealed
+				shownRevealed
 					? "Players see it, without your notes."
 					: "Hidden: players can't find it, and NPCs here don't mention it."
 			}

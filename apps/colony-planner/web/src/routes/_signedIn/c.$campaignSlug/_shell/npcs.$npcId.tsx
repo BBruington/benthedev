@@ -200,12 +200,13 @@ function NpcDetail({ npc, isDm }: { npc: Npc; isDm: boolean }) {
 function useNpcSettled() {
 	const queryClient = useQueryClient();
 	const campaignId = useCampaignId();
-	return () => {
-		queryClient.invalidateQueries({ queryKey: npcsQueryKeyPrefix(campaignId) });
-		queryClient.invalidateQueries({ queryKey: npcQueryKeyPrefix(campaignId) });
-		queryClient.invalidateQueries({ queryKey: placeQueryKeyPrefix(campaignId) });
-		queryClient.invalidateQueries({ queryKey: workforceQuery(campaignId).queryKey });
-	};
+	return () =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: npcsQueryKeyPrefix(campaignId) }),
+			queryClient.invalidateQueries({ queryKey: npcQueryKeyPrefix(campaignId) }),
+			queryClient.invalidateQueries({ queryKey: placeQueryKeyPrefix(campaignId) }),
+			queryClient.invalidateQueries({ queryKey: workforceQuery(campaignId).queryKey }),
+		]);
 }
 
 function RevealSwitch({ npc, revealed }: { npc: Npc; revealed: boolean }) {
@@ -215,6 +216,8 @@ function RevealSwitch({ npc, revealed }: { npc: Npc; revealed: boolean }) {
 		onError: (error) => {
 			toast.error(problemMessage(error, "Their visibility couldn't be changed."));
 		},
+		// Returned, so the mutation stays pending until the refetch lands and the switch never
+		// snaps back to the old value in between.
 		onSettled: settle,
 		onSuccess: (saved) => {
 			toast.success(
@@ -224,11 +227,14 @@ function RevealSwitch({ npc, revealed }: { npc: Npc; revealed: boolean }) {
 			);
 		},
 	});
+	const shownRevealed = mutation.isPending
+		? (mutation.variables?.body?.revealed ?? revealed)
+		: revealed;
 	return (
 		<SwitchRow
-			checked={mutation.isPending ? (mutation.variables?.body?.revealed ?? revealed) : revealed}
+			checked={shownRevealed}
 			description={
-				revealed
+				shownRevealed
 					? `Players see them as ${npc.displayName}, without the true name or your notes.`
 					: "Hidden: players can't find them in lists, search, places or the colony roster."
 			}
@@ -320,6 +326,7 @@ function ColonySection({ npc, isDm }: { npc: Npc; isDm: boolean }) {
 	const target: ColonistTarget = {
 		displayName: npc.displayName,
 		id: npc.id,
+		isHidden: npc.dm?.revealed === false,
 		roleKey: role?.key ?? null,
 	};
 	if (!(role || isDm)) {

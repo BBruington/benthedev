@@ -37,7 +37,7 @@ func (handlers *handlers) registerPlaces(api huma.API) {
 		Summary:       "Add a place",
 		Tags:          []string{"places"},
 		DefaultStatus: http.StatusCreated,
-	}, func(requestContext context.Context, input *campaignBodyInput[core.PlaceInput]) (*bodyOutput[core.Place], error) {
+	}, func(requestContext context.Context, input *campaignBodyInput[core.NewPlaceInput]) (*bodyOutput[core.Place], error) {
 		place, err := handlers.core.CreatePlace(requestContext, viewerFrom(requestContext), input.Body)
 		if err != nil {
 			return nil, handlers.fail(requestContext, err)
@@ -63,7 +63,7 @@ func (handlers *handlers) registerPlaces(api huma.API) {
 		OperationID: "updatePlace",
 		Method:      http.MethodPut,
 		Path:        "/api/campaigns/{campaignId}/places/{placeId}",
-		Summary:     "Replace a place's record",
+		Summary:     "Replace a place's record (visibility changes through setPlaceRevealed)",
 		Tags:        []string{"places"},
 	}, func(requestContext context.Context, input *placeBodyInput[core.PlaceInput]) (*bodyOutput[core.Place], error) {
 		place, err := handlers.core.UpdatePlace(requestContext, viewerFrom(requestContext), input.PlaceID, input.Body)

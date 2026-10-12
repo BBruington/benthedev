@@ -10,6 +10,7 @@ import { SwitchRow, TextArea } from "@/components/form-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCampaignId } from "@/hooks/use-campaign";
+import { forgetFailedSaves } from "@/lib/forms";
 
 type Place = Schemas["Place"];
 type PlaceInput = Schemas["PlaceInput"];
@@ -23,12 +24,14 @@ function toDraft(place: Place | null): PlaceInput {
 		dmNotes: place?.dm?.dmNotes ?? "",
 		name: place?.name ?? "",
 		playerNotes: place?.playerNotes ?? "",
-		// New places start visible, as locations always were (spec §5.9, Open Question 9).
-		revealed: place?.dm?.revealed ?? true,
 	};
 }
 
-/** Create or fully edit a place (spec §4.4); its DM notes never reach players. */
+/**
+ * Create or fully edit a place (spec §4.4); its DM notes never reach players. Only a new place's
+ * visibility is set here: an edit sheet left open must not undo a hide made since, so afterwards
+ * the switch on its page is the one way to change it.
+ */
 export function PlaceSheet({
 	open,
 	onOpenChange,
@@ -44,6 +47,8 @@ export function PlaceSheet({
 	const queryClient = useQueryClient();
 	const campaignId = useCampaignId();
 	const [draft, setDraft] = useState(() => toDraft(place));
+	// New places start visible, as locations always were (spec §5.9, Open Question 9).
+	const [revealed, setRevealed] = useState(true);
 
 	function settle() {
 		queryClient.invalidateQueries({ queryKey: placesQueryKeyPrefix(campaignId) });
@@ -64,6 +69,7 @@ export function PlaceSheet({
 
 	function set<Key extends keyof PlaceInput>(key: Key, value: PlaceInput[Key]) {
 		setDraft((current) => ({ ...current, [key]: value }));
+		forgetFailedSaves(create, update);
 	}
 
 	function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -85,7 +91,7 @@ export function PlaceSheet({
 			return;
 		}
 		create.mutate(
-			{ body, params: { path: { campaignId } } },
+			{ body: { ...body, revealed }, params: { path: { campaignId } } },
 			{
 				onSuccess: (created) => {
 					toast.success(
@@ -110,7 +116,7 @@ export function PlaceSheet({
 			className="md:max-w-2xl"
 			description={
 				place
-					? "Players see everything here except your notes, while the place is visible."
+					? "Players see everything here except your notes, while the place is visible. Show or hide it with the switch on its page."
 					: "New places start visible to players. Turn it off for somewhere the party hasn't found."
 			}
 			onOpenChange={onOpenChange}
@@ -130,17 +136,20 @@ export function PlaceSheet({
 						value={draft.name}
 					/>
 				</Field>
-				<SwitchRow
-					checked={draft.revealed}
-					description={
-						draft.revealed ? "Players can find it." : "Hidden: players can't find it anywhere."
-					}
-					id="place-revealed"
-					label="Visible to players"
-					onCheckedChange={(checked) => {
-						set("revealed", checked);
-					}}
-				/>
+				{place ? null : (
+					<SwitchRow
+						checked={revealed}
+						description={
+							revealed ? "Players can find it." : "Hidden: players can't find it anywhere."
+						}
+						id="place-revealed"
+						label="Visible to players"
+						onCheckedChange={(checked) => {
+							setRevealed(checked);
+							forgetFailedSaves(create, update);
+						}}
+					/>
+				)}
 				<Field error={serverErrors.description} id="place-description" label="Description" optional>
 					<TextArea
 						{...fieldInputProps("place-description", serverErrors.description, false)}

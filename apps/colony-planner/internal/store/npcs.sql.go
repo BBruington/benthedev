@@ -435,32 +435,30 @@ const updateNpc = `-- name: UpdateNpc :one
 UPDATE npc
 SET name = $1,
     known_name = $2,
-    revealed = $3,
-    aliases = $4,
-    labels = $5,
-    race = $6,
-    character_class = $7,
-    level = $8,
-    age = $9,
-    appearance = $10,
-    personality = $11,
-    backstory = $12,
-    player_notes = $13,
-    dm_notes = $14,
-    status = $15,
-    health = $16,
-    relation = $17,
-    current_place_id = $18,
-    origin_place_id = $19,
+    aliases = $3,
+    labels = $4,
+    race = $5,
+    character_class = $6,
+    level = $7,
+    age = $8,
+    appearance = $9,
+    personality = $10,
+    backstory = $11,
+    player_notes = $12,
+    dm_notes = $13,
+    status = $14,
+    health = $15,
+    relation = $16,
+    current_place_id = $17,
+    origin_place_id = $18,
     updated_at = now()
-WHERE campaign_id = $20 AND id = $21
+WHERE campaign_id = $19 AND id = $20
 RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id
 `
 
 type UpdateNpcParams struct {
 	Name           string
 	KnownName      string
-	Revealed       bool
 	Aliases        []string
 	Labels         []string
 	Race           string
@@ -481,13 +479,12 @@ type UpdateNpcParams struct {
 	ID             uuid.UUID
 }
 
-// Replaces an NPC's record (PUT semantics). colony_role_key is left alone: it changes only through
-// colony mutations (spec §5.5).
+// Replaces an NPC's record (PUT semantics). colony_role_key changes only through colony mutations (spec
+// §5.5) and revealed only through SetNpcRevealed, so a stale edit form can't reveal a hidden NPC.
 func (q *Queries) UpdateNpc(ctx context.Context, arg UpdateNpcParams) (Npc, error) {
 	row := q.db.QueryRow(ctx, updateNpc,
 		arg.Name,
 		arg.KnownName,
-		arg.Revealed,
 		arg.Aliases,
 		arg.Labels,
 		arg.Race,

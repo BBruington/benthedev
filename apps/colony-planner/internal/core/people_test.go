@@ -11,7 +11,7 @@ import (
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
-func (test *colonyTest) npc(input core.NpcInput) core.Npc {
+func (test *colonyTest) npc(input core.NewNpcInput) core.Npc {
 	test.t.Helper()
 	npc, err := test.service.CreateNpc(test.context, test.dm, input)
 	if err != nil {
@@ -111,8 +111,8 @@ func TestWorkforceAcceptance(t *testing.T) {
 		t.Fatalf("moving more than exist: %v", err)
 	}
 
-	brannoc := test.npc(core.NpcInput{Name: "Brannoc", Revealed: true})
-	thorne := test.npc(core.NpcInput{Name: "Thorne", Revealed: true})
+	brannoc := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Brannoc"}})
+	thorne := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Thorne"}})
 	before := test.requireColonistsMatchRoles(test.dm)
 	test.join(brannoc.ID, "FARMER", core.JoinModeNewColonist)
 	if after := test.requireColonistsMatchRoles(test.dm); after != before+1 {
@@ -157,7 +157,7 @@ func TestWorkforceAcceptance(t *testing.T) {
 func TestWorkforceChangesUndo(t *testing.T) {
 	test := newColonyTest(t)
 	test.setCount("FARMER", 4)
-	brannoc := test.npc(core.NpcInput{Name: "Brannoc", Revealed: true})
+	brannoc := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Brannoc"}})
 
 	joined := test.join(brannoc.ID, "FARMER", core.JoinModePromoteUnnamed)
 	test.undo(joined)
@@ -214,7 +214,7 @@ func TestWorkforceChangesUndo(t *testing.T) {
 func TestWorkforceChangesNeedTheCurrentVersion(t *testing.T) {
 	test := newColonyTest(t)
 	test.setCount("FARMER", 4)
-	brannoc := test.npc(core.NpcInput{Name: "Brannoc"})
+	brannoc := test.npc(core.NewNpcInput{NpcInput: core.NpcInput{Name: "Brannoc"}})
 	stale := test.board().Version
 	test.setCount("FARMER", 5)
 	for name, attempt := range map[string]func() error{
@@ -248,11 +248,11 @@ func TestPeopleRefuseAnotherCampaignsIDsAndKeys(t *testing.T) {
 	test := newColonyTest(t)
 	otherCaller := test.caller("600000000000000007", "other")
 	_, otherDm := test.campaign(otherCaller, "Other", "other")
-	otherPlace, err := test.service.CreatePlace(test.context, otherDm, core.PlaceInput{Name: "Their Docks", Revealed: true})
+	otherPlace, err := test.service.CreatePlace(test.context, otherDm, core.NewPlaceInput{Revealed: true, PlaceInput: core.PlaceInput{Name: "Their Docks"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherNpc, err := test.service.CreateNpc(test.context, otherDm, core.NpcInput{Name: "Their Captain", Revealed: true})
+	otherNpc, err := test.service.CreateNpc(test.context, otherDm, core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Their Captain"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestPeopleRefuseAnotherCampaignsIDsAndKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = test.service.CreateNpc(test.context, test.dm, core.NpcInput{Name: "Brannoc", CurrentPlaceID: &otherPlace.ID})
+	_, err = test.service.CreateNpc(test.context, test.dm, core.NewNpcInput{NpcInput: core.NpcInput{Name: "Brannoc", CurrentPlaceID: &otherPlace.ID}})
 	if operationError, typed := core.AsError(err); !typed || operationError.Kind != core.KindInvalid || len(operationError.Fields) != 1 || operationError.Fields[0].Field != "currentPlaceId" {
 		t.Fatalf("another campaign's place: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestPeopleRefuseAnotherCampaignsIDsAndKeys(t *testing.T) {
 	if _, err := test.service.GetPlace(test.context, test.dm, otherPlace.ID); !isKind(err, core.KindNotFound) {
 		t.Fatalf("reading another campaign's place: %v", err)
 	}
-	brannoc := test.npc(core.NpcInput{Name: "Brannoc"})
+	brannoc := test.npc(core.NewNpcInput{NpcInput: core.NpcInput{Name: "Brannoc"}})
 	if _, err := test.service.JoinColony(test.context, test.dm, brannoc.ID, core.JoinColonyInput{ExpectedVersion: test.board().Version, RoleKey: "SAILOR"}); !isKind(err, core.KindInvalid) {
 		t.Fatalf("another campaign's role: %v", err)
 	}
@@ -299,17 +299,17 @@ func TestPeopleRefuseAnotherCampaignsIDsAndKeys(t *testing.T) {
 // Question 8).
 func TestNpcSecrecy(t *testing.T) {
 	test := newColonyTest(t)
-	chapel, err := test.service.CreatePlace(test.context, test.dm, core.PlaceInput{Name: "Drowned Chapel", DmNotes: "cult", Revealed: false})
+	chapel, err := test.service.CreatePlace(test.context, test.dm, core.NewPlaceInput{Revealed: false, PlaceInput: core.PlaceInput{Name: "Drowned Chapel", DmNotes: "cult"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	docks, err := test.service.CreatePlace(test.context, test.dm, core.PlaceInput{Name: "Docks", Revealed: true})
+	docks, err := test.service.CreatePlace(test.context, test.dm, core.NewPlaceInput{Revealed: true, PlaceInput: core.PlaceInput{Name: "Docks"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stranger := test.npc(core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger", Revealed: true, Aliases: []string{"the grey one"},
-		DmNotes: "spy", CurrentPlaceID: &chapel.ID, OriginPlaceID: &docks.ID})
-	corrow := test.npc(core.NpcInput{Name: "Mother Corrow", Revealed: false, CurrentPlaceID: &docks.ID})
+	stranger := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger", Aliases: []string{"the grey one"},
+		DmNotes: "spy", CurrentPlaceID: &chapel.ID, OriginPlaceID: &docks.ID}})
+	corrow := test.npc(core.NewNpcInput{Revealed: false, NpcInput: core.NpcInput{Name: "Mother Corrow", CurrentPlaceID: &docks.ID}})
 	if !strings.Contains(stranger.Dm.Name, "Selwyn") || stranger.DisplayName != "The Hooded Stranger" || stranger.Dm.Revealed != true {
 		t.Fatalf("the DM's view = %+v", stranger)
 	}
@@ -391,8 +391,8 @@ func TestNpcSecrecy(t *testing.T) {
 func TestNamedColonistsAndTheirEntries(t *testing.T) {
 	test := newColonyTest(t)
 	test.setCount("BUILDER", 3)
-	mason := test.npc(core.NpcInput{Name: "Edric Vael", KnownName: "The Quiet Mason", Revealed: false})
-	stranger := test.npc(core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger", Revealed: true})
+	mason := test.npc(core.NewNpcInput{Revealed: false, NpcInput: core.NpcInput{Name: "Edric Vael", KnownName: "The Quiet Mason"}})
+	stranger := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger"}})
 
 	hiddenJoin := test.join(mason.ID, "BUILDER", core.JoinModePromoteUnnamed)
 	publicJoin := test.join(stranger.ID, "BUILDER", core.JoinModeNewColonist)
@@ -438,7 +438,7 @@ func TestNamedColonistsAndTheirEntries(t *testing.T) {
 	}
 	// Marking an NPC DEAD changes no counts.
 	before := test.board().Colonists
-	if _, err := test.service.UpdateNpc(test.context, test.dm, stranger.ID, core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger", Revealed: true, Status: core.NpcStatusDead, Health: core.NpcHealthDead}); err != nil {
+	if _, err := test.service.UpdateNpc(test.context, test.dm, stranger.ID, core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger", Status: core.NpcStatusDead, Health: core.NpcHealthDead}); err != nil {
 		t.Fatal(err)
 	}
 	if after := test.board().Colonists; after != before {
@@ -458,7 +458,7 @@ func TestRoleSettings(t *testing.T) {
 	if _, err := test.service.CreateRole(test.context, test.dm, core.NewRoleInput{Label: "farmer", Icon: core.ColonyIconWheat}); !isKind(err, core.KindInvalid) {
 		t.Fatalf("a second Farmer: %v", err)
 	}
-	brannoc := test.npc(core.NpcInput{Name: "Brannoc"})
+	brannoc := test.npc(core.NewNpcInput{NpcInput: core.NpcInput{Name: "Brannoc"}})
 	test.join(brannoc.ID, sailor.Key, core.JoinModeNewColonist)
 	if _, err := test.service.UpdateRole(test.context, test.dm, sailor.Key, core.RoleInput{Label: "Sailor", Icon: core.ColonyIconShip, SortOrder: 5, Archived: true}); !isKind(err, core.KindInvalid) {
 		t.Fatalf("archiving a role with a named colonist: %v", err)
@@ -495,9 +495,9 @@ func TestRoleSettings(t *testing.T) {
 
 func TestNpcAndPlaceRecords(t *testing.T) {
 	test := newColonyTest(t)
-	_, err := test.service.CreateNpc(test.context, test.dm, core.NpcInput{
+	_, err := test.service.CreateNpc(test.context, test.dm, core.NewNpcInput{NpcInput: core.NpcInput{
 		Name: "  ", Level: new(int64(101)), Status: "ASLEEP", Aliases: []string{"a\tb"},
-	})
+	}})
 	operationError, typed := core.AsError(err)
 	if !typed || operationError.Kind != core.KindInvalid {
 		t.Fatalf("a bad NPC: %v", err)
@@ -511,11 +511,11 @@ func TestNpcAndPlaceRecords(t *testing.T) {
 		t.Fatalf("field errors = %v", fields)
 	}
 
-	docks, err := test.service.CreatePlace(test.context, test.dm, core.PlaceInput{Name: "Docks", Revealed: true})
+	docks, err := test.service.CreatePlace(test.context, test.dm, core.NewPlaceInput{Revealed: true, PlaceInput: core.PlaceInput{Name: "Docks"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	npc := test.npc(core.NpcInput{Name: "Pip", Aliases: []string{"Pip", " pip ", "Little Pip", ""}, CurrentPlaceID: &docks.ID})
+	npc := test.npc(core.NewNpcInput{NpcInput: core.NpcInput{Name: "Pip", Aliases: []string{"Pip", " pip ", "Little Pip", ""}, CurrentPlaceID: &docks.ID}})
 	if !slices.Equal(npc.Aliases, []string{"Pip", "Little Pip"}) || npc.Status != core.NpcStatusUnknown || npc.Health != core.NpcHealthHealthy || npc.CurrentPlace == nil {
 		t.Fatalf("new NPC = %+v", npc)
 	}
@@ -533,11 +533,46 @@ func TestNpcAndPlaceRecords(t *testing.T) {
 	if !isKind(err, core.KindNotFound) {
 		t.Fatalf("revealing a deleted place = %+v, %v", hidden, err)
 	}
-	if _, err := test.service.CreatePlace(test.context, test.player, core.PlaceInput{Name: "Mine"}); !isKind(err, core.KindForbidden) {
+	if _, err := test.service.CreatePlace(test.context, test.player, core.NewPlaceInput{PlaceInput: core.PlaceInput{Name: "Mine"}}); !isKind(err, core.KindForbidden) {
 		t.Fatalf("a player creating a place: %v", err)
 	}
-	if _, err := test.service.CreateNpc(test.context, test.player, core.NpcInput{Name: "Mine"}); !isKind(err, core.KindForbidden) {
+	if _, err := test.service.CreateNpc(test.context, test.player, core.NewNpcInput{NpcInput: core.NpcInput{Name: "Mine"}}); !isKind(err, core.KindForbidden) {
 		t.Fatalf("a player creating an NPC: %v", err)
+	}
+}
+
+// Only the visibility switch changes who sees an NPC or place: a full edit leaves a hidden one hidden
+// and a revealed one revealed, so an edit form opened before the DM moved the switch can't undo it.
+func TestEditsKeepVisibility(t *testing.T) {
+	test := newColonyTest(t)
+	for _, row := range []struct {
+		revealed  bool
+		npcName   string
+		placeName string
+	}{
+		{revealed: false, npcName: "Mother Corrow", placeName: "Drowned Chapel"},
+		{revealed: true, npcName: "Brannoc", placeName: "Docks"},
+	} {
+		npc := test.npc(core.NewNpcInput{Revealed: row.revealed, NpcInput: core.NpcInput{Name: row.npcName}})
+		edited, err := test.service.UpdateNpc(test.context, test.dm, npc.ID, core.NpcInput{Name: row.npcName, KnownName: "The Stranger", DmNotes: "Edited"})
+		if err != nil || edited.Dm.Revealed != row.revealed {
+			t.Fatalf("editing %s (revealed %t) = %+v, %v", row.npcName, row.revealed, edited.Dm, err)
+		}
+		if _, err := test.service.GetNpc(test.context, test.player, npc.ID); isKind(err, core.KindNotFound) == row.revealed {
+			t.Fatalf("after editing %s (revealed %t), a player's read answered %v", row.npcName, row.revealed, err)
+		}
+
+		place, err := test.service.CreatePlace(test.context, test.dm, core.NewPlaceInput{Revealed: row.revealed, PlaceInput: core.PlaceInput{Name: row.placeName}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		editedPlace, err := test.service.UpdatePlace(test.context, test.dm, place.ID, core.PlaceInput{Name: row.placeName, DmNotes: "Edited"})
+		if err != nil || editedPlace.Dm.Revealed != row.revealed {
+			t.Fatalf("editing %s (revealed %t) = %+v, %v", row.placeName, row.revealed, editedPlace.Dm, err)
+		}
+		if _, err := test.service.GetPlace(test.context, test.player, place.ID); isKind(err, core.KindNotFound) == row.revealed {
+			t.Fatalf("after editing %s (revealed %t), a player's read answered %v", row.placeName, row.revealed, err)
+		}
 	}
 }
 
@@ -546,7 +581,7 @@ func TestNpcAndPlaceRecords(t *testing.T) {
 func TestPeopleEntriesKeepNpcSecrets(t *testing.T) {
 	test := newColonyTest(t)
 	test.setCount("BUILDER", 3)
-	mason := test.npc(core.NpcInput{Name: "Edric Vael", KnownName: "The Quiet Mason", Revealed: false})
+	mason := test.npc(core.NewNpcInput{Revealed: false, NpcInput: core.NpcInput{Name: "Edric Vael", KnownName: "The Quiet Mason"}})
 	test.join(mason.ID, "BUILDER", core.JoinModeNewColonist)
 
 	before := test.headcount(test.player, "BUILDER").Total
@@ -556,7 +591,7 @@ func TestPeopleEntriesKeepNpcSecrets(t *testing.T) {
 		t.Fatalf("the public set-count entry reads %q, but players count %q", setCount.Entries[0].Title, want)
 	}
 
-	corrow := test.npc(core.NpcInput{Name: "Mother Corrow", Revealed: false})
+	corrow := test.npc(core.NewNpcInput{Revealed: false, NpcInput: core.NpcInput{Name: "Mother Corrow"}})
 	joined := test.join(corrow.ID, "SOLDIER", core.JoinModeNewColonist).Entries[0]
 	makePublic := func(title string) error {
 		_, err := test.service.UpdateTimelineEntry(test.context, test.dm, joined.ID, core.TimelineEntryInput{Day: joined.Day, Title: title, Visibility: core.TimelineVisibilityPublic})
@@ -565,7 +600,10 @@ func TestPeopleEntriesKeepNpcSecrets(t *testing.T) {
 	if err := makePublic(joined.Title); !hasField(err, "visibility") {
 		t.Fatalf("an entry about a hidden NPC went public: %v", err)
 	}
-	if _, err := test.service.UpdateNpc(test.context, test.dm, corrow.ID, core.NpcInput{Name: "Mother Corrow", KnownName: "The Drowned Mother", Revealed: true}); err != nil {
+	if _, err := test.service.UpdateNpc(test.context, test.dm, corrow.ID, core.NpcInput{Name: "Mother Corrow", KnownName: "The Drowned Mother"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := test.service.SetNpcRevealed(test.context, test.dm, corrow.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := makePublic(joined.Title); !hasField(err, "visibility") {
@@ -575,7 +613,7 @@ func TestPeopleEntriesKeepNpcSecrets(t *testing.T) {
 		t.Fatalf("an entry by the known name: %v", err)
 	}
 
-	stranger := test.npc(core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger", Revealed: true})
+	stranger := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Selwyn Hart", KnownName: "The Hooded Stranger"}})
 	test.join(stranger.ID, "FARMER", core.JoinModeNewColonist)
 	playerSees := func(fragment string) bool {
 		return slices.ContainsFunc(test.timeline(test.player, 0, 0), func(entry core.TimelineEntry) bool { return strings.Contains(entry.Title, fragment) })
@@ -608,11 +646,11 @@ func TestNpcAndPlaceLimitsHoldUnderConcurrentCreates(t *testing.T) {
 	}
 	creates := map[string]func() error{
 		"NPC": func() error {
-			_, err := test.service.CreateNpc(test.context, test.dm, core.NpcInput{Name: "Latecomer"})
+			_, err := test.service.CreateNpc(test.context, test.dm, core.NewNpcInput{NpcInput: core.NpcInput{Name: "Latecomer"}})
 			return err
 		},
 		"place": func() error {
-			_, err := test.service.CreatePlace(test.context, test.dm, core.PlaceInput{Name: "Latecomer"})
+			_, err := test.service.CreatePlace(test.context, test.dm, core.NewPlaceInput{PlaceInput: core.PlaceInput{Name: "Latecomer"}})
 			return err
 		},
 	}
@@ -645,9 +683,9 @@ func TestNpcEntriesNeverNameNpcsByUnknownNames(t *testing.T) {
 		_, err := test.service.UpdateTimelineEntry(test.context, test.dm, entry.ID, core.TimelineEntryInput{Day: entry.Day, Title: title, Visibility: visibility})
 		return err
 	}
-	update := func(npc core.Npc, name string, knownName string, revealed bool) {
+	update := func(npc core.Npc, name string, knownName string) {
 		t.Helper()
-		if _, err := test.service.UpdateNpc(test.context, test.dm, npc.ID, core.NpcInput{Name: name, KnownName: knownName, Revealed: revealed}); err != nil {
+		if _, err := test.service.UpdateNpc(test.context, test.dm, npc.ID, core.NpcInput{Name: name, KnownName: knownName}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -656,10 +694,13 @@ func TestNpcEntriesNeverNameNpcsByUnknownNames(t *testing.T) {
 	}
 
 	// A spelling fix to the true name leaves the entry's old true name unknown to the party.
-	tinker := test.npc(core.NpcInput{Name: "Edgar Vale"})
+	tinker := test.npc(core.NewNpcInput{NpcInput: core.NpcInput{Name: "Edgar Vale"}})
 	joined := test.join(tinker.ID, "FARMER", core.JoinModeNewColonist).Entries[0]
-	update(tinker, "Edgar Vale", "The Tinker", true)
-	update(tinker, "Edgar Vael", "The Tinker", true)
+	update(tinker, "Edgar Vale", "The Tinker")
+	if _, err := test.service.SetNpcRevealed(test.context, test.dm, tinker.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	update(tinker, "Edgar Vael", "The Tinker")
 	if err := edit(joined, joined.Title, core.TimelineVisibilityPublic); !hasField(err, "visibility") {
 		t.Fatalf("%q went public after a rename: %v", joined.Title, err)
 	}
@@ -677,7 +718,7 @@ func TestNpcEntriesNeverNameNpcsByUnknownNames(t *testing.T) {
 	}
 
 	// A DM-only UNDO carries the hidden NPC it names.
-	wynn := test.npc(core.NpcInput{Name: "Wynn Hollow"})
+	wynn := test.npc(core.NewNpcInput{NpcInput: core.NpcInput{Name: "Wynn Hollow"}})
 	rewound := test.undo(test.join(wynn.ID, "FARMER", core.JoinModeNewColonist)).Entries[0]
 	if rewound.Title != "The DM rewound: Wynn Hollow joined the colony as Farmer" {
 		t.Fatalf("the undo entry = %+v", rewound)
@@ -688,12 +729,12 @@ func TestNpcEntriesNeverNameNpcsByUnknownNames(t *testing.T) {
 
 	// Giving a revealed NPC a known name takes their true name off the players' timeline, and an undo
 	// never writes it again.
-	tam := test.npc(core.NpcInput{Name: "Grey Tam", Revealed: true})
+	tam := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Grey Tam"}})
 	tamJoined := test.join(tam.ID, "FARMER", core.JoinModeNewColonist)
 	if !playerSees("Grey Tam joined") {
 		t.Fatal("a revealed colonist's entry is missing")
 	}
-	update(tam, "Grey Tam", "The Grey One", true)
+	update(tam, "Grey Tam", "The Grey One")
 	if playerSees("Grey Tam") {
 		t.Fatal("players still read the true name after the DM set a known name")
 	}
@@ -703,7 +744,7 @@ func TestNpcEntriesNeverNameNpcsByUnknownNames(t *testing.T) {
 	}
 
 	// Deleting a hidden NPC doesn't bring their entries back, and their names stay off PUBLIC.
-	pip := test.npc(core.NpcInput{Name: "Pip Lark", Revealed: true})
+	pip := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Pip Lark"}})
 	pipJoined := test.join(pip.ID, "FARMER", core.JoinModeNewColonist).Entries[0]
 	if _, err := test.service.SetNpcRevealed(test.context, test.dm, pip.ID, false); err != nil {
 		t.Fatal(err)
@@ -720,7 +761,7 @@ func TestNpcEntriesNeverNameNpcsByUnknownNames(t *testing.T) {
 	}
 
 	// A revealed NPC's entries under the name players know stay editable after the delete.
-	orsolya := test.npc(core.NpcInput{Name: "Orsolya Dane", Revealed: true})
+	orsolya := test.npc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Orsolya Dane"}})
 	orsolyaJoined := test.join(orsolya.ID, "FARMER", core.JoinModeNewColonist).Entries[0]
 	test.leave(orsolya.ID, core.LeaveModeRemove)
 	if err := test.service.DeleteNpc(test.context, test.dm, orsolya.ID); err != nil {

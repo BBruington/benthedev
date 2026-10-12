@@ -213,9 +213,8 @@ SET name = $1,
     description = $2,
     player_notes = $3,
     dm_notes = $4,
-    revealed = $5,
     updated_at = now()
-WHERE campaign_id = $6 AND id = $7
+WHERE campaign_id = $5 AND id = $6
 RETURNING id, name, description, player_notes, dm_notes, revealed, created_at, updated_at, campaign_id
 `
 
@@ -224,19 +223,17 @@ type UpdatePlaceParams struct {
 	Description string
 	PlayerNotes string
 	DmNotes     string
-	Revealed    bool
 	CampaignID  uuid.UUID
 	ID          uuid.UUID
 }
 
-// Replaces a place's record (PUT semantics).
+// Replaces a place's record (PUT semantics); revealed changes only through SetPlaceRevealed.
 func (q *Queries) UpdatePlace(ctx context.Context, arg UpdatePlaceParams) (Place, error) {
 	row := q.db.QueryRow(ctx, updatePlace,
 		arg.Name,
 		arg.Description,
 		arg.PlayerNotes,
 		arg.DmNotes,
-		arg.Revealed,
 		arg.CampaignID,
 		arg.ID,
 	)

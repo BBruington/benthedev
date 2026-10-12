@@ -83,12 +83,12 @@ type NpcList struct {
 	Npcs []Npc `json:"npcs"`
 }
 
-// NpcInput creates or replaces an NPC (PUT semantics). The colony role isn't here: joining and leaving
-// the colony are colony mutations (JoinColony, ChangeColonyRole, LeaveColony).
+// NpcInput replaces an NPC's record (PUT semantics). The colony role isn't here: joining and leaving
+// the colony are colony mutations (JoinColony, ChangeColonyRole, LeaveColony). Nor is visibility: only
+// SetNpcRevealed changes it, so an edit form opened before the DM hid the NPC can't reveal them again.
 type NpcInput struct {
 	Name           string      `json:"name" doc:"The true name, 1 to 80 characters"`
 	KnownName      string      `json:"knownName" doc:"What the party calls them, at most 80 characters; blank when they know the true name"`
-	Revealed       bool        `json:"revealed" doc:"Visible to players; the create form starts it off"`
 	Aliases        []string    `json:"aliases" doc:"At most 20, each at most 80 characters"`
 	Labels         []string    `json:"labels" doc:"At most 20, each at most 40 characters"`
 	Race           string      `json:"race" doc:"At most 80 characters"`
@@ -105,6 +105,12 @@ type NpcInput struct {
 	Relation       NpcRelation `json:"relation" doc:"Blank means UNKNOWN"`
 	CurrentPlaceID *uuid.UUID  `json:"currentPlaceId" format:"uuid" nullable:"true" doc:"null for none"`
 	OriginPlaceID  *uuid.UUID  `json:"originPlaceId" format:"uuid" nullable:"true" doc:"null for none"`
+}
+
+// NewNpcInput adds an NPC: its record and whether players start out seeing them.
+type NewNpcInput struct {
+	NpcInput
+	Revealed bool `json:"revealed" doc:"Visible to players; the create form starts it off"`
 }
 
 // NpcFilter narrows the roster; every zero value is off. Players search display names and aliases
@@ -215,7 +221,7 @@ func (service *Service) revealedNpcsByDisplayName(requestContext context.Context
 }
 
 // CreateNpc adds an NPC. It is not a colony mutation.
-func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer, input NpcInput) (Npc, error) {
+func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer, input NewNpcInput) (Npc, error) {
 	if err := requireDm(viewer); err != nil {
 		return Npc{}, err
 	}
@@ -232,7 +238,7 @@ func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer,
 		if count >= NpcLimit {
 			return Conflict("This campaign has " + formatNumber(NpcLimit) + " NPCs, the most it can hold. Delete one first.")
 		}
-		cleaned, err := cleanNpcInput(requestContext, queries, viewer.campaignID, input)
+		cleaned, err := cleanNpcInput(requestContext, queries, viewer.campaignID, input.NpcInput)
 		if err != nil {
 			return err
 		}
@@ -240,7 +246,7 @@ func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer,
 			CampaignID:     cleaned.CampaignID,
 			Name:           cleaned.Name,
 			KnownName:      cleaned.KnownName,
-			Revealed:       cleaned.Revealed,
+			Revealed:       input.Revealed,
 			Aliases:        cleaned.Aliases,
 			Labels:         cleaned.Labels,
 			Race:           cleaned.Race,
@@ -271,8 +277,8 @@ func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer,
 	return npc, nil
 }
 
-// UpdateNpc replaces an NPC's record. Renaming or hiding a named colonist changes what /people and
-// the board show players, so it publishes those too; the counts never change here.
+// UpdateNpc replaces an NPC's record, leaving their visibility as it is. Renaming a named colonist
+// changes what /people and the board show players, so it publishes those too; counts never change here.
 func (service *Service) UpdateNpc(requestContext context.Context, viewer Viewer, npcID uuid.UUID, input NpcInput) (Npc, error) {
 	if err := requireDm(viewer); err != nil {
 		return Npc{}, err
@@ -533,7 +539,6 @@ func cleanNpcInput(requestContext context.Context, queries *store.Queries, campa
 		CampaignID:     campaignID,
 		Name:           name,
 		KnownName:      knownName,
-		Revealed:       input.Revealed,
 		Aliases:        aliases,
 		Labels:         labels,
 		Race:           race,

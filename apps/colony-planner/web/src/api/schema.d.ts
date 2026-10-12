@@ -643,7 +643,7 @@ export interface paths {
         };
         /** One NPC; a hidden one is not found for players */
         get: operations["getNpc"];
-        /** Replace an NPC's record (the colony role changes through the colony operations) */
+        /** Replace an NPC's record (the colony role changes through the colony operations, visibility through setNpcRevealed) */
         put: operations["updateNpc"];
         post?: never;
         /** Delete an NPC who isn't a colonist */
@@ -799,7 +799,7 @@ export interface paths {
         };
         /** One place with the NPCs who are there; a hidden one is not found for players */
         get: operations["getPlace"];
-        /** Replace a place's record */
+        /** Replace a place's record (visibility changes through setPlaceRevealed) */
         put: operations["updatePlace"];
         post?: never;
         /** Delete a place; NPCs there or from there keep no place */
@@ -1460,6 +1460,67 @@ export interface components {
         MyCampaigns: {
             campaigns: components["schemas"]["MyCampaign"][];
         };
+        NewNpcInput: {
+            /** @description Free text, at most 80 characters */
+            age: string;
+            /** @description At most 20, each at most 80 characters */
+            aliases: string[];
+            /** @description At most 4000 characters */
+            appearance: string;
+            /** @description At most 4000 characters */
+            backstory: string;
+            /** @description At most 80 characters */
+            characterClass: string;
+            /**
+             * Format: uuid
+             * @description null for none
+             */
+            currentPlaceId: string | null;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description Blank means HEALTHY */
+            health: components["schemas"]["NpcHealth"];
+            /** @description What the party calls them, at most 80 characters; blank when they know the true name */
+            knownName: string;
+            /** @description At most 20, each at most 40 characters */
+            labels: string[];
+            /**
+             * Format: int64
+             * @description 0 to 100, or null when unknown
+             */
+            level: number | null;
+            /** @description The true name, 1 to 80 characters */
+            name: string;
+            /**
+             * Format: uuid
+             * @description null for none
+             */
+            originPlaceId: string | null;
+            /** @description At most 4000 characters */
+            personality: string;
+            /** @description At most 4000 characters */
+            playerNotes: string;
+            /** @description At most 80 characters */
+            race: string;
+            /** @description Blank means UNKNOWN */
+            relation: components["schemas"]["NpcRelation"];
+            /** @description Visible to players; the create form starts it off */
+            revealed: boolean;
+            /** @description Blank means UNKNOWN */
+            status: components["schemas"]["NpcStatus"];
+        };
+        NewPlaceInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description 1 to 80 characters */
+            name: string;
+            /** @description At most 4000 characters */
+            playerNotes: string;
+            /** @description Visible to players; the create form starts it on */
+            revealed: boolean;
+        };
         NewResourceInput: {
             icon: components["schemas"]["ColonyIcon"];
             /** @description 1 to 40 characters after trimming */
@@ -1561,8 +1622,6 @@ export interface components {
             race: string;
             /** @description Blank means UNKNOWN */
             relation: components["schemas"]["NpcRelation"];
-            /** @description Visible to players; the create form starts it off */
-            revealed: boolean;
             /** @description Blank means UNKNOWN */
             status: components["schemas"]["NpcStatus"];
         };
@@ -1607,8 +1666,6 @@ export interface components {
             name: string;
             /** @description At most 4000 characters */
             playerNotes: string;
-            /** @description Visible to players; the create form starts it on */
-            revealed: boolean;
         };
         PlaceList: {
             places: components["schemas"]["Place"][];
@@ -1815,6 +1872,11 @@ export interface components {
             /** Format: uuid */
             id: string;
             kind: components["schemas"]["TimelineKind"];
+            /**
+             * Format: uuid
+             * @description The NPC this entry is about; null for none, or once that NPC is deleted
+             */
+            npcId: string | null;
             title: string;
         };
         TimelineEntryDm: {
@@ -3173,7 +3235,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["NpcInput"];
+                "application/json": components["schemas"]["NewNpcInput"];
             };
         };
         responses: {
@@ -3597,7 +3659,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PlaceInput"];
+                "application/json": components["schemas"]["NewPlaceInput"];
             };
         };
         responses: {

@@ -239,7 +239,8 @@ var secrecyFixtures = []secrecyFixture{
 		// name and dm_notes are DM-only behind a known name, standing in the hidden place. A hidden NPC
 		// whose every value is DM-only, standing in the revealed place, who joins the colony and changes
 		// role with PUBLIC asked for, and another who joins and leaves: their COLONIST_JOINED,
-		// COLONIST_LEFT and WORKFORCE_CHANGED entries are DM-only. Hidden rows' IDs are DM-only literals.
+		// COLONIST_LEFT and WORKFORCE_CHANGED entries are DM-only. One more joins while revealed and is
+		// hidden after, so a PUBLIC entry links to a hidden NPC. Hidden rows' IDs are DM-only literals.
 		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
 			dmViewer := testHarness.enter(side.dm, side.campaign.id)
@@ -271,18 +272,18 @@ var secrecyFixtures = []secrecyFixture{
 			if _, err := testHarness.core.SetRoleCount(testHarness.context, dmViewer, core.SetRoleCountInput{ExpectedVersion: version(), RoleKey: "UNASSIGNED", Count: 5}); err != nil {
 				t.Fatalf("fill Unassigned: %v", err)
 			}
-			createPlace := func(input core.PlaceInput) core.Place {
+			createPlace := func(input core.NewPlaceInput) core.Place {
 				place, err := testHarness.core.CreatePlace(testHarness.context, dmViewer, input)
 				if err != nil {
 					t.Fatalf("plant place %q: %v", input.Name, err)
 				}
 				return place
 			}
-			shown := createPlace(core.PlaceInput{Name: "Harbor Market" + visible, Description: "Fish stalls" + visible, PlayerNotes: "Cheap rope" + visible, DmNotes: secret + " smugglers meet here", Revealed: true})
-			hidden := createPlace(core.PlaceInput{Name: secret + " Drowned Chapel", Description: secret, PlayerNotes: secret, DmNotes: secret})
+			shown := createPlace(core.NewPlaceInput{Revealed: true, PlaceInput: core.PlaceInput{Name: "Harbor Market" + visible, Description: "Fish stalls" + visible, PlayerNotes: "Cheap rope" + visible, DmNotes: secret + " smugglers meet here"}})
+			hidden := createPlace(core.NewPlaceInput{PlaceInput: core.PlaceInput{Name: secret + " Drowned Chapel", Description: secret, PlayerNotes: secret, DmNotes: secret}})
 			side.campaign.pathIDs["placeId"] = shown.ID.String()
 			side.campaign.keptPlaceID = hidden.ID
-			createNpc := func(input core.NpcInput) core.Npc {
+			createNpc := func(input core.NewNpcInput) core.Npc {
 				npc, err := testHarness.core.CreateNpc(testHarness.context, dmViewer, input)
 				if err != nil {
 					t.Fatalf("plant NPC %q: %v", input.Name, err)
@@ -290,22 +291,22 @@ var secrecyFixtures = []secrecyFixture{
 				return npc
 			}
 			level := int64(3)
-			revealed := createNpc(core.NpcInput{
-				Name: secret + " Selwyn", KnownName: "The Hooded Stranger" + visible, Revealed: true,
+			revealed := createNpc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{
+				Name: secret + " Selwyn", KnownName: "The Hooded Stranger" + visible,
 				Aliases: []string{"Hood" + visible}, Labels: []string{"Stranger" + visible},
 				Race: "Human" + visible, CharacterClass: "Rogue" + visible, Level: &level, Age: "Forty" + visible,
 				Appearance: "Grey cloak" + visible, Personality: "Wry" + visible, Backstory: "Came by ship" + visible,
 				PlayerNotes: "Owes us" + visible, DmNotes: secret + " is a spy",
 				Status: core.NpcStatusAlive, Health: core.NpcHealthHealthy, Relation: core.NpcRelationNeutral,
 				CurrentPlaceID: &hidden.ID, OriginPlaceID: &shown.ID,
-			})
-			hiddenValues := core.NpcInput{
+			}})
+			hiddenValues := core.NewNpcInput{NpcInput: core.NpcInput{
 				Name: secret + " Mason", KnownName: secret + " Quiet", Aliases: []string{secret}, Labels: []string{secret},
 				Race: secret, CharacterClass: secret, Level: &level, Age: secret, Appearance: secret, Personality: secret,
 				Backstory: secret, PlayerNotes: secret, DmNotes: secret,
 				Status: core.NpcStatusMissing, Health: core.NpcHealthSick, Relation: core.NpcRelationEnemy,
 				CurrentPlaceID: &shown.ID, OriginPlaceID: &hidden.ID,
-			}
+			}}
 			hiddenColonist := createNpc(hiddenValues)
 			hiddenValues.Name = secret + " Corrow"
 			leaver := createNpc(hiddenValues)
@@ -326,6 +327,12 @@ var secrecyFixtures = []secrecyFixture{
 			if _, err := testHarness.core.LeaveColony(testHarness.context, dmViewer, leaver.ID, core.LeaveColonyInput{ExpectedVersion: version(), Mode: core.LeaveModeReturnToPool}); err != nil {
 				t.Fatalf("the hidden colonist leaves: %v", err)
 			}
+			hiddenSince := createNpc(core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: secret + " Wren"}})
+			join(hiddenSince, roleKey)
+			if _, err := testHarness.core.SetNpcRevealed(testHarness.context, dmViewer, hiddenSince.ID, false); err != nil {
+				t.Fatalf("hide a colonist after their public entry: %v", err)
+			}
+			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, hiddenSince.ID.String())
 		},
 		dmProof: []string{"/npcs", "/places", "/people", "/timeline/recent"},
 	},

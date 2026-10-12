@@ -73,13 +73,12 @@ INSERT INTO npc (
 )
 RETURNING *;
 
--- Replaces an NPC's record (PUT semantics). colony_role_key is left alone: it changes only through
--- colony mutations (spec §5.5).
+-- Replaces an NPC's record (PUT semantics). colony_role_key changes only through colony mutations (spec
+-- §5.5) and revealed only through SetNpcRevealed, so a stale edit form can't reveal a hidden NPC.
 -- name: UpdateNpc :one
 UPDATE npc
 SET name = @name,
     known_name = @known_name,
-    revealed = @revealed,
     aliases = @aliases,
     labels = @labels,
     race = @race,

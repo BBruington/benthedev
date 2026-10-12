@@ -80,7 +80,12 @@ function PeoplePage() {
 	const data = workforce.data;
 	const candidates: ColonistTarget[] = (npcs.data?.npcs ?? [])
 		.filter((npc) => npc.colonyRole === null)
-		.map((npc) => ({ displayName: npc.displayName, id: npc.id, roleKey: null }));
+		.map((npc) => ({
+			displayName: npc.displayName,
+			id: npc.id,
+			isHidden: npc.dm?.revealed === false,
+			roleKey: null,
+		}));
 	const focusAfterColonistChange = [namedColonistsHeadingId, roleTableHeadingId];
 
 	return (

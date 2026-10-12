@@ -32,13 +32,19 @@ type PlaceList struct {
 	Places []Place `json:"places"`
 }
 
-// PlaceInput creates or replaces a place (PUT semantics).
+// PlaceInput replaces a place's record (PUT semantics). Only SetPlaceRevealed changes visibility, so
+// an edit form opened before the DM hid the place can't reveal it again.
 type PlaceInput struct {
 	Name        string `json:"name" doc:"1 to 80 characters"`
 	Description string `json:"description" doc:"At most 4000 characters"`
 	PlayerNotes string `json:"playerNotes" doc:"At most 4000 characters"`
 	DmNotes     string `json:"dmNotes" doc:"At most 4000 characters"`
-	Revealed    bool   `json:"revealed" doc:"Visible to players; the create form starts it on"`
+}
+
+// NewPlaceInput adds a place: its record and whether players start out seeing it.
+type NewPlaceInput struct {
+	PlaceInput
+	Revealed bool `json:"revealed" doc:"Visible to players; the create form starts it on"`
 }
 
 const placeNameMaxLength = 80
@@ -79,11 +85,11 @@ func (service *Service) GetPlace(requestContext context.Context, viewer Viewer, 
 }
 
 // CreatePlace adds a place. It is not a colony mutation.
-func (service *Service) CreatePlace(requestContext context.Context, viewer Viewer, input PlaceInput) (Place, error) {
+func (service *Service) CreatePlace(requestContext context.Context, viewer Viewer, input NewPlaceInput) (Place, error) {
 	if err := requireDm(viewer); err != nil {
 		return Place{}, err
 	}
-	cleaned, err := cleanPlaceInput(input)
+	cleaned, err := cleanPlaceInput(input.PlaceInput)
 	if err != nil {
 		return Place{}, err
 	}
@@ -106,7 +112,7 @@ func (service *Service) CreatePlace(requestContext context.Context, viewer Viewe
 			Description: cleaned.Description,
 			PlayerNotes: cleaned.PlayerNotes,
 			DmNotes:     cleaned.DmNotes,
-			Revealed:    cleaned.Revealed,
+			Revealed:    input.Revealed,
 		})
 		if err != nil {
 			return err
@@ -121,7 +127,7 @@ func (service *Service) CreatePlace(requestContext context.Context, viewer Viewe
 	return place, nil
 }
 
-// UpdatePlace replaces a place's record.
+// UpdatePlace replaces a place's record, leaving its visibility as it is.
 func (service *Service) UpdatePlace(requestContext context.Context, viewer Viewer, placeID uuid.UUID, input PlaceInput) (Place, error) {
 	if err := requireDm(viewer); err != nil {
 		return Place{}, err
@@ -259,6 +265,5 @@ func cleanPlaceInput(input PlaceInput) (store.UpdatePlaceParams, error) {
 		Description: description,
 		PlayerNotes: playerNotes,
 		DmNotes:     dmNotes,
-		Revealed:    input.Revealed,
 	}, nil
 }

@@ -171,7 +171,8 @@ Add a field (four hand edits), then `mise run gen` and follow the compiler error
 A secret field also needs a canary: plant a canary for every new Dm field or hidden row in its feature's
 fixture in `internal/app/secrecy_fixtures_test.go`, into both campaigns. M2's people, NPCs and places
 fixture already plants every M2 secret (true and known names, NPC and place DM notes, a hidden NPC, a hidden
-place used as a revealed NPC's current place, a hidden named colonist), and hidden rows' IDs are forbidden
+place used as a revealed NPC's current place, a hidden named colonist, a PUBLIC entry about an NPC hidden
+since), and hidden rows' IDs are forbidden
 values, so a new link to one is caught too. The secrecy sweep only sees a leak of a planted value. A new
 ID or map field in a request body also goes in `mixedIDFields` in `internal/app/secrecy_test.go`, so the
 sweep puts the other campaign's real IDs and keys into it.

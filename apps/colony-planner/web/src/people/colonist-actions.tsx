@@ -26,8 +26,16 @@ type Workforce = Schemas["Workforce"];
 type JoinMode = Schemas["JoinMode"];
 type LeaveMode = Schemas["LeaveMode"];
 
-/** An NPC a colony action is about: who, and their role key when they're already a colonist. */
-export type ColonistTarget = { id: string; displayName: string; roleKey: string | null };
+/**
+ * An NPC a colony action is about: who, whether they're hidden from players, and their role key
+ * when they're already a colonist.
+ */
+export type ColonistTarget = {
+	id: string;
+	displayName: string;
+	isHidden: boolean;
+	roleKey: string | null;
+};
 
 /**
  * Moves focus once a sheet has closed: Radix stops trapping focus as soon as the sheet is told to
@@ -254,6 +262,13 @@ export function ChangeRoleSheet({
 	const openedVersion = useReviewedVersion(workforce.version, mutation);
 	const serverErrors = fieldErrors(mutation.error);
 	const canSave = roleKey !== "" && !mutation.isPending;
+	// A public entry about a hidden NPC is still written DM-only (spec §5.5).
+	let publicDescription = "Only you see this entry; turn on to post it publicly.";
+	if (npc.isHidden) {
+		publicDescription = `${npc.displayName} is hidden from players, so only you see this entry either way.`;
+	} else if (isPublic) {
+		publicDescription = "Everyone sees this entry on the timeline.";
+	}
 
 	function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -295,11 +310,7 @@ export function ChangeRoleSheet({
 				</Field>
 				<SwitchRow
 					checked={isPublic}
-					description={
-						isPublic
-							? "Everyone sees this entry on the timeline."
-							: "Only you see this entry; turn on to post it publicly."
-					}
+					description={publicDescription}
 					id="change-role-public"
 					label="Post publicly"
 					onCheckedChange={setPublic}

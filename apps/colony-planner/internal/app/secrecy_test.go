@@ -670,9 +670,9 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
-	npcBody := func(revealed bool) map[string]any {
+	npcRecord := func() map[string]any {
 		return map[string]any{
-			"name": "Pass Four", "knownName": "", "revealed": revealed, "aliases": []string{}, "labels": []string{},
+			"name": "Pass Four", "knownName": "", "aliases": []string{}, "labels": []string{},
 			"race": "", "characterClass": "", "level": 2, "age": "", "appearance": "", "personality": "",
 			"backstory": "", "playerNotes": "", "dmNotes": "", "status": string(core.NpcStatusAlive),
 			"health": string(core.NpcHealthHealthy), "relation": string(core.NpcRelationUnknown),
@@ -698,8 +698,12 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		},
 	}
 	validBodies["/colony/adjust"] = validBodies["/colony/adjust-preview"]
-	validBodies["/npcs"] = func() map[string]any { return npcBody(false) }
-	validBodies["/npcs/{npcId}"] = func() map[string]any { return npcBody(true) }
+	validBodies["/npcs"] = func() map[string]any {
+		body := npcRecord()
+		body["revealed"] = false
+		return body
+	}
+	validBodies["/npcs/{npcId}"] = npcRecord
 	// The {npcId} row is a named colonist, so join-colony has no valid body; change-role proves roleKey.
 	validBodies["/npcs/{npcId}/change-role"] = func() map[string]any {
 		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "roleKey": "HEALER", "public": false}
@@ -1014,6 +1018,7 @@ func TestPlayersFindOnlyWhatTheyKnow(t *testing.T) {
 		}
 		missingNpc := testHarness.do(http.MethodGet, campaignPathOf(campaign, "/npcs/"+uuid.NewString()), requestOptions{token: dmToken})
 		missingPlace := testHarness.do(http.MethodGet, campaignPathOf(campaign, "/places/"+uuid.NewString()), requestOptions{token: dmToken})
+		firstPlayerRecent := ""
 
 		for _, caller := range playersOf[campaign] {
 			token := testHarness.tokenFor(caller, campaign)
@@ -1058,6 +1063,23 @@ func TestPlayersFindOnlyWhatTheyKnow(t *testing.T) {
 				if response.Code != http.StatusNotFound || response.Body.String() != hiddenRow.missing.Body.String() {
 					t.Errorf("%s: a hidden row answered %d %s; a missing one answers %d %s", label, response.Code, response.Body.String(), hiddenRow.missing.Code, hiddenRow.missing.Body.String())
 				}
+			}
+
+			// read fails on any hidden NPC's ID, and the fixture links a PUBLIC entry to one. This proves
+			// the revealed NPC's link is there, and that every player, the DM viewing as player included,
+			// reads the same entries.
+			var recent core.RecentTimeline
+			recentResponse := read(label, token, "/timeline/recent", &recent)
+			testHarness.expectStatus(recentResponse, http.StatusOK)
+			if !slices.ContainsFunc(recent.Entries, func(entry core.TimelineEntry) bool {
+				return entry.NpcID != nil && entry.NpcID.String() == campaign.pathIDs["npcId"]
+			}) {
+				t.Errorf("%s: no recent entry links to the revealed NPC: %s", label, recentResponse.Body.String())
+			}
+			if firstPlayerRecent == "" {
+				firstPlayerRecent = recentResponse.Body.String()
+			} else if recentResponse.Body.String() != firstPlayerRecent {
+				t.Errorf("%s: recent entries %s differ from another player's %s", label, recentResponse.Body.String(), firstPlayerRecent)
 			}
 
 			var workforce core.Workforce

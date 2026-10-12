@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCampaignId } from "@/hooks/use-campaign";
 import { useSheetState } from "@/hooks/use-sheet-state";
 import { formatNumber, parseWholeNumber } from "@/lib/colony";
+import { forgetFailedSaves } from "@/lib/forms";
 import { canArchiveRole } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
@@ -228,6 +229,10 @@ function RoleSheet({
 	const canSave = label.trim() !== "" && sortOrderError === undefined && !isSaving;
 	const showGeneralError = error !== null && Object.keys(serverErrors).length === 0;
 
+	function edited() {
+		forgetFailedSaves(create, update);
+	}
+
 	function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		if (!canSave) {
@@ -287,13 +292,21 @@ function RoleSheet({
 						maxLength={40}
 						onChange={(event) => {
 							setLabel(event.target.value);
+							edited();
 						}}
 						placeholder="For example, Fisher"
 						readOnly={existing?.isSystem === true}
 						value={label}
 					/>
 				</Field>
-				<IconPicker groupName="role-icon" onChange={setIcon} value={icon} />
+				<IconPicker
+					groupName="role-icon"
+					onChange={(nextIcon) => {
+						setIcon(nextIcon);
+						edited();
+					}}
+					value={icon}
+				/>
 				{existing ? (
 					<>
 						<Field
@@ -308,6 +321,7 @@ function RoleSheet({
 								inputMode="numeric"
 								onChange={(event) => {
 									setSortOrderText(event.target.value);
+									edited();
 								}}
 								value={sortOrderText}
 							/>
@@ -318,7 +332,10 @@ function RoleSheet({
 							disabled={!(existing.archived || canArchiveRole(existing))}
 							id="role-archived"
 							label="Archived"
-							onCheckedChange={setArchived}
+							onCheckedChange={(checked) => {
+								setArchived(checked);
+								edited();
+							}}
 						/>
 					</>
 				) : null}

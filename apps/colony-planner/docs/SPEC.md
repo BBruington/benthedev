@@ -679,7 +679,7 @@ type Step interface {
   - NPCs start hidden, as today (`is_known_to_party` defaulted to false);
   - quests, places and maps start visible, because players saw every quest, location and region before;
   - patrons and patron actions start hidden, because players have never seen patrons.
-- The DM reveals or hides a row with the switch, and a "Hidden" badge marks hidden rows in the DM's view.
+- The DM reveals or hides a row with the switch, and a "Hidden" badge marks hidden rows in the DM's view. After an NPC or place is created, the switch on its page is the only way to change its visibility: edits never carry it, so an edit form left open can't undo a hide made since.
 
 ### 5.10 Hex map (decision 9; history cut by F6)
 
@@ -845,14 +845,14 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
 | `/pending` | — | "Waiting for the DM to let you in". Opens live when approved. "You don't have access" if removed or denied, including after signing in again. Sign out. |
 | `/` Colony board | Day dial ("Day 44 · next ship Day 47, in 3 days"); resource tiles with live delta chips; colonists strip ("62 colonists · 5 unassigned"); **Advance** chips (+1 / +3 / +7 / Custom) → preview sheet → confirm; Adjust; Shipments; Correct day; **Undo last change** (shows what it undoes); pending requests with Review; last 5 timeline entries; next session; last recap snippet | Same information, read-only; "Ask a patron"; my requests |
 | `/people` | Role table (unnamed + named = total), Unassigned highlighted when > 0; transfer and set-count dialogs; named roster with join, change role and leave | Role totals; revealed named colonists |
-| `/timeline` | All entries (DM-only marked with an eye-slash; undone struck through); session bands; add a CUSTOM entry on any day; edit text and visibility; delete CUSTOM entries; filters; jump to day | PUBLIC entries, session bands, "Jump to today" |
+| `/timeline` | All entries (DM-only marked with an eye-slash; undone struck through); session bands; add a CUSTOM entry on any day; edit text and visibility; delete CUSTOM entries; filters; jump to day. An entry about an NPC links to their page (here and on the board) | PUBLIC entries, session bands, "Jump to today"; links to the pages of revealed NPCs |
 | `/quests`, `/quests/$questId` | All quests by status; create (with the Visible switch and "Post to timeline"); reveal; reward editor (Effects + favor + loot); giver pickers; **Complete** (preview sheet), **Fail**, **Reopen** (failed only); `dm_notes` | Visible quests: Active / Done / Failed; description; reward; giver if revealed |
 | `/patrons`, `/patrons/$patronId` | All patrons with favor; edit; archive; adjust favor; define and archive actions; request history; **Use action now** (on behalf of a player) | Visible patrons; favor; action cards (cost → effects) with **Request** (with a note); request history |
 | `/requests` | Approval queue (pending first); approval sheet (§6.5); history | My requests (withdraw while pending); party history with decision notes |
 | `/explore` | Hex map (§6.4), with the same tools as players | Hex map (§6.4) |
 | `/maps/$mapId` (Mainland = Eldari) | Image map; Edit pins mode (place, drag, remove); upload or replace the image (pins survive) | Image map with revealed pins; tap a pin → sheet → place |
-| `/places`, `/places/$placeId` | List and detail; CRUD; reveal; `dm_notes`; pin | Visible places, redacted; NPCs who are here |
-| `/npcs`, `/npcs/$npcId` | Roster with search and filters; full edit; reveal; colony role; first-encountered session | Revealed NPCs under their display name, redacted |
+| `/places`, `/places/$placeId` | List and detail; CRUD; reveal; `dm_notes`; pin (arrives in M4) | Visible places, redacted; NPCs who are here |
+| `/npcs`, `/npcs/$npcId` | Roster with search and filters; full edit; reveal; colony role; first-encountered session (arrives in M5) | Revealed NPCs under their display name, redacted |
 | `/sessions`, `/sessions/$sessionId` | Series CRUD; upcoming dates (cancel or restore); history; recap editor; mark played or end session; edit day stamps; ICS link | Upcoming dates (cancelled ones struck through) in local time; history with recaps and "Days 36–41"; ICS link |
 | `/players` | Pending (approve or deny); active (character names, remove); removed, left or denied, each labeled so (re-admit) | 403 |
 | `/settings` | Campaign and colony name; timezone; resources (add, rename, icon, bounds, archive); roles; Discord channels and event location; bot invite link; ICS token | 403 |

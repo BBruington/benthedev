@@ -68,7 +68,7 @@ func (handlers *handlers) registerNpcs(api huma.API) {
 		Summary:       "Add an NPC",
 		Tags:          []string{"npcs"},
 		DefaultStatus: http.StatusCreated,
-	}, func(requestContext context.Context, input *campaignBodyInput[core.NpcInput]) (*bodyOutput[core.Npc], error) {
+	}, func(requestContext context.Context, input *campaignBodyInput[core.NewNpcInput]) (*bodyOutput[core.Npc], error) {
 		npc, err := handlers.core.CreateNpc(requestContext, viewerFrom(requestContext), input.Body)
 		if err != nil {
 			return nil, handlers.fail(requestContext, err)
@@ -94,7 +94,7 @@ func (handlers *handlers) registerNpcs(api huma.API) {
 		OperationID: "updateNpc",
 		Method:      http.MethodPut,
 		Path:        "/api/campaigns/{campaignId}/npcs/{npcId}",
-		Summary:     "Replace an NPC's record (the colony role changes through the colony operations)",
+		Summary:     "Replace an NPC's record (the colony role changes through the colony operations, visibility through setNpcRevealed)",
 		Tags:        []string{"npcs"},
 	}, func(requestContext context.Context, input *npcBodyInput[core.NpcInput]) (*bodyOutput[core.Npc], error) {
 		npc, err := handlers.core.UpdateNpc(requestContext, viewerFrom(requestContext), input.NpcID, input.Body)

@@ -259,6 +259,7 @@ export function NamedColonists({
 						const target: ColonistTarget = {
 							displayName: colonist.displayName,
 							id: colonist.id,
+							isHidden: colonist.dm?.revealed === false,
 							roleKey: role.key,
 						};
 						return (

@@ -35,9 +35,13 @@ type TimelineEntry struct {
 	// folded beyond 12 arrivals).
 	Arrivals *ArrivalRun `json:"arrivals,omitempty" doc:"SHIPMENT_ARRIVED only; absent otherwise"`
 	// ArrivalEntryID is set on CARGO_RECORDED: the arrival the cargo came on.
-	ArrivalEntryID *uuid.UUID       `json:"arrivalEntryId" format:"uuid" nullable:"true" doc:"CARGO_RECORDED only; null otherwise"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	Dm             *TimelineEntryDm `json:"dm,omitempty"`
+	ArrivalEntryID *uuid.UUID `json:"arrivalEntryId" format:"uuid" nullable:"true" doc:"CARGO_RECORDED only; null otherwise"`
+	// NpcID links an entry about an NPC to their page. Players only get entries whose NPC is revealed
+	// or unlinked, so it never names a hidden NPC to them. The name the entry was written with stays
+	// out: it can be a name the party doesn't know (Invariant 15).
+	NpcID     *uuid.UUID       `json:"npcId" format:"uuid" nullable:"true" doc:"The NPC this entry is about; null for none, or once that NPC is deleted"`
+	CreatedAt time.Time        `json:"createdAt"`
+	Dm        *TimelineEntryDm `json:"dm,omitempty"`
 }
 
 // TimelineEntryDm is what only the DM sees about an entry: its visibility (eye-slash when DM),
@@ -457,6 +461,7 @@ func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 		Kind:      kind,
 		Title:     row.Title,
 		Body:      row.Body,
+		NpcID:     row.NpcID,
 		CreatedAt: row.CreatedAt.UTC(),
 		Dm: &TimelineEntryDm{
 			Visibility:     row.Visibility,

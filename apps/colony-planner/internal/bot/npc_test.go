@@ -39,9 +39,8 @@ func newNpcWorld(t *testing.T) *world {
 	chapel := test.place(test.dmA, hiddenPlaceName, false)
 	docks := test.place(test.dmA, "Port Eldari Docks", true)
 	level := int64(3)
-	brannoc := test.npc(test.dmA, core.NpcInput{
+	brannoc := test.npc(test.dmA, core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{
 		Name:           "Brannoc",
-		Revealed:       true,
 		Aliases:        []string{"Old Bran"},
 		Labels:         []string{"farmer"},
 		Race:           "Human",
@@ -57,26 +56,26 @@ func newNpcWorld(t *testing.T) *world {
 		Relation:       core.NpcRelationAlly,
 		CurrentPlaceID: &chapel,
 		OriginPlaceID:  &docks,
-	})
+	}})
 	test.joinColony(test.dmA, brannoc, "FARMER")
-	test.npc(test.dmA, core.NpcInput{Name: "Bramble", Revealed: true, DmNotes: dmNotesCanary})
-	test.npc(test.dmA, core.NpcInput{Name: hiddenTrueName, KnownName: hiddenKnownName, DmNotes: dmNotesCanary})
-	test.npc(test.dmA, core.NpcInput{Name: revealedTrueName, KnownName: revealedKnownName, Revealed: true, DmNotes: dmNotesCanary})
-	test.npc(test.dmB, core.NpcInput{Name: campaignBNpcName, Revealed: true})
-	test.npc(test.dmB, core.NpcInput{Name: campaignBHiddenNpc})
+	test.npc(test.dmA, core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Bramble", DmNotes: dmNotesCanary}})
+	test.npc(test.dmA, core.NewNpcInput{NpcInput: core.NpcInput{Name: hiddenTrueName, KnownName: hiddenKnownName, DmNotes: dmNotesCanary}})
+	test.npc(test.dmA, core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: revealedTrueName, KnownName: revealedKnownName, DmNotes: dmNotesCanary}})
+	test.npc(test.dmB, core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: campaignBNpcName}})
+	test.npc(test.dmB, core.NewNpcInput{NpcInput: core.NpcInput{Name: campaignBHiddenNpc}})
 	return test
 }
 
 func (test *world) place(dm core.Viewer, name string, revealed bool) uuid.UUID {
 	test.t.Helper()
-	place, err := test.service.CreatePlace(test.context, dm, core.PlaceInput{Name: name, Revealed: revealed})
+	place, err := test.service.CreatePlace(test.context, dm, core.NewPlaceInput{Revealed: revealed, PlaceInput: core.PlaceInput{Name: name}})
 	if err != nil {
 		test.t.Fatalf("create place %s: %v", name, err)
 	}
 	return place.ID
 }
 
-func (test *world) npc(dm core.Viewer, input core.NpcInput) uuid.UUID {
+func (test *world) npc(dm core.Viewer, input core.NewNpcInput) uuid.UUID {
 	test.t.Helper()
 	npc, err := test.service.CreateNpc(test.context, dm, input)
 	if err != nil {
@@ -231,7 +230,7 @@ func TestNpcAutocompleteSuggestsOnlyRevealedDisplayNamesFromTheServersCampaign(t
 func TestNpcAutocompleteWithNoRevealedNpcs(t *testing.T) {
 	test := newWorld(t)
 	test.link(guildX, test.dmA)
-	test.npc(test.dmA, core.NpcInput{Name: hiddenTrueName})
+	test.npc(test.dmA, core.NewNpcInput{NpcInput: core.NpcInput{Name: hiddenTrueName}})
 	if suggestions := test.suggest(npcAutocomplete(guildX, activeUserID, "")); !slices.Equal(suggestions, []string{noKnownNpcsMessage}) {
 		t.Errorf("suggestions = %q", suggestions)
 	}

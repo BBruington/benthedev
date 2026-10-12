@@ -1371,6 +1371,160 @@
         ],
         "type": "object"
       },
+      "NewNpcInput": {
+        "additionalProperties": false,
+        "properties": {
+          "age": {
+            "description": "Free text, at most 80 characters",
+            "type": "string"
+          },
+          "aliases": {
+            "description": "At most 20, each at most 80 characters",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "appearance": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "backstory": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "characterClass": {
+            "description": "At most 80 characters",
+            "type": "string"
+          },
+          "currentPlaceId": {
+            "description": "null for none",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dmNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "health": {
+            "$ref": "#/components/schemas/NpcHealth",
+            "description": "Blank means HEALTHY"
+          },
+          "knownName": {
+            "description": "What the party calls them, at most 80 characters; blank when they know the true name",
+            "type": "string"
+          },
+          "labels": {
+            "description": "At most 20, each at most 40 characters",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "level": {
+            "description": "0 to 100, or null when unknown",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "The true name, 1 to 80 characters",
+            "type": "string"
+          },
+          "originPlaceId": {
+            "description": "null for none",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "personality": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "playerNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "race": {
+            "description": "At most 80 characters",
+            "type": "string"
+          },
+          "relation": {
+            "$ref": "#/components/schemas/NpcRelation",
+            "description": "Blank means UNKNOWN"
+          },
+          "revealed": {
+            "description": "Visible to players; the create form starts it off",
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NpcStatus",
+            "description": "Blank means UNKNOWN"
+          }
+        },
+        "required": [
+          "revealed",
+          "name",
+          "knownName",
+          "aliases",
+          "labels",
+          "race",
+          "characterClass",
+          "level",
+          "age",
+          "appearance",
+          "personality",
+          "backstory",
+          "playerNotes",
+          "dmNotes",
+          "status",
+          "health",
+          "relation",
+          "currentPlaceId",
+          "originPlaceId"
+        ],
+        "type": "object"
+      },
+      "NewPlaceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "dmNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "name": {
+            "description": "1 to 80 characters",
+            "type": "string"
+          },
+          "playerNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "revealed": {
+            "description": "Visible to players; the create form starts it on",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revealed",
+          "name",
+          "description",
+          "playerNotes",
+          "dmNotes"
+        ],
+        "type": "object"
+      },
       "NewResourceInput": {
         "additionalProperties": false,
         "properties": {
@@ -1643,10 +1797,6 @@
             "$ref": "#/components/schemas/NpcRelation",
             "description": "Blank means UNKNOWN"
           },
-          "revealed": {
-            "description": "Visible to players; the create form starts it off",
-            "type": "boolean"
-          },
           "status": {
             "$ref": "#/components/schemas/NpcStatus",
             "description": "Blank means UNKNOWN"
@@ -1655,7 +1805,6 @@
         "required": [
           "name",
           "knownName",
-          "revealed",
           "aliases",
           "labels",
           "race",
@@ -1816,18 +1965,13 @@
           "playerNotes": {
             "description": "At most 4000 characters",
             "type": "string"
-          },
-          "revealed": {
-            "description": "Visible to players; the create form starts it on",
-            "type": "boolean"
           }
         },
         "required": [
           "name",
           "description",
           "playerNotes",
-          "dmNotes",
-          "revealed"
+          "dmNotes"
         ],
         "type": "object"
       },
@@ -2429,6 +2573,14 @@
           "kind": {
             "$ref": "#/components/schemas/TimelineKind"
           },
+          "npcId": {
+            "description": "The NPC this entry is about; null for none, or once that NPC is deleted",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "title": {
             "type": "string"
           }
@@ -2442,6 +2594,7 @@
           "body",
           "deltas",
           "arrivalEntryId",
+          "npcId",
           "createdAt"
         ],
         "type": "object"
@@ -4605,7 +4758,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NpcInput"
+                "$ref": "#/components/schemas/NewNpcInput"
               }
             }
           },
@@ -4794,7 +4947,7 @@
             "description": "Error"
           }
         },
-        "summary": "Replace an NPC's record (the colony role changes through the colony operations)",
+        "summary": "Replace an NPC's record (the colony role changes through the colony operations, visibility through setNpcRevealed)",
         "tags": [
           "npcs"
         ],
@@ -5285,7 +5438,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PlaceInput"
+                "$ref": "#/components/schemas/NewPlaceInput"
               }
             }
           },
@@ -5474,7 +5627,7 @@
             "description": "Error"
           }
         },
-        "summary": "Replace a place's record",
+        "summary": "Replace a place's record (visibility changes through setPlaceRevealed)",
         "tags": [
           "places"
         ],

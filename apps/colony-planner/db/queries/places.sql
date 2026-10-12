@@ -23,14 +23,13 @@ INSERT INTO place (campaign_id, name, description, player_notes, dm_notes, revea
 VALUES (@campaign_id, @name, @description, @player_notes, @dm_notes, @revealed)
 RETURNING *;
 
--- Replaces a place's record (PUT semantics).
+-- Replaces a place's record (PUT semantics); revealed changes only through SetPlaceRevealed.
 -- name: UpdatePlace :one
 UPDATE place
 SET name = @name,
     description = @description,
     player_notes = @player_notes,
     dm_notes = @dm_notes,
-    revealed = @revealed,
     updated_at = now()
 WHERE campaign_id = @campaign_id AND id = @id
 RETURNING *;
