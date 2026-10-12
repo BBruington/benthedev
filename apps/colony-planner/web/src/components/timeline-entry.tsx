@@ -9,6 +9,9 @@ import {
 	ShipIcon,
 	SunriseIcon,
 	Undo2Icon,
+	UserMinusIcon,
+	UserPlusIcon,
+	UsersIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Schemas } from "@/api/client";
@@ -23,6 +26,16 @@ type Glyph = { icon: LucideIcon; label: string; tone: string };
 /** Each kind's typed glyph (spec §6.6); the Record fails typechecking when a kind is added. */
 export const timelineKinds: Record<TimelineKind, Glyph> = {
 	CARGO_RECORDED: { icon: PackageOpenIcon, label: "Cargo", tone: "bg-moss/14 text-moss-ink" },
+	COLONIST_JOINED: {
+		icon: UserPlusIcon,
+		label: "Colonist joined",
+		tone: "bg-verdigris/14 text-verdigris-ink",
+	},
+	COLONIST_LEFT: {
+		icon: UserMinusIcon,
+		label: "Colonist left",
+		tone: "bg-ember/12 text-ember-ink",
+	},
 	CUSTOM: { icon: FeatherIcon, label: "Note", tone: "bg-gilt/12 text-gilt-ink" },
 	DAY_CORRECTED: {
 		icon: HourglassIcon,
@@ -42,6 +55,11 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 	},
 	STOCK_ADJUSTED: { icon: ScaleIcon, label: "Stock adjusted", tone: "bg-gilt/12 text-gilt-ink" },
 	UNDO: { icon: Undo2Icon, label: "Undo", tone: "bg-ember/12 text-ember-ink" },
+	WORKFORCE_CHANGED: {
+		icon: UsersIcon,
+		label: "Workforce",
+		tone: "bg-verdigris/14 text-verdigris-ink",
+	},
 };
 
 /**

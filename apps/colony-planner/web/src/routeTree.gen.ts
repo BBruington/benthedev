@@ -22,16 +22,18 @@ import { Route as SignedInCCampaignSlugPendingRouteImport } from "./routes/_sign
 import { Route as SignedInCCampaignSlugShellIndexRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/index"
 import { Route as SignedInCCampaignSlugShellExploreRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/explore"
 import { Route as SignedInCCampaignSlugShellMapsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/maps"
-import { Route as SignedInCCampaignSlugShellNpcsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/npcs"
 import { Route as SignedInCCampaignSlugShellPatronsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/patrons"
 import { Route as SignedInCCampaignSlugShellPeopleRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/people"
-import { Route as SignedInCCampaignSlugShellPlacesRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/places"
 import { Route as SignedInCCampaignSlugShellPlayersRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/players"
 import { Route as SignedInCCampaignSlugShellQuestsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/quests"
 import { Route as SignedInCCampaignSlugShellRequestsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/requests"
 import { Route as SignedInCCampaignSlugShellSessionsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/sessions"
 import { Route as SignedInCCampaignSlugShellSettingsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/settings"
 import { Route as SignedInCCampaignSlugShellTimelineRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/timeline"
+import { Route as SignedInCCampaignSlugShellNpcsIndexRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/npcs.index"
+import { Route as SignedInCCampaignSlugShellNpcsNpcIdRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/npcs.$npcId"
+import { Route as SignedInCCampaignSlugShellPlacesIndexRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/places.index"
+import { Route as SignedInCCampaignSlugShellPlacesPlaceIdRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/places.$placeId"
 
 const SignedInRoute = SignedInRouteImport.update({
   id: "/_signedIn",
@@ -101,12 +103,6 @@ const SignedInCCampaignSlugShellMapsRoute =
     path: "/maps",
     getParentRoute: () => SignedInCCampaignSlugShellRoute,
   } as any)
-const SignedInCCampaignSlugShellNpcsRoute =
-  SignedInCCampaignSlugShellNpcsRouteImport.update({
-    id: "/npcs",
-    path: "/npcs",
-    getParentRoute: () => SignedInCCampaignSlugShellRoute,
-  } as any)
 const SignedInCCampaignSlugShellPatronsRoute =
   SignedInCCampaignSlugShellPatronsRouteImport.update({
     id: "/patrons",
@@ -117,12 +113,6 @@ const SignedInCCampaignSlugShellPeopleRoute =
   SignedInCCampaignSlugShellPeopleRouteImport.update({
     id: "/people",
     path: "/people",
-    getParentRoute: () => SignedInCCampaignSlugShellRoute,
-  } as any)
-const SignedInCCampaignSlugShellPlacesRoute =
-  SignedInCCampaignSlugShellPlacesRouteImport.update({
-    id: "/places",
-    path: "/places",
     getParentRoute: () => SignedInCCampaignSlugShellRoute,
   } as any)
 const SignedInCCampaignSlugShellPlayersRoute =
@@ -161,6 +151,30 @@ const SignedInCCampaignSlugShellTimelineRoute =
     path: "/timeline",
     getParentRoute: () => SignedInCCampaignSlugShellRoute,
   } as any)
+const SignedInCCampaignSlugShellNpcsIndexRoute =
+  SignedInCCampaignSlugShellNpcsIndexRouteImport.update({
+    id: "/npcs/",
+    path: "/npcs/",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellNpcsNpcIdRoute =
+  SignedInCCampaignSlugShellNpcsNpcIdRouteImport.update({
+    id: "/npcs/$npcId",
+    path: "/npcs/$npcId",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellPlacesIndexRoute =
+  SignedInCCampaignSlugShellPlacesIndexRouteImport.update({
+    id: "/places/",
+    path: "/places/",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellPlacesPlaceIdRoute =
+  SignedInCCampaignSlugShellPlacesPlaceIdRouteImport.update({
+    id: "/places/$placeId",
+    path: "/places/$placeId",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof SignedInAccountIndexRoute
@@ -172,10 +186,8 @@ export interface FileRoutesByFullPath {
   "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
   "/c/$campaignSlug/maps": typeof SignedInCCampaignSlugShellMapsRoute
-  "/c/$campaignSlug/npcs": typeof SignedInCCampaignSlugShellNpcsRoute
   "/c/$campaignSlug/patrons": typeof SignedInCCampaignSlugShellPatronsRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
-  "/c/$campaignSlug/places": typeof SignedInCCampaignSlugShellPlacesRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/c/$campaignSlug/quests": typeof SignedInCCampaignSlugShellQuestsRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
@@ -183,6 +195,10 @@ export interface FileRoutesByFullPath {
   "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
   "/c/$campaignSlug/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
   "/c/$campaignSlug/": typeof SignedInCCampaignSlugShellIndexRoute
+  "/c/$campaignSlug/npcs/$npcId": typeof SignedInCCampaignSlugShellNpcsNpcIdRoute
+  "/c/$campaignSlug/places/$placeId": typeof SignedInCCampaignSlugShellPlacesPlaceIdRoute
+  "/c/$campaignSlug/npcs/": typeof SignedInCCampaignSlugShellNpcsIndexRoute
+  "/c/$campaignSlug/places/": typeof SignedInCCampaignSlugShellPlacesIndexRoute
 }
 export interface FileRoutesByTo {
   "/": typeof SignedInAccountIndexRoute
@@ -194,16 +210,18 @@ export interface FileRoutesByTo {
   "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
   "/c/$campaignSlug/maps": typeof SignedInCCampaignSlugShellMapsRoute
-  "/c/$campaignSlug/npcs": typeof SignedInCCampaignSlugShellNpcsRoute
   "/c/$campaignSlug/patrons": typeof SignedInCCampaignSlugShellPatronsRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
-  "/c/$campaignSlug/places": typeof SignedInCCampaignSlugShellPlacesRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/c/$campaignSlug/quests": typeof SignedInCCampaignSlugShellQuestsRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
   "/c/$campaignSlug/sessions": typeof SignedInCCampaignSlugShellSessionsRoute
   "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
   "/c/$campaignSlug/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
+  "/c/$campaignSlug/npcs/$npcId": typeof SignedInCCampaignSlugShellNpcsNpcIdRoute
+  "/c/$campaignSlug/places/$placeId": typeof SignedInCCampaignSlugShellPlacesPlaceIdRoute
+  "/c/$campaignSlug/npcs": typeof SignedInCCampaignSlugShellNpcsIndexRoute
+  "/c/$campaignSlug/places": typeof SignedInCCampaignSlugShellPlacesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -219,10 +237,8 @@ export interface FileRoutesById {
   "/_signedIn/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/_signedIn/c/$campaignSlug/_shell/explore": typeof SignedInCCampaignSlugShellExploreRoute
   "/_signedIn/c/$campaignSlug/_shell/maps": typeof SignedInCCampaignSlugShellMapsRoute
-  "/_signedIn/c/$campaignSlug/_shell/npcs": typeof SignedInCCampaignSlugShellNpcsRoute
   "/_signedIn/c/$campaignSlug/_shell/patrons": typeof SignedInCCampaignSlugShellPatronsRoute
   "/_signedIn/c/$campaignSlug/_shell/people": typeof SignedInCCampaignSlugShellPeopleRoute
-  "/_signedIn/c/$campaignSlug/_shell/places": typeof SignedInCCampaignSlugShellPlacesRoute
   "/_signedIn/c/$campaignSlug/_shell/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/_signedIn/c/$campaignSlug/_shell/quests": typeof SignedInCCampaignSlugShellQuestsRoute
   "/_signedIn/c/$campaignSlug/_shell/requests": typeof SignedInCCampaignSlugShellRequestsRoute
@@ -230,6 +246,10 @@ export interface FileRoutesById {
   "/_signedIn/c/$campaignSlug/_shell/settings": typeof SignedInCCampaignSlugShellSettingsRoute
   "/_signedIn/c/$campaignSlug/_shell/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
   "/_signedIn/c/$campaignSlug/_shell/": typeof SignedInCCampaignSlugShellIndexRoute
+  "/_signedIn/c/$campaignSlug/_shell/npcs/$npcId": typeof SignedInCCampaignSlugShellNpcsNpcIdRoute
+  "/_signedIn/c/$campaignSlug/_shell/places/$placeId": typeof SignedInCCampaignSlugShellPlacesPlaceIdRoute
+  "/_signedIn/c/$campaignSlug/_shell/npcs/": typeof SignedInCCampaignSlugShellNpcsIndexRoute
+  "/_signedIn/c/$campaignSlug/_shell/places/": typeof SignedInCCampaignSlugShellPlacesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -243,10 +263,8 @@ export interface FileRouteTypes {
     | "/c/$campaignSlug/pending"
     | "/c/$campaignSlug/explore"
     | "/c/$campaignSlug/maps"
-    | "/c/$campaignSlug/npcs"
     | "/c/$campaignSlug/patrons"
     | "/c/$campaignSlug/people"
-    | "/c/$campaignSlug/places"
     | "/c/$campaignSlug/players"
     | "/c/$campaignSlug/quests"
     | "/c/$campaignSlug/requests"
@@ -254,6 +272,10 @@ export interface FileRouteTypes {
     | "/c/$campaignSlug/settings"
     | "/c/$campaignSlug/timeline"
     | "/c/$campaignSlug/"
+    | "/c/$campaignSlug/npcs/$npcId"
+    | "/c/$campaignSlug/places/$placeId"
+    | "/c/$campaignSlug/npcs/"
+    | "/c/$campaignSlug/places/"
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/"
@@ -265,16 +287,18 @@ export interface FileRouteTypes {
     | "/c/$campaignSlug/pending"
     | "/c/$campaignSlug/explore"
     | "/c/$campaignSlug/maps"
-    | "/c/$campaignSlug/npcs"
     | "/c/$campaignSlug/patrons"
     | "/c/$campaignSlug/people"
-    | "/c/$campaignSlug/places"
     | "/c/$campaignSlug/players"
     | "/c/$campaignSlug/quests"
     | "/c/$campaignSlug/requests"
     | "/c/$campaignSlug/sessions"
     | "/c/$campaignSlug/settings"
     | "/c/$campaignSlug/timeline"
+    | "/c/$campaignSlug/npcs/$npcId"
+    | "/c/$campaignSlug/places/$placeId"
+    | "/c/$campaignSlug/npcs"
+    | "/c/$campaignSlug/places"
   id:
     | "__root__"
     | "/_signedIn"
@@ -289,10 +313,8 @@ export interface FileRouteTypes {
     | "/_signedIn/c/$campaignSlug/pending"
     | "/_signedIn/c/$campaignSlug/_shell/explore"
     | "/_signedIn/c/$campaignSlug/_shell/maps"
-    | "/_signedIn/c/$campaignSlug/_shell/npcs"
     | "/_signedIn/c/$campaignSlug/_shell/patrons"
     | "/_signedIn/c/$campaignSlug/_shell/people"
-    | "/_signedIn/c/$campaignSlug/_shell/places"
     | "/_signedIn/c/$campaignSlug/_shell/players"
     | "/_signedIn/c/$campaignSlug/_shell/quests"
     | "/_signedIn/c/$campaignSlug/_shell/requests"
@@ -300,6 +322,10 @@ export interface FileRouteTypes {
     | "/_signedIn/c/$campaignSlug/_shell/settings"
     | "/_signedIn/c/$campaignSlug/_shell/timeline"
     | "/_signedIn/c/$campaignSlug/_shell/"
+    | "/_signedIn/c/$campaignSlug/_shell/npcs/$npcId"
+    | "/_signedIn/c/$campaignSlug/_shell/places/$placeId"
+    | "/_signedIn/c/$campaignSlug/_shell/npcs/"
+    | "/_signedIn/c/$campaignSlug/_shell/places/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -400,13 +426,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SignedInCCampaignSlugShellMapsRouteImport
       parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_signedIn/c/$campaignSlug/_shell/npcs": {
-      id: "/_signedIn/c/$campaignSlug/_shell/npcs"
-      path: "/npcs"
-      fullPath: "/c/$campaignSlug/npcs"
-      preLoaderRoute: typeof SignedInCCampaignSlugShellNpcsRouteImport
-      parentRoute: typeof SignedInCCampaignSlugShellRoute
-    }
     "/_signedIn/c/$campaignSlug/_shell/patrons": {
       id: "/_signedIn/c/$campaignSlug/_shell/patrons"
       path: "/patrons"
@@ -419,13 +438,6 @@ declare module "@tanstack/react-router" {
       path: "/people"
       fullPath: "/c/$campaignSlug/people"
       preLoaderRoute: typeof SignedInCCampaignSlugShellPeopleRouteImport
-      parentRoute: typeof SignedInCCampaignSlugShellRoute
-    }
-    "/_signedIn/c/$campaignSlug/_shell/places": {
-      id: "/_signedIn/c/$campaignSlug/_shell/places"
-      path: "/places"
-      fullPath: "/c/$campaignSlug/places"
-      preLoaderRoute: typeof SignedInCCampaignSlugShellPlacesRouteImport
       parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
     "/_signedIn/c/$campaignSlug/_shell/players": {
@@ -470,6 +482,34 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SignedInCCampaignSlugShellTimelineRouteImport
       parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
+    "/_signedIn/c/$campaignSlug/_shell/npcs/": {
+      id: "/_signedIn/c/$campaignSlug/_shell/npcs/"
+      path: "/npcs"
+      fullPath: "/c/$campaignSlug/npcs/"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellNpcsIndexRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/npcs/$npcId": {
+      id: "/_signedIn/c/$campaignSlug/_shell/npcs/$npcId"
+      path: "/npcs/$npcId"
+      fullPath: "/c/$campaignSlug/npcs/$npcId"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellNpcsNpcIdRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/places/": {
+      id: "/_signedIn/c/$campaignSlug/_shell/places/"
+      path: "/places"
+      fullPath: "/c/$campaignSlug/places/"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellPlacesIndexRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/places/$placeId": {
+      id: "/_signedIn/c/$campaignSlug/_shell/places/$placeId"
+      path: "/places/$placeId"
+      fullPath: "/c/$campaignSlug/places/$placeId"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellPlacesPlaceIdRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
   }
 }
 
@@ -494,10 +534,8 @@ const SignedInAccountRouteWithChildren = SignedInAccountRoute._addFileChildren(
 interface SignedInCCampaignSlugShellRouteChildren {
   SignedInCCampaignSlugShellExploreRoute: typeof SignedInCCampaignSlugShellExploreRoute
   SignedInCCampaignSlugShellMapsRoute: typeof SignedInCCampaignSlugShellMapsRoute
-  SignedInCCampaignSlugShellNpcsRoute: typeof SignedInCCampaignSlugShellNpcsRoute
   SignedInCCampaignSlugShellPatronsRoute: typeof SignedInCCampaignSlugShellPatronsRoute
   SignedInCCampaignSlugShellPeopleRoute: typeof SignedInCCampaignSlugShellPeopleRoute
-  SignedInCCampaignSlugShellPlacesRoute: typeof SignedInCCampaignSlugShellPlacesRoute
   SignedInCCampaignSlugShellPlayersRoute: typeof SignedInCCampaignSlugShellPlayersRoute
   SignedInCCampaignSlugShellQuestsRoute: typeof SignedInCCampaignSlugShellQuestsRoute
   SignedInCCampaignSlugShellRequestsRoute: typeof SignedInCCampaignSlugShellRequestsRoute
@@ -505,6 +543,10 @@ interface SignedInCCampaignSlugShellRouteChildren {
   SignedInCCampaignSlugShellSettingsRoute: typeof SignedInCCampaignSlugShellSettingsRoute
   SignedInCCampaignSlugShellTimelineRoute: typeof SignedInCCampaignSlugShellTimelineRoute
   SignedInCCampaignSlugShellIndexRoute: typeof SignedInCCampaignSlugShellIndexRoute
+  SignedInCCampaignSlugShellNpcsNpcIdRoute: typeof SignedInCCampaignSlugShellNpcsNpcIdRoute
+  SignedInCCampaignSlugShellPlacesPlaceIdRoute: typeof SignedInCCampaignSlugShellPlacesPlaceIdRoute
+  SignedInCCampaignSlugShellNpcsIndexRoute: typeof SignedInCCampaignSlugShellNpcsIndexRoute
+  SignedInCCampaignSlugShellPlacesIndexRoute: typeof SignedInCCampaignSlugShellPlacesIndexRoute
 }
 
 const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteChildren =
@@ -512,13 +554,10 @@ const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteCh
     SignedInCCampaignSlugShellExploreRoute:
       SignedInCCampaignSlugShellExploreRoute,
     SignedInCCampaignSlugShellMapsRoute: SignedInCCampaignSlugShellMapsRoute,
-    SignedInCCampaignSlugShellNpcsRoute: SignedInCCampaignSlugShellNpcsRoute,
     SignedInCCampaignSlugShellPatronsRoute:
       SignedInCCampaignSlugShellPatronsRoute,
     SignedInCCampaignSlugShellPeopleRoute:
       SignedInCCampaignSlugShellPeopleRoute,
-    SignedInCCampaignSlugShellPlacesRoute:
-      SignedInCCampaignSlugShellPlacesRoute,
     SignedInCCampaignSlugShellPlayersRoute:
       SignedInCCampaignSlugShellPlayersRoute,
     SignedInCCampaignSlugShellQuestsRoute:
@@ -532,6 +571,14 @@ const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteCh
     SignedInCCampaignSlugShellTimelineRoute:
       SignedInCCampaignSlugShellTimelineRoute,
     SignedInCCampaignSlugShellIndexRoute: SignedInCCampaignSlugShellIndexRoute,
+    SignedInCCampaignSlugShellNpcsNpcIdRoute:
+      SignedInCCampaignSlugShellNpcsNpcIdRoute,
+    SignedInCCampaignSlugShellPlacesPlaceIdRoute:
+      SignedInCCampaignSlugShellPlacesPlaceIdRoute,
+    SignedInCCampaignSlugShellNpcsIndexRoute:
+      SignedInCCampaignSlugShellNpcsIndexRoute,
+    SignedInCCampaignSlugShellPlacesIndexRoute:
+      SignedInCCampaignSlugShellPlacesIndexRoute,
   }
 
 const SignedInCCampaignSlugShellRouteWithChildren =

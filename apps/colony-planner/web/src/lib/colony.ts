@@ -169,6 +169,17 @@ type ToastableEntry = {
 	dm?: { visibility: "PUBLIC" | "DM"; undoneAt: string | null };
 };
 
+const colonyChangePathPatterns = [
+	/^\/api\/campaigns\/\{campaignId\}\/colony(\/|$)/,
+	/^\/api\/campaigns\/\{campaignId\}\/people\/(transfer|set-count)$/,
+	/^\/api\/campaigns\/\{campaignId\}\/npcs\/\{npcId\}\/(join-colony|change-role|leave-colony)$/,
+];
+
+/** A mutation path that goes through the colony write path (spec §5.1) and so writes timeline entries. */
+export function isColonyChangePath(path: string): boolean {
+	return colonyChangePathPatterns.some((pattern) => pattern.test(path));
+}
+
 /** An entry everyone can see: the player projection has no dm object, the DM's says PUBLIC. */
 export function isPublicEntry(entry: ToastableEntry): boolean {
 	if (!entry.dm) {

@@ -367,12 +367,15 @@ function ResourceSheet({
 }
 
 /** The curated icons as a radio group: arrow keys move through them, as in any radio group. */
-function IconPicker({
+export function IconPicker({
 	value,
 	onChange,
+	groupName = "resource-icon",
 }: {
 	value: ColonyIconName;
 	onChange: (icon: ColonyIconName) => void;
+	/** The radio group's name, unique on the page. */
+	groupName?: string;
 }) {
 	return (
 		<fieldset className="grid gap-2">
@@ -397,7 +400,7 @@ function IconPicker({
 							<input
 								checked={isSelected}
 								className="sr-only"
-								name="resource-icon"
+								name={groupName}
 								onChange={() => {
 									onChange(name);
 								}}

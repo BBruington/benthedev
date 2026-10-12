@@ -242,8 +242,8 @@ func addMemberships(requestContext context.Context, queries *store.Queries, camp
 	return nil
 }
 
-// sampleHeadcounts are the role headcounts the sample colony starts with: 16 colonists. There is no
-// workforce operation until M2, so they are set directly (spec §9, M1).
+// sampleHeadcounts are the role headcounts the sample colony starts with: 16 colonists, set directly
+// before any history (spec §9, M1); three of them are then named (seedPeople).
 var sampleHeadcounts = map[string]int32{
 	"FARMER":     4,
 	"HEALER":     1,
@@ -272,6 +272,11 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 		Visibility: core.TimelineVisibilityPublic,
 	}); err != nil {
 		return fmt.Errorf("founding entry: %w", err)
+	}
+	// M2's cast arrives with the founders; the named colonists are promoted from the founders' own
+	// headcounts, so upkeep and every M1 number stay as they were.
+	if err := seedPeople(requestContext, service, dm, sampleColonyPlaces, sampleColonyNpcs); err != nil {
+		return err
 	}
 	version := func() (int64, error) {
 		board, err := service.GetColonyBoard(requestContext, dm)
@@ -409,6 +414,9 @@ func seedSecondColony(requestContext context.Context, service *core.Service, que
 		Visibility: core.TimelineVisibilityPublic,
 	}); err != nil {
 		return fmt.Errorf("founding entry: %w", err)
+	}
+	if err := seedPeople(requestContext, service, dm, secondSamplePlaces, secondSampleNpcs); err != nil {
+		return err
 	}
 	steps := []struct {
 		name string

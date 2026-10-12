@@ -616,6 +616,216 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/npcs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The NPC roster, searched and filtered, in the viewer's projection */
+        get: operations["listNpcs"];
+        put?: never;
+        /** Add an NPC */
+        post: operations["createNpc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/npcs/{npcId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One NPC; a hidden one is not found for players */
+        get: operations["getNpc"];
+        /** Replace an NPC's record (the colony role changes through the colony operations) */
+        put: operations["updateNpc"];
+        post?: never;
+        /** Delete an NPC who isn't a colonist */
+        delete: operations["deleteNpc"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/npcs/{npcId}/change-role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a named colonist to another role */
+        post: operations["changeColonyRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/npcs/{npcId}/join-colony": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make an NPC a named colonist, as a new colonist or by naming one of a role's unnamed colonists */
+        post: operations["joinColony"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/npcs/{npcId}/leave-colony": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take a named colonist out of the colony, or back among the role's unnamed colonists */
+        post: operations["leaveColony"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/npcs/{npcId}/revealed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reveal an NPC to the players, or hide them again */
+        put: operations["setNpcRevealed"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every role with its headcounts and named colonists, in the viewer's projection */
+        get: operations["getWorkforce"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/people/set-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a role's unnamed headcount directly */
+        post: operations["setRoleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/people/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move unnamed colonists from one role to another */
+        post: operations["transferColonists"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/places": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Places, optionally searched by name, in the viewer's projection */
+        get: operations["listPlaces"];
+        put?: never;
+        /** Add a place */
+        post: operations["createPlace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/places/{placeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One place with the NPCs who are there; a hidden one is not found for players */
+        get: operations["getPlace"];
+        /** Replace a place's record */
+        put: operations["updatePlace"];
+        post?: never;
+        /** Delete a place; NPCs there or from there keep no place */
+        delete: operations["deletePlace"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/places/{placeId}/revealed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reveal a place to the players, or hide it again */
+        put: operations["setPlaceRevealed"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/resources": {
         parameters: {
             query?: never;
@@ -644,6 +854,41 @@ export interface paths {
         get?: never;
         /** Replace a resource's label, icon, bounds, order and archived flag */
         put: operations["updateResource"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every role, archived ones included, for settings */
+        get: operations["listRoles"];
+        put?: never;
+        /** Add a role */
+        post: operations["createRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/roles/{roleKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a role's label, icon, order and archived flag */
+        put: operations["updateRole"];
         post?: never;
         delete?: never;
         options?: never;
@@ -964,6 +1209,12 @@ export interface components {
             slug: string;
             status: components["schemas"]["CampaignStatus"];
         };
+        ChangeColonyRoleInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+            public: boolean;
+            roleKey: string;
+        };
         CharacterNameInput: {
             /** @description At most 60 characters after trimming; blank or null clears it */
             characterName: string | null;
@@ -1020,6 +1271,11 @@ export interface components {
             /** Format: int64 */
             minAmount: number;
         };
+        ColonyRoleReference: {
+            icon: components["schemas"]["ColonyIcon"];
+            key: string;
+            label: string;
+        } | null;
         CorrectDayInput: {
             /**
              * Format: int64
@@ -1113,6 +1369,15 @@ export interface components {
         InviteLink: {
             inviteCode: string;
         };
+        JoinColonyInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+            /** @description NEW_COLONIST (the default: Colonists +1) or PROMOTE_UNNAMED (names one of the role's unnamed colonists) */
+            mode: components["schemas"]["JoinMode"];
+            roleKey: string;
+        };
+        /** @enum {string} */
+        JoinMode: "NEW_COLONIST" | "PROMOTE_UNNAMED";
         LastChange: {
             /** Format: date-time */
             changedAt: string;
@@ -1126,6 +1391,14 @@ export interface components {
             /** @description What the change did, e.g. 3 days pass · Day 44 */
             label: string;
         } | null;
+        LeaveColonyInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+            /** @description REMOVE (the default: Colonists -1) or RETURN_TO_POOL (they stay as one of the role's unnamed colonists) */
+            mode: components["schemas"]["LeaveMode"];
+        };
+        /** @enum {string} */
+        LeaveMode: "REMOVE" | "RETURN_TO_POOL";
         LinkCode: {
             /** @description Shown as BENY-XXXXX-XXXXX; run /link code:<it> in the server */
             code: string;
@@ -1199,6 +1472,152 @@ export interface components {
             /** Format: int64 */
             minAmount: number;
         };
+        NewRoleInput: {
+            icon: components["schemas"]["ColonyIcon"];
+            /** @description 1 to 40 characters after trimming */
+            label: string;
+        };
+        Npc: {
+            age: string;
+            aliases: string[];
+            appearance: string;
+            backstory: string;
+            characterClass: string;
+            /** @description null when not a colonist */
+            colonyRole: components["schemas"]["ColonyRoleReference"];
+            /** @description null when unset or hidden from this viewer */
+            currentPlace: components["schemas"]["PlaceReference"];
+            /** @description The known name when the DM set one, else the true name: the only name players get */
+            displayName: string;
+            dm?: components["schemas"]["NpcDm"];
+            health: components["schemas"]["NpcHealth"];
+            /** Format: uuid */
+            id: string;
+            labels: string[];
+            /**
+             * Format: int64
+             * @description null when unknown
+             */
+            level: number | null;
+            /** @description null when unset or hidden from this viewer */
+            originPlace: components["schemas"]["PlaceReference"];
+            personality: string;
+            playerNotes: string;
+            race: string;
+            relation: components["schemas"]["NpcRelation"];
+            status: components["schemas"]["NpcStatus"];
+        };
+        NpcDm: {
+            dmNotes: string;
+            /** @description What the party calls them; blank when they know the true name */
+            knownName: string;
+            /** @description The true name */
+            name: string;
+            revealed: boolean;
+        };
+        /** @enum {string} */
+        NpcHealth: "HEALTHY" | "INJURED" | "SICK" | "UNKNOWN" | "DEAD";
+        NpcInput: {
+            /** @description Free text, at most 80 characters */
+            age: string;
+            /** @description At most 20, each at most 80 characters */
+            aliases: string[];
+            /** @description At most 4000 characters */
+            appearance: string;
+            /** @description At most 4000 characters */
+            backstory: string;
+            /** @description At most 80 characters */
+            characterClass: string;
+            /**
+             * Format: uuid
+             * @description null for none
+             */
+            currentPlaceId: string | null;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description Blank means HEALTHY */
+            health: components["schemas"]["NpcHealth"];
+            /** @description What the party calls them, at most 80 characters; blank when they know the true name */
+            knownName: string;
+            /** @description At most 20, each at most 40 characters */
+            labels: string[];
+            /**
+             * Format: int64
+             * @description 0 to 100, or null when unknown
+             */
+            level: number | null;
+            /** @description The true name, 1 to 80 characters */
+            name: string;
+            /**
+             * Format: uuid
+             * @description null for none
+             */
+            originPlaceId: string | null;
+            /** @description At most 4000 characters */
+            personality: string;
+            /** @description At most 4000 characters */
+            playerNotes: string;
+            /** @description At most 80 characters */
+            race: string;
+            /** @description Blank means UNKNOWN */
+            relation: components["schemas"]["NpcRelation"];
+            /** @description Visible to players; the create form starts it off */
+            revealed: boolean;
+            /** @description Blank means UNKNOWN */
+            status: components["schemas"]["NpcStatus"];
+        };
+        NpcList: {
+            npcs: components["schemas"]["Npc"][];
+        };
+        NpcReference: {
+            displayName: string;
+            dm?: components["schemas"]["NpcReferenceDm"];
+            /** Format: uuid */
+            id: string;
+        };
+        NpcReferenceDm: {
+            /** @description The true name */
+            name: string;
+            revealed: boolean;
+        };
+        /** @enum {string} */
+        NpcRelation: "ALLY" | "NEUTRAL" | "SUSPICIOUS" | "ENEMY" | "UNKNOWN";
+        /** @enum {string} */
+        NpcStatus: "ALIVE" | "DEAD" | "MISSING" | "UNKNOWN";
+        Place: {
+            description: string;
+            dm?: components["schemas"]["PlaceDm"];
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Filled on the place's own page; empty in lists */
+            npcsHere: components["schemas"]["NpcReference"][];
+            playerNotes: string;
+        };
+        PlaceDm: {
+            dmNotes: string;
+            revealed: boolean;
+        };
+        PlaceInput: {
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description 1 to 80 characters */
+            name: string;
+            /** @description At most 4000 characters */
+            playerNotes: string;
+            /** @description Visible to players; the create form starts it on */
+            revealed: boolean;
+        };
+        PlaceList: {
+            places: components["schemas"]["Place"][];
+        };
+        PlaceReference: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        } | null;
         ProfileInput: {
             /** @description At most 60 characters after trimming; blank or null clears it */
             characterName: string | null;
@@ -1262,7 +1681,46 @@ export interface components {
             /** Format: int64 */
             sortOrder: number;
         };
+        RevealInput: {
+            revealed: boolean;
+        };
         RoleHeadcount: {
+            icon: components["schemas"]["ColonyIcon"];
+            isSystem: boolean;
+            key: string;
+            label: string;
+            /**
+             * Format: int64
+             * @description Named NPC colonists in this role; for players, only revealed ones
+             */
+            namedCount: number;
+            /** Format: int64 */
+            total: number;
+            /**
+             * Format: int64
+             * @description For players, hidden named colonists are counted here
+             */
+            unnamedCount: number;
+        };
+        RoleInput: {
+            /** @description Only when nobody is in the role; Unassigned can't be archived */
+            archived: boolean;
+            icon: components["schemas"]["ColonyIcon"];
+            /** @description 1 to 40 characters after trimming; Unassigned keeps its name */
+            label: string;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        RoleList: {
+            roles: components["schemas"]["RoleSettings"][];
+        };
+        RoleSettings: {
+            archived: boolean;
+            /**
+             * Format: int64
+             * @description unnamedCount + namedCount; a role can be archived only at 0
+             */
+            headcount: number;
             icon: components["schemas"]["ColonyIcon"];
             isSystem: boolean;
             key: string;
@@ -1270,9 +1728,20 @@ export interface components {
             /** Format: int64 */
             namedCount: number;
             /** Format: int64 */
-            total: number;
+            sortOrder: number;
             /** Format: int64 */
             unnamedCount: number;
+        };
+        SetRoleCountInput: {
+            /**
+             * Format: int64
+             * @description 0 or more
+             */
+            count: number;
+            /** Format: int64 */
+            expectedVersion: number;
+            public: boolean;
+            roleKey: string;
         };
         Settings: {
             /** @description Adds Beny Bot to a Discord server; null until DISCORD_CLIENT_ID is set */
@@ -1370,7 +1839,7 @@ export interface components {
             visibility: components["schemas"]["TimelineVisibility"];
         };
         /** @enum {string} */
-        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT";
         TimelinePage: {
             /**
              * Format: int64
@@ -1397,13 +1866,58 @@ export interface components {
         /** @enum {string} */
         TimelineVisibility: "PUBLIC" | "DM";
         /** @enum {string} */
-        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources";
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places";
+        TransferInput: {
+            /**
+             * Format: int64
+             * @description 1 or more, and no more than the source role's unnamed colonists
+             */
+            count: number;
+            /** Format: int64 */
+            expectedVersion: number;
+            fromRoleKey: string;
+            public: boolean;
+            toRoleKey: string;
+        };
         UndoInput: {
             /** Format: uuid */
             groupId: string;
         };
         ViewAsPlayerInput: {
             enabled: boolean;
+        };
+        Workforce: {
+            /** Format: int64 */
+            colonists: number;
+            /** @description Unarchived roles in display order, Unassigned included */
+            roles: components["schemas"]["WorkforceRole"][];
+            /**
+             * Format: int64
+             * @description The Unassigned role's total
+             */
+            unassigned: number;
+            /**
+             * Format: int64
+             * @description The colony version this read saw; workforce forms send it as expectedVersion
+             */
+            version: number;
+        };
+        WorkforceRole: {
+            icon: components["schemas"]["ColonyIcon"];
+            /** @description Marks UNASSIGNED, where new colonists land */
+            isSystem: boolean;
+            key: string;
+            label: string;
+            namedColonists: components["schemas"]["NpcReference"][];
+            /** Format: int64 */
+            namedCount: number;
+            /** Format: int64 */
+            total: number;
+            /**
+             * Format: int64
+             * @description For players, hidden named colonists are counted here
+             */
+            unnamedCount: number;
         };
     };
     responses: never;
@@ -2601,6 +3115,650 @@ export interface operations {
             };
         };
     };
+    listNpcs: {
+        parameters: {
+            query?: {
+                /** @description Players match display names and aliases; the DM also matches true and known names */
+                search?: string;
+                status?: components["schemas"]["NpcStatus"];
+                health?: components["schemas"]["NpcHealth"];
+                relation?: components["schemas"]["NpcRelation"];
+                label?: string;
+                /** @description Named colonists in this role */
+                roleKey?: string;
+                /** @description NPCs whose current place this is */
+                placeId?: string;
+                colonistsOnly?: boolean;
+                /** @description The DM's Hidden filter; players only ever get revealed NPCs */
+                revealed?: "true" | "false";
+            };
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NpcList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createNpc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NpcInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Npc"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getNpc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Npc"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateNpc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NpcInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Npc"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteNpc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    changeColonyRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeColonyRoleInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    joinColony: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinColonyInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    leaveColony: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveColonyInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setNpcRevealed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Npc"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getWorkforce: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workforce"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setRoleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRoleCountInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    transferColonists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listPlaces: {
+        parameters: {
+            query?: {
+                /** @description Names containing this text */
+                search?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createPlace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaceInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Place"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getPlace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                placeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Place"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updatePlace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                placeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Place"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deletePlace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                placeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setPlaceRevealed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                placeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Place"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     listResources: {
         parameters: {
             query?: never;
@@ -2693,6 +3851,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResourceSettings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewRoleInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleSettings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                roleKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleSettings"];
                 };
             };
             /** @description Error */

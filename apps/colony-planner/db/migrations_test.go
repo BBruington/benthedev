@@ -22,6 +22,15 @@ func countRows(t *testing.T, database *dbtest.Database, query string, arguments 
 	return count
 }
 
+func queryText(t *testing.T, database *dbtest.Database, query string, arguments ...any) string {
+	t.Helper()
+	var value string
+	if err := database.Pool.QueryRow(context.Background(), query, arguments...).Scan(&value); err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
+	return value
+}
+
 // applicationTables lists the schema's tables other than goose's own.
 func applicationTables(t *testing.T, database *dbtest.Database) []string {
 	t.Helper()
@@ -180,11 +189,72 @@ func TestTheSchemaKeepsCampaignsApart(t *testing.T) {
 		t.Fatalf("the entry of a deleted member = %d rows, want 1 with no author", count)
 	}
 
+	// People and places (M2): every link between them is composite, so it stays inside one campaign.
+	insertPlace := func(campaignID uuid.UUID, name string) uuid.UUID {
+		t.Helper()
+		var placeID uuid.UUID
+		if err := database.Pool.QueryRow(testContext, `INSERT INTO place (campaign_id, name) VALUES ($1, $2) RETURNING id`, campaignID, name).Scan(&placeID); err != nil {
+			t.Fatalf("insert place: %v", err)
+		}
+		return placeID
+	}
+	insertNpc := func(campaignID uuid.UUID, name string) uuid.UUID {
+		t.Helper()
+		var npcID uuid.UUID
+		if err := database.Pool.QueryRow(testContext, `INSERT INTO npc (campaign_id, name) VALUES ($1, $2) RETURNING id`, campaignID, name).Scan(&npcID); err != nil {
+			t.Fatalf("insert npc: %v", err)
+		}
+		return npcID
+	}
+	firstPlace := insertPlace(firstCampaign, "Docks")
+	secondPlace := insertPlace(secondCampaign, "Ridge")
+	firstNpc := insertNpc(firstCampaign, "Brannoc")
+	secondNpc := insertNpc(secondCampaign, "Dagny")
+	requireConstraintViolation(t, execute(`UPDATE npc SET current_place_id = $1 WHERE id = $2`, secondPlace, firstNpc), "npc_current_place_fkey")
+	requireConstraintViolation(t, execute(`UPDATE npc SET origin_place_id = $1 WHERE id = $2`, secondPlace, firstNpc), "npc_origin_place_fkey")
+	requireConstraintViolation(t, execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, npc_id)
+		VALUES ($1, 0, 'CUSTOM', 'Cross', 'PUBLIC', $2)`, firstCampaign, secondNpc), "timeline_event_npc_fkey")
+	if err := execute(`INSERT INTO role (campaign_id, key, label, icon) VALUES ($1, 'SAILOR', 'Sailor', 'Anchor')`, secondCampaign); err != nil {
+		t.Fatalf("insert role: %v", err)
+	}
+	requireConstraintViolation(t, execute(`UPDATE npc SET colony_role_key = 'SAILOR' WHERE id = $1`, firstNpc), "npc_colony_role_fkey")
+	requireConstraintViolation(t, execute(`INSERT INTO npc (campaign_id, name) VALUES ($1, '')`, firstCampaign), "npc_name_check")
+	// A role is archived only when its headcount is 0, named colonists included (spec §4.2).
+	if err := execute(`UPDATE npc SET colony_role_key = 'FARMER', current_place_id = $1, origin_place_id = $1, known_name = 'The Farmer' WHERE id = $2`, firstPlace, firstNpc); err != nil {
+		t.Fatalf("make a named colonist: %v", err)
+	}
+	if displayName := queryText(t, database, `SELECT display_name FROM npc WHERE id = $1`, firstNpc); displayName != "The Farmer" {
+		t.Fatalf("display_name = %q, want the known name", displayName)
+	}
+	requireConstraintViolation(t, execute(`UPDATE role SET archived = true WHERE campaign_id = $1 AND key = 'FARMER'`, firstCampaign), "role_archived_no_named_colonists")
+	if err := execute(`UPDATE role SET archived = true WHERE campaign_id = $1 AND key = 'SAILOR'`, secondCampaign); err != nil {
+		t.Fatalf("archive an empty role: %v", err)
+	}
+	requireConstraintViolation(t, execute(`UPDATE npc SET colony_role_key = 'SAILOR' WHERE id = $1`, secondNpc), "npc_colony_role_not_archived")
+	// Deleting a place clears only the NPC's place columns; deleting an NPC clears only the entry's link.
+	if err := execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, npc_id)
+		VALUES ($1, 0, 'COLONIST_JOINED', 'Joined', 'PUBLIC', $2)`, secondCampaign, secondNpc); err != nil {
+		t.Fatalf("insert a linked entry: %v", err)
+	}
+	if err := execute(`DELETE FROM place WHERE id = $1`, firstPlace); err != nil {
+		t.Fatalf("delete place: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM npc WHERE id = $1 AND campaign_id = $2 AND current_place_id IS NULL AND origin_place_id IS NULL`, firstNpc, firstCampaign); count != 1 {
+		t.Fatalf("the NPC of a deleted place = %d rows, want 1 with no place", count)
+	}
+	if err := execute(`DELETE FROM npc WHERE id = $1`, secondNpc); err != nil {
+		t.Fatalf("delete npc: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM timeline_event WHERE campaign_id = $1 AND kind = 'COLONIST_JOINED' AND npc_id IS NULL`, secondCampaign); count != 1 {
+		t.Fatalf("the entry of a deleted NPC = %d rows, want 1 with no link", count)
+	}
+	insertNpc(secondCampaign, "Old Brisk")
+
 	// Deleting a campaign takes every campaign-owned row with it and leaves the other campaign alone.
 	if err := execute(`DELETE FROM campaign WHERE id = $1`, firstCampaign); err != nil {
 		t.Fatalf("delete campaign: %v", err)
 	}
-	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member"} {
+	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member", "npc", "place"} {
 		if left := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, firstCampaign); left != 0 {
 			t.Errorf("%s kept %d rows of the deleted campaign", table, left)
 		}

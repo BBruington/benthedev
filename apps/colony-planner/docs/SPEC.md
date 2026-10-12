@@ -356,7 +356,7 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role WHERE campaign_id = @ca
 
 | Table | Key fields | Notes |
 |---|---|---|
-| `npc` | `id`, `name` (true name), `known_name NULL`, `revealed bool DEFAULT false`, `aliases text[]`, `labels text[]`, `race`, `character_class`, `level`, `age`, `appearance`, `personality`, `backstory`, `player_notes`, `dm_notes`, `status`, `health`, `relation` (old enums kept), `avatar_url`, `current_place_id → place SET NULL`, `origin_place_id → place SET NULL`, `first_session_id → session SET NULL`, `colony_role_key → role NULL`, timestamps | `colony_role_key IS NOT NULL` means the NPC is a colonist in that role. Such an NPC can't be deleted until they leave the colony (§5.5). |
+| `npc` | `id`, `name` (true name), `known_name NULL`, `revealed bool DEFAULT false`, `aliases text[]`, `labels text[]`, `race`, `character_class`, `level`, `age`, `appearance`, `personality`, `backstory`, `player_notes`, `dm_notes`, `status`, `health`, `relation` (old enums kept), `avatar_url`, `current_place_id → place SET NULL`, `origin_place_id → place SET NULL`, `first_session_id → session SET NULL`, `colony_role_key → role NULL`, timestamps | `colony_role_key IS NOT NULL` means the NPC is a colonist in that role. Such an NPC can't be deleted until they leave the colony (§5.5). As built in M2: `known_name` is `NOT NULL DEFAULT ''` ('' means none), a stored generated `display_name` backs search, `avatar_url` waits for M4 and `first_session_id` for M5. Core caps names at 80 characters, labels at 40, aliases and labels at 20 each, prose at 4,000, and level at 0–100. |
 | `quest` | `id`, `title`, `description`, `kind quest_kind` (MAINLAND, COLONY), `status quest_status` (ACTIVE, COMPLETED, FAILED), `revealed bool DEFAULT true`, `giver_npc_id → npc SET NULL`, `patron_id → patron RESTRICT`, `reward_effects jsonb`, `reward_favor int DEFAULT 0`, `loot jsonb` (`[{name, quantity, description}]`, display only), `dm_notes`, `resolved_day NULL`, `resolved_at NULL`, timestamps | `CHECK (reward_favor = 0 OR patron_id IS NOT NULL)`. Patrons are never deleted, so a delete can't break this check. Status changes only through actions (§5.6). |
 | `patron` | `id`, `name`, `description`, `revealed bool DEFAULT false`, `archived bool DEFAULT false`, `favor int DEFAULT 0`, `player_notes`, `dm_notes`, `sort_order`, timestamps | Archived, never deleted. There is no delete operation, and foreign keys to it are RESTRICT, so a stray SQL delete fails loudly. |
 | `patron_action` | `id`, `patron_id → patron RESTRICT`, `name`, `description`, `favor_cost int CHECK (≥ 0)`, `effects jsonb`, `revealed bool DEFAULT false`, `archived bool`, `sort_order`, timestamps | Archived, never deleted. Example: "Grain Barge", cost 3, effects `{"resources":{"food":7}}`. |
@@ -383,7 +383,7 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role WHERE campaign_id = @ca
 | Table | Key fields | Notes |
 |---|---|---|
 | `map` | `id`, `name`, `image_url` (`/eldari.webp`, `/img/{id}` or an external URL), `width`, `height` (natural pixels), `is_mainland bool`, `revealed bool DEFAULT true`, `sort_order`, timestamps | Seeded with "Mainland: Eldari" (1920×1080, revealed). |
-| `place` | `id`, `name`, `description`, `player_notes`, `dm_notes`, `revealed bool DEFAULT true`, `map_id → map SET NULL`, `pin_x real NULL`, `pin_y real NULL` (0..1, y measured **from the top**), timestamps | `CHECK ((pin_x IS NULL) = (pin_y IS NULL))`. Replaces regions and locations. |
+| `place` | `id`, `name`, `description`, `player_notes`, `dm_notes`, `revealed bool DEFAULT true`, `map_id → map SET NULL`, `pin_x real NULL`, `pin_y real NULL` (0..1, y measured **from the top**), timestamps | `CHECK ((pin_x IS NULL) = (pin_y IS NULL))`. Replaces regions and locations. M2 builds it without `map_id`, `pin_x` and `pin_y`, which arrive with `map` in M4. |
 | `hex` | `q int`, `r int`, `PRIMARY KEY (q, r)`, `terrain terrain` (enum), `label text NULL` (≤ 40 chars), `updated_at` | No game boundary (decision 9). The only check is a technical bound against bad input, `abs(q) <= 100000 AND abs(r) <= 100000`. Pointy-top axial. No row means uncharted. No attribution and no history (F6). **The migrations seed no hexes.** |
 | `image` | `id`, `content_type`, `bytes bytea` (≤ 5 MB), `sha256 UNIQUE`, `width`, `height`, `uploaded_by → member`, `created_at` | Served at `/img/{id}` to members, with `Cache-Control: immutable`. |
 
@@ -567,6 +567,13 @@ type Step interface {
   - Marking an NPC DEAD changes no counts. The UI suggests removing them.
   - **Deleting an NPC who is a colonist is refused** with 409 "Brannoc is a colonist. Remove them from the colony first." Leave is a colony mutation with its own entry and undo, so the colonist total never changes silently.
 - Players see every role's total. Named colonists are listed only if they are revealed; hidden ones still count.
+- **As built in M2:**
+  - *promote an existing unnamed R* also writes `COLONIST_JOINED` (its body says the count is unchanged), and *return to the unnamed pool* writes `COLONIST_LEFT` ("Brannoc is no longer named among the Farmer colonists");
+  - **Change role** writes `WORKFORCE_CHANGED`, DM by default; opting in to PUBLIC takes effect only when the NPC is revealed;
+  - entry text names an NPC by `displayName`, even in DM-only entries. That is the true name while `known_name` is blank, so an entry about an NPC carries `npc_id` and `npc_name`, the display name it was written with. It can be switched to PUBLIC only while the NPC is revealed. Its text can't be PUBLIC (switched, edited while PUBLIC, or repeated by a public UNDO) while it names the NPC by `npc_name` once that is no longer the display name, or by the true name while a known name is set ("This entry names them by a name the party doesn't know; edit the text first."). Names match as whole words, ignoring case and spacing, and not inside the display name itself ("Tam" in "Old Tam"); other spellings the DM types are the DM's call. Players see an entry about an NPC only while that NPC is revealed, so hiding an NPC later hides their entries too. Every UNDO that repeats such an entry's title carries its `npc_id` and `npc_name`, DM-only ones included, and a public UNDO whose repeated title would break the rule reads "The DM rewound a change to the colony";
+  - renaming an NPC (a new true name or known name) moves their PUBLIC entries whose text now breaks that rule to DM, so a known name set after a reveal takes the true name off the players' timeline. Deleting a hidden NPC moves their PUBLIC entries to DM before the link is cleared, so they stay hidden. After any delete, an entry can't go PUBLIC while it names the NPC by `npc_name`, unless that was the name players knew a revealed NPC by;
+  - for players, a hidden named colonist counts as one of their role's unnamed colonists, so totals are right and nothing hints at them. For the same reason a **Set count** entry reads in role totals ("Builder: 4 → 6 colonists"), which are the same for the DM and players;
+  - **Roles** are managed on `/settings` like resources: add, rename, icon, position, and archive only when the headcount (unnamed + named) is 0. UNASSIGNED can't be renamed or archived; its icon and position can change.
 
 ### 5.6 Quests
 
@@ -630,7 +637,7 @@ type Step interface {
 | `STOCK_ADJUSTED` | Adjust | current | **DM** (opt-in PUBLIC) |
 | `FAVOR_ADJUSTED` | Favor adjust | current | **DM** (opt-in PUBLIC if the patron is revealed) |
 | `DAY_CORRECTED` | Correct day | new day | DM |
-| `WORKFORCE_CHANGED` | Transfer or set count | current | **DM** (opt-in PUBLIC) |
+| `WORKFORCE_CHANGED` | Transfer, set count, or a named colonist's change of role | current | **DM** (opt-in PUBLIC; for a change of role, only if the NPC is revealed) |
 | `COLONIST_JOINED` / `COLONIST_LEFT` | Named NPC changes | current | PUBLIC if the NPC is revealed, else DM |
 | `QUEST_POSTED` | Quest becomes visible (create or reveal) | current | PUBLIC (suppressible) |
 | `QUEST_COMPLETED` / `QUEST_FAILED` / `QUEST_REOPENED` | Quest actions | current | PUBLIC if the quest is revealed, else DM |
@@ -659,13 +666,13 @@ type Step interface {
   - Avatar initials are computed from `displayName`.
   - Player search matches `displayName` and aliases.
 - **Every other NPC field keeps today's visibility:**
-  - aliases (Open Question 8 asks whether to hide them);
+  - aliases (they stay visible, Open Question 8);
   - appearance, personality, backstory;
   - age, class, level, race;
   - status, health, relation;
   - labels, player_notes;
   - places (when revealed);
-  - the first-encountered session;
+  - the first-encountered session (from M5, Open Question 10);
   - colony role.
 - **`dm_notes`** on quests, patrons and places is DM-only.
 - **Starting visibility.** Every create form has a **Visible to players** switch. It starts where today's app behaved, and where nothing existed before it starts hidden (Open Question 9):
@@ -969,7 +976,7 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
 | `/beny` | **Port** | "Boy!" |
 | `/colony` | **Add** | Ephemeral embed: day, resources, colonists (with Unassigned), next shipment, next session, site link. Built from the player projection. |
 | `/nextsession` | **Port + fix** | The next SCHEDULED occurrence from `occurrences()`, shown with `<t:…:F>` and `<t:…:R>`. |
-| `/npc view name:` | **Port + fix** | Autocomplete and prefix search over revealed NPCs' display names. Ephemeral reply built from the player projection. A hidden true name finds nothing, and true names and DM notes never appear in Discord. |
+| `/npc view name:` | **Port + fix** | Autocomplete and prefix search over revealed NPCs' display names. Ephemeral reply built from the player projection. A hidden true name finds nothing, and true names and DM notes never appear in Discord. As built in M2: suggestions have their own per-user limit (burst 10, one more every 500 ms) so typing never spends the command's; a refusal (not linked, not a member, nothing matches) is offered as a single suggestion holding the reason; blank fields, UNKNOWN status, health or relation, and hidden places are left out of the embed. |
 | Pending sign-in notice | **Add** | "<name> (@user) is waiting to join: <url>/c/<slug>/players", posted to that campaign's DM channel, 5 an hour per campaign (§2.1). A campaign request DMs the site owner, 5 an hour. |
 | Request prompt | **Add** | Posted to the DM channel with Grant and Decline buttons (§7.5). |
 | Discord scheduled events | **Redesign** | Rolling single events (§7.4). The old recurrence code, including its `end` field (which apps can't set), is **not** ported. |
@@ -1243,12 +1250,12 @@ On the web, Biome allows the server transports (fetch, EventSource, XMLHttpReque
 
 ### 8.7 How many places to add one field
 
-To add a player-visible NPC field `voice`, make **4 hand edits**:
+To add a player-visible NPC field `voice`, make **5 hand edits in 4 layers**:
 
 1. `db/migrations/00NN_npc_voice.sql`: `ALTER TABLE npc ADD COLUMN voice text`.
-2. `db/queries/npcs.sql`: add it to `UpdateNpc`'s SET list. Reads use `sqlc.embed(npc)`.
-3. `internal/core/npcs.go`: add it to `Npc` (or `NpcDm` if it is secret), `toNpc()` and `NpcInput`. The huma handler passes these structs through unchanged. A secret field also gets a canary in the NPC fixture of `internal/app/secrecy_fixtures_test.go`, or the secrecy test can't see it leak.
-4. `web/src/routes/npcs.$npcId.tsx`: display and input.
+2. `db/queries/npcs.sql`: add it to `CreateNpc`'s column list and `UpdateNpc`'s SET list. Reads use `sqlc.embed(npc)`.
+3. `internal/core/npcs.go`: add it to `Npc` (or `NpcDm` if it is secret), `npcFromView()`, `NpcInput` and `cleanNpcInput()`. The huma handler passes these structs through unchanged. A secret field also gets a canary in the people, NPCs and places fixture of `internal/app/secrecy_fixtures_test.go`, or the secrecy test can't see it leak.
+4. The web: display in `web/src/npcs/npc-profile.tsx` (short facts) or `web/src/routes/_signedIn/c.$campaignSlug/_shell/npcs.$npcId.tsx` (prose), and input in `web/src/npcs/npc-sheet.tsx`.
 
 Then run `mise run gen`. Compiler errors point at anything missed.
 
@@ -1390,7 +1397,7 @@ There is no importer (F2). The old app holds only throwaway test data, so nothin
 
 ## 10. Build plan
 
-Each milestone is a vertical slice that runs on the author's Mac (F1). It ends with a **local acceptance checklist** written for someone who doesn't write code. The author works through it and then either approves the milestone or lists what to fix; the next milestone starts only after approval (F7). Agents never commit; the author makes every commit.
+Each milestone is a vertical slice that runs on the author's Mac (F1). It ends with a **local acceptance checklist** written for someone who doesn't write code. The author works through it and then either approves the milestone or lists what to fix; the next milestone starts only after approval (F7). The author makes commits; agents commit only when the author asks for a PR, on a `claude/` branch.
 
 **How to try a milestone** (the same every time):
 1. Open Docker Desktop and wait until it says it is running.
@@ -1453,8 +1460,10 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
 - **Scope:**
   - per campaign (F8): `npc` and `place` carry `campaign_id`; the role-key join includes `campaign_id`; the colonist count filters both tables; `/npc view` routes by the server's campaign; fixtures plant into both campaigns;
   - roles + Unassigned, transfers, named colonists;
-  - NPC roster and detail with server-side secrecy and the first-encountered session;
+  - NPC roster and detail with server-side secrecy (Open Questions 8–11 resolved 2026-10-11);
   - places (unpinned);
+  - columns arrive with the tables they point at: `npc.first_session_id` with `session` in M5, `npc.avatar_url` (portraits) with images in M4, and `place.map_id`, `pin_x`, `pin_y` with `map` in M4. M2 shows initials avatars;
+  - limits per campaign, only a guard against runaway scripts: 2,000 NPCs and 1,000 places;
   - `/npc view`;
   - the secrecy test in `mise run check`;
   - sample roles, NPCs and places in `colony seed`.
@@ -1488,7 +1497,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
 - **Scope:**
   - per campaign (F8): maps, pins, hexes and images carry `campaign_id`; images are served under `/api/campaigns/{campaignId}/images/`; 50 MB of images and 50,000 hexes per campaign. **The Eldari art belongs to the author's campaign only (C6):** it is not seeded or offered to other campaigns as a starting map; other DMs upload their own mainland art;
   - Explore (canvas layer; Look and Paint modes; batched strokes; frontier; patterns; label search; live), starting with the two-finger gesture check on a real phone;
-  - Mainland (Eldari) with pins; image uploads;
+  - Mainland (Eldari) with pins; image uploads; `place.map_id`, `pin_x`, `pin_y` and NPC portraits (`npc.avatar_url`), which M2 left out;
   - PWA manifest;
   - sample hexes and pins in `colony seed`, plus `--hexes 5000` for the performance check.
 - **Acceptance:**
@@ -1508,6 +1517,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
   - series with the timezone; `occurrences()`; cancel and restore;
   - rolling Discord events; timer-driven reminders; played auto-log with day stamps and timeline bands;
   - recaps; ICS;
+  - the NPC first-encountered session (`npc.first_session_id`, Open Question 10), which M2 left out;
   - `/colony` and `/nextsession`;
   - a sample series and played sessions in `colony seed`.
 - **Acceptance:**
@@ -1584,14 +1594,14 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 
 **Before M2**
 
-8. **NPC secrecy depth.** Aliases stay visible to players, as today. Should they become DM-only, since an alias can give away a secret identity? Should backstory or personality also become DM-only? *Default: hide only the true name and DM notes; everything else stays visible as today.*
-9. **Starting visibility.** New NPCs start hidden, and new quests, places and maps start visible, as today.
-   - Should new quests and places start hidden instead, so you reveal them when the party learns of them?
+8. **NPC secrecy depth.** **Resolved (2026-10-11):** hide only the true name and DM notes. Aliases, backstory, personality and every other field stay visible to players once an NPC is revealed, as today.
+9. **Starting visibility.** **Resolved in part (2026-10-11):** NPCs start hidden and places start visible, as today. Still open, to ask before M3:
+   - Should new quests start hidden instead, so you reveal them when the party learns of them?
    - Patrons and actions are new, so they start hidden, because players have never seen patrons. Is that right?
 
    *Default: as described.*
-10. **First-encountered session.** Keep the NPC "first encountered in session" link? The old page showed it as a raw ID. *Default: keep it, as a link to the session.*
-11. **Beny Bot replies.** Should Beny Bot's command replies always be ephemeral and show only what players see, even when you run them? *Default: yes; DM detail stays on the site.*
+10. **First-encountered session.** **Resolved (2026-10-11):** keep it, as a link showing the session's title and date. It arrives with sessions in M5; M2 ships without it.
+11. **Beny Bot replies.** **Resolved (2026-10-11):** yes. Replies are always ephemeral and show only what players see, even when the DM runs the command; DM detail stays on the site.
 
 **Before M3**
 

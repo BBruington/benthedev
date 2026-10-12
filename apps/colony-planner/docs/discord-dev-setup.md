@@ -168,16 +168,22 @@ Leave every other line as it is. `PUBLIC_URL` stays `http://localhost:5173`.
 6. In the test server, type `/beny`. Beny Bot Dev answers "Boy!", and Discord marks it "Only you can see
    this". Every Beny Bot reply is private like that. If `/beny` isn't offered yet, wait a minute and
    reload Discord (Command-R).
-7. To see the waiting-to-join notice, copy Sample Colony's invite link (**Settings** → **Invite link** →
+7. **Look up an NPC.** Type `/npc view` and start typing in its `name` box. Beny Bot Dev suggests the
+   NPCs the party knows in Sample Colony, under the name the party knows them by: `The Hooded Stranger`
+   is there, `The Quiet Mason` is hidden and never suggested, even to you. Pick one, and Beny Bot Dev
+   answers with what players see of that NPC, never a true name or DM notes, even though you are the
+   DM. Typing a true name (`Selwyn Hart`, or the hidden `Edric Vael`) finds nothing: "No NPC the party
+   knows goes by that name."
+8. To see the waiting-to-join notice, copy Sample Colony's invite link (**Settings** → **Invite link** →
    **Copy**), open a private browser window, sign in as a new person (Dev sign-in → "A new person", or
    a **second** Discord account), open the link and tap **Ask to join**. Beny Bot Dev posts "*name*
    (@*username*) is waiting to join: http://localhost:5173/c/sample-colony/players" in `dm-desk`.
-8. To see the site owner's notice, have a new person ask to run a campaign (**Run your own campaign**).
+9. To see the site owner's notice, have a new person ask to run a campaign (**Run your own campaign**).
    Beny Bot Dev sends you a direct message: "*name* (@*username*) asks to run *campaign*:
    http://localhost:5173/admin". Discord delivers it because you share the test server with Beny Bot Dev.
-9. To unlink, use **Unlink…** on Settings, or run `/unlink` in the server. Removing Beny Bot Dev from the
-   server unlinks it too, even while the site is stopped: it notices on its next start. Re-inviting it
-   then needs a new `/link`.
+10. To unlink, use **Unlink…** on Settings, or run `/unlink` in the server. Removing Beny Bot Dev from the
+    server unlinks it too, even while the site is stopped: it notices on its next start. Re-inviting it
+    then needs a new `/link`.
 
 Only one copy of the site may run with this token at a time. Stop one `mise run dev` before starting
 another.
@@ -198,7 +204,7 @@ while Beny Bot is off; its channel lists are empty until it is back.
 | No **Site admin** in the profile menu | `SITE_OWNER_DISCORD_ID` isn't your user ID, or `mise run dev` wasn't restarted after editing `.env`. |
 | The first lines say `beny_bot=false` | `DISCORD_BOT_TOKEN` is empty, or `mise run dev` wasn't restarted after editing `.env`. |
 | An error mentioning authentication, or `4004` | The bot token is wrong or was reset. Reset it again (step 3) and paste the new one. |
-| `/beny` or `/link` isn't offered | Beny Bot Dev isn't in the server (step 4), or Discord hasn't shown the new commands yet: wait a minute and reload Discord (Command-R). `/link` and `/unlink` are only offered to members with Manage Server. |
+| `/beny`, `/npc` or `/link` isn't offered | Beny Bot Dev isn't in the server (step 4), or Discord hasn't shown the new commands yet: wait a minute and reload Discord (Command-R). `/link` and `/unlink` are only offered to members with Manage Server. |
 | `/beny` is offered twice | M1's server-only command is still there. Put `DISCORD_GUILD_ID` back for one start (see "Coming from M1"). |
 | "The application did not respond" | The site isn't running, or it was started without the bot token. |
 | "Use Beny Bot in your campaign's server." | The command was sent in a direct message. Run it in the linked server. |
@@ -206,6 +212,8 @@ while Beny Bot is off; its channel lists are empty until it is back.
 | "That code doesn't work." | The code expired (15 minutes), already linked a server, or the site restarted since you got it. Get a new one on Settings. |
 | "This server is already linked to a campaign." | Unlink it in that campaign's Settings, or run `/unlink` in the server, then run `/link` again with the same code if it hasn't expired. |
 | "Unlink the other server in Settings first." | This campaign is linked to another server. Unlink the other server (on Settings, or `/unlink` there), then run `/link` again with the same code if it hasn't expired. |
+| "No NPC the party knows goes by that name." | Players can't see that name: the NPC is hidden (reveal it on its page), or the party knows them by another name. Pick a suggestion instead of typing. |
+| `/npc view` suggests a single line such as "You're not in this campaign." | That is the answer the command would give, shortened to fit. Picking it shows the whole line. |
 | "Only someone with the Manage Server permission can do that." | Ask the server's owner, or give your role Manage Server. |
 | "You're not in this campaign." | That Discord account has no membership in the campaign linked to this server. Open the campaign's invite link with it and have the DM let it in. |
 | "The DM hasn't let you in yet." | The account is waiting or was removed. The DM lets it in on Players. |

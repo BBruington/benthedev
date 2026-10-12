@@ -54,9 +54,11 @@ type Resource struct {
 
 // Role is one row of the role table with its headcounts.
 type Role struct {
+	// Label names the role in the workforce rules' messages ("Farmer has only 2 unnamed colonists").
+	Label        string
 	UnnamedCount int64
-	// NamedCount is the number of named NPC colonists in this role. It is always 0 in M1; from M2 the
-	// handler fills it from `npc.colony_role_key`, and Colonists counts it with no other change.
+	// NamedCount is the number of named NPC colonists in this role; the handler fills it from
+	// `npc.colony_role_key`.
 	NamedCount int64
 	Archived   bool
 }

@@ -7,12 +7,15 @@ export function PageHeader({
 	description,
 	actions,
 	className,
+	headingId,
 }: {
 	eyebrow?: ReactNode;
 	title: ReactNode;
 	description?: ReactNode;
 	actions?: ReactNode;
 	className?: string;
+	/** Makes the heading a focus target for an action that lands on this page. */
+	headingId?: string;
 }) {
 	return (
 		<header
@@ -25,7 +28,11 @@ export function PageHeader({
 				{eyebrow ? (
 					<p className="font-medium text-gilt-ink text-xs uppercase tracking-[0.2em]">{eyebrow}</p>
 				) : null}
-				<h1 className="font-display font-semibold text-3xl text-foreground tracking-wide md:text-4xl">
+				<h1
+					className="font-display font-semibold text-3xl text-foreground tracking-wide outline-none md:text-4xl"
+					id={headingId}
+					tabIndex={headingId ? -1 : undefined}
+				>
 					{title}
 				</h1>
 				{description ? (

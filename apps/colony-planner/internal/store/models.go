@@ -419,6 +419,204 @@ func AllMemberStatusValues() []MemberStatus {
 	}
 }
 
+type NpcHealth string
+
+const (
+	NpcHealthHEALTHY NpcHealth = "HEALTHY"
+	NpcHealthINJURED NpcHealth = "INJURED"
+	NpcHealthSICK    NpcHealth = "SICK"
+	NpcHealthUNKNOWN NpcHealth = "UNKNOWN"
+	NpcHealthDEAD    NpcHealth = "DEAD"
+)
+
+func (e *NpcHealth) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = NpcHealth(s)
+	case string:
+		*e = NpcHealth(s)
+	default:
+		return fmt.Errorf("unsupported scan type for NpcHealth: %T", src)
+	}
+	return nil
+}
+
+type NullNpcHealth struct {
+	NpcHealth NpcHealth
+	Valid     bool // Valid is true if NpcHealth is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullNpcHealth) Scan(value interface{}) error {
+	if value == nil {
+		ns.NpcHealth, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.NpcHealth.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullNpcHealth) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.NpcHealth), nil
+}
+
+func (e NpcHealth) Valid() bool {
+	switch e {
+	case NpcHealthHEALTHY,
+		NpcHealthINJURED,
+		NpcHealthSICK,
+		NpcHealthUNKNOWN,
+		NpcHealthDEAD:
+		return true
+	}
+	return false
+}
+
+func AllNpcHealthValues() []NpcHealth {
+	return []NpcHealth{
+		NpcHealthHEALTHY,
+		NpcHealthINJURED,
+		NpcHealthSICK,
+		NpcHealthUNKNOWN,
+		NpcHealthDEAD,
+	}
+}
+
+type NpcRelation string
+
+const (
+	NpcRelationALLY       NpcRelation = "ALLY"
+	NpcRelationNEUTRAL    NpcRelation = "NEUTRAL"
+	NpcRelationSUSPICIOUS NpcRelation = "SUSPICIOUS"
+	NpcRelationENEMY      NpcRelation = "ENEMY"
+	NpcRelationUNKNOWN    NpcRelation = "UNKNOWN"
+)
+
+func (e *NpcRelation) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = NpcRelation(s)
+	case string:
+		*e = NpcRelation(s)
+	default:
+		return fmt.Errorf("unsupported scan type for NpcRelation: %T", src)
+	}
+	return nil
+}
+
+type NullNpcRelation struct {
+	NpcRelation NpcRelation
+	Valid       bool // Valid is true if NpcRelation is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullNpcRelation) Scan(value interface{}) error {
+	if value == nil {
+		ns.NpcRelation, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.NpcRelation.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullNpcRelation) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.NpcRelation), nil
+}
+
+func (e NpcRelation) Valid() bool {
+	switch e {
+	case NpcRelationALLY,
+		NpcRelationNEUTRAL,
+		NpcRelationSUSPICIOUS,
+		NpcRelationENEMY,
+		NpcRelationUNKNOWN:
+		return true
+	}
+	return false
+}
+
+func AllNpcRelationValues() []NpcRelation {
+	return []NpcRelation{
+		NpcRelationALLY,
+		NpcRelationNEUTRAL,
+		NpcRelationSUSPICIOUS,
+		NpcRelationENEMY,
+		NpcRelationUNKNOWN,
+	}
+}
+
+type NpcStatus string
+
+const (
+	NpcStatusALIVE   NpcStatus = "ALIVE"
+	NpcStatusDEAD    NpcStatus = "DEAD"
+	NpcStatusMISSING NpcStatus = "MISSING"
+	NpcStatusUNKNOWN NpcStatus = "UNKNOWN"
+)
+
+func (e *NpcStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = NpcStatus(s)
+	case string:
+		*e = NpcStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for NpcStatus: %T", src)
+	}
+	return nil
+}
+
+type NullNpcStatus struct {
+	NpcStatus NpcStatus
+	Valid     bool // Valid is true if NpcStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullNpcStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.NpcStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.NpcStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullNpcStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.NpcStatus), nil
+}
+
+func (e NpcStatus) Valid() bool {
+	switch e {
+	case NpcStatusALIVE,
+		NpcStatusDEAD,
+		NpcStatusMISSING,
+		NpcStatusUNKNOWN:
+		return true
+	}
+	return false
+}
+
+func AllNpcStatusValues() []NpcStatus {
+	return []NpcStatus{
+		NpcStatusALIVE,
+		NpcStatusDEAD,
+		NpcStatusMISSING,
+		NpcStatusUNKNOWN,
+	}
+}
+
 type TimelineVisibility string
 
 const (
@@ -540,6 +738,46 @@ type DiscordGuildLink struct {
 	LinkedAt              time.Time
 }
 
+type Npc struct {
+	ID             uuid.UUID
+	Name           string
+	KnownName      string
+	DisplayName    string
+	Revealed       bool
+	Aliases        []string
+	Labels         []string
+	Race           string
+	CharacterClass string
+	Level          *int32
+	Age            string
+	Appearance     string
+	Personality    string
+	Backstory      string
+	PlayerNotes    string
+	DmNotes        string
+	Status         NpcStatus
+	Health         NpcHealth
+	Relation       NpcRelation
+	CurrentPlaceID *uuid.UUID
+	OriginPlaceID  *uuid.UUID
+	ColonyRoleKey  *string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CampaignID     uuid.UUID
+}
+
+type Place struct {
+	ID          uuid.UUID
+	Name        string
+	Description string
+	PlayerNotes string
+	DmNotes     string
+	Revealed    bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CampaignID  uuid.UUID
+}
+
 type Resource struct {
 	Key        string
 	Label      string
@@ -588,6 +826,8 @@ type TimelineEvent struct {
 	CreatedAt  time.Time
 	EditedAt   *time.Time
 	CampaignID uuid.UUID
+	NpcID      *uuid.UUID
+	NpcName    string
 }
 
 type WebSession struct {

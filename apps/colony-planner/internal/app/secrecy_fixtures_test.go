@@ -25,6 +25,8 @@ type campaignSide struct {
 	memberTarget string
 	// extraResource is a resource only this campaign has ("" for none); resourceKey names it, or gold.
 	extraResource string
+	// extraRole is a role only this campaign has ("" for none); roleKey names it, or FARMER.
+	extraRole string
 }
 
 func (testHarness *harness) sides() []campaignSide {
@@ -50,6 +52,7 @@ func (testHarness *harness) sides() []campaignSide {
 			characterNames: map[string]string{"ana": "Brisa " + canaryB, "dmA": "Vale " + canaryB, "bOnly": "Tamsin " + canaryB},
 			memberTarget:   "bOnly",
 			extraResource:  "Brine",
+			extraRole:      "Brinewright",
 		},
 	}
 }
@@ -230,6 +233,103 @@ var secrecyFixtures = []secrecyFixture{
 		dmProof: []string{"/timeline?fromDay=0&toDay=30"},
 	},
 	{
+		feature: "people, NPCs and places",
+		// A revealed place (the {placeId} row) whose dm_notes are DM-only, and a hidden place whose every
+		// value is. A revealed NPC (the {npcId} row, a named colonist so no sweep can delete it) whose true
+		// name and dm_notes are DM-only behind a known name, standing in the hidden place. A hidden NPC
+		// whose every value is DM-only, standing in the revealed place, who joins the colony and changes
+		// role with PUBLIC asked for, and another who joins and leaves: their COLONIST_JOINED,
+		// COLONIST_LEFT and WORKFORCE_CHANGED entries are DM-only. Hidden rows' IDs are DM-only literals.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			secret, visible := side.dmSecret, side.playerVisible
+			version := func() int64 {
+				board, err := testHarness.core.GetColonyBoard(testHarness.context, dmViewer)
+				if err != nil {
+					t.Fatalf("read %s's board: %v", side.campaign.name, err)
+				}
+				return board.Version
+			}
+			roleKey := "FARMER"
+			if side.extraRole != "" {
+				created, err := testHarness.core.CreateRole(testHarness.context, dmViewer, core.NewRoleInput{Label: side.extraRole, Icon: core.ColonyIconAnchor})
+				if err != nil {
+					t.Fatalf("add %s: %v", side.extraRole, err)
+				}
+				if _, err := testHarness.core.UpdateRole(testHarness.context, dmViewer, created.Key, core.RoleInput{
+					Label:     side.extraRole + visible,
+					Icon:      core.ColonyIconAnchor,
+					SortOrder: created.SortOrder,
+				}); err != nil {
+					t.Fatalf("label %s: %v", side.extraRole, err)
+				}
+				roleKey = created.Key
+			}
+			side.campaign.pathIDs["roleKey"] = roleKey
+			// Unnamed colonists for pass 4's transfers.
+			if _, err := testHarness.core.SetRoleCount(testHarness.context, dmViewer, core.SetRoleCountInput{ExpectedVersion: version(), RoleKey: "UNASSIGNED", Count: 5}); err != nil {
+				t.Fatalf("fill Unassigned: %v", err)
+			}
+			createPlace := func(input core.PlaceInput) core.Place {
+				place, err := testHarness.core.CreatePlace(testHarness.context, dmViewer, input)
+				if err != nil {
+					t.Fatalf("plant place %q: %v", input.Name, err)
+				}
+				return place
+			}
+			shown := createPlace(core.PlaceInput{Name: "Harbor Market" + visible, Description: "Fish stalls" + visible, PlayerNotes: "Cheap rope" + visible, DmNotes: secret + " smugglers meet here", Revealed: true})
+			hidden := createPlace(core.PlaceInput{Name: secret + " Drowned Chapel", Description: secret, PlayerNotes: secret, DmNotes: secret})
+			side.campaign.pathIDs["placeId"] = shown.ID.String()
+			side.campaign.keptPlaceID = hidden.ID
+			createNpc := func(input core.NpcInput) core.Npc {
+				npc, err := testHarness.core.CreateNpc(testHarness.context, dmViewer, input)
+				if err != nil {
+					t.Fatalf("plant NPC %q: %v", input.Name, err)
+				}
+				return npc
+			}
+			level := int64(3)
+			revealed := createNpc(core.NpcInput{
+				Name: secret + " Selwyn", KnownName: "The Hooded Stranger" + visible, Revealed: true,
+				Aliases: []string{"Hood" + visible}, Labels: []string{"Stranger" + visible},
+				Race: "Human" + visible, CharacterClass: "Rogue" + visible, Level: &level, Age: "Forty" + visible,
+				Appearance: "Grey cloak" + visible, Personality: "Wry" + visible, Backstory: "Came by ship" + visible,
+				PlayerNotes: "Owes us" + visible, DmNotes: secret + " is a spy",
+				Status: core.NpcStatusAlive, Health: core.NpcHealthHealthy, Relation: core.NpcRelationNeutral,
+				CurrentPlaceID: &hidden.ID, OriginPlaceID: &shown.ID,
+			})
+			hiddenValues := core.NpcInput{
+				Name: secret + " Mason", KnownName: secret + " Quiet", Aliases: []string{secret}, Labels: []string{secret},
+				Race: secret, CharacterClass: secret, Level: &level, Age: secret, Appearance: secret, Personality: secret,
+				Backstory: secret, PlayerNotes: secret, DmNotes: secret,
+				Status: core.NpcStatusMissing, Health: core.NpcHealthSick, Relation: core.NpcRelationEnemy,
+				CurrentPlaceID: &shown.ID, OriginPlaceID: &hidden.ID,
+			}
+			hiddenColonist := createNpc(hiddenValues)
+			hiddenValues.Name = secret + " Corrow"
+			leaver := createNpc(hiddenValues)
+			side.campaign.pathIDs["npcId"] = revealed.ID.String()
+			side.campaign.hiddenNpcID = hiddenColonist.ID
+			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, hidden.ID.String(), hiddenColonist.ID.String(), leaver.ID.String())
+			join := func(npc core.Npc, joinRoleKey string) {
+				if _, err := testHarness.core.JoinColony(testHarness.context, dmViewer, npc.ID, core.JoinColonyInput{ExpectedVersion: version(), RoleKey: joinRoleKey}); err != nil {
+					t.Fatalf("%s joins the colony: %v", npc.DisplayName, err)
+				}
+			}
+			join(revealed, roleKey)
+			join(hiddenColonist, "HEALER")
+			if _, err := testHarness.core.ChangeColonyRole(testHarness.context, dmViewer, hiddenColonist.ID, core.ChangeColonyRoleInput{ExpectedVersion: version(), RoleKey: roleKey, Public: true}); err != nil {
+				t.Fatalf("move the hidden colonist: %v", err)
+			}
+			join(leaver, roleKey)
+			if _, err := testHarness.core.LeaveColony(testHarness.context, dmViewer, leaver.ID, core.LeaveColonyInput{ExpectedVersion: version(), Mode: core.LeaveModeReturnToPool}); err != nil {
+				t.Fatalf("the hidden colonist leaves: %v", err)
+			}
+		},
+		dmProof: []string{"/npcs", "/places", "/people", "/timeline/recent"},
+	},
+	{
 		feature: "invite link",
 		// The invite code is DM-only: the harness's forbidden lists hold it as a literal.
 		plant:   func(*testing.T, *harness, campaignSide) {},
@@ -254,6 +354,7 @@ func plantCanaries(t *testing.T, testHarness *harness) {
 func (testHarness *harness) dmOnlyValues(campaign *campaignFixture) []string {
 	values := []string{campaign.inviteCode}
 	values = append(values, campaign.linkCodes...)
+	values = append(values, campaign.hiddenIDs...)
 	if campaign == testHarness.campaignA {
 		return append(values, canaryA, guildA, channelA)
 	}

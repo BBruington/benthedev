@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,10 +61,9 @@ type RoleHeadcount struct {
 	Key          string     `json:"key"`
 	Label        string     `json:"label"`
 	Icon         ColonyIcon `json:"icon"`
-	UnnamedCount int64      `json:"unnamedCount"`
-	// NamedCount is 0 until named NPC colonists arrive in M2.
-	NamedCount int64 `json:"namedCount"`
-	Total      int64 `json:"total"`
+	UnnamedCount int64      `json:"unnamedCount" doc:"For players, hidden named colonists are counted here"`
+	NamedCount   int64      `json:"namedCount" doc:"Named NPC colonists in this role; for players, only revealed ones"`
+	Total        int64      `json:"total"`
 	// IsSystem marks UNASSIGNED, where new colonists land.
 	IsSystem bool `json:"isSystem"`
 }
@@ -203,6 +203,9 @@ type undoSnapshot struct {
 	NextShipmentDay      *int64           `json:"nextShipmentDay"`
 	ResourceAmounts      map[string]int64 `json:"resourceAmounts"`
 	RoleUnnamedCounts    map[string]int64 `json:"roleUnnamedCounts"`
+	// NpcColonyRoles is each named colonist's role before the change, keyed by NPC ID; null means
+	// they weren't a colonist (spec §5.5).
+	NpcColonyRoles map[uuid.UUID]*string `json:"npcColonyRoles,omitempty"`
 }
 
 // GetColonyBoard is the board every active member reads.
@@ -210,7 +213,7 @@ func (service *Service) GetColonyBoard(requestContext context.Context, viewer Vi
 	if err := requireActive(viewer); err != nil {
 		return ColonyBoard{}, err
 	}
-	return service.readBoard(requestContext, service.queries, viewer.campaignID)
+	return service.readBoard(requestContext, service.queries, viewer.campaignID, viewer.SeesDmFields())
 }
 
 // PreviewAdvance runs game.Advance without writing (spec §5.2) and returns the version it saw.
@@ -436,27 +439,47 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err := saveState(requestContext, queries, viewer.campaignID, colony.state, restored); err != nil {
 			return err
 		}
+		if err := restoreNpcColonyRoles(requestContext, queries, colony, record.Before.NpcColonyRoles); err != nil {
+			return err
+		}
 		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
 		if err != nil {
 			return err
 		}
 		// PUBLIC only if a player saw something being undone, and then named by the newest public
 		// entry's own title, so a public UNDO never names what players were never shown (spec §5.8).
+		// It repeats an NPC's name, so it carries the NPC like the entry it names (Invariant 15).
 		entry := plannedEntry{
 			day:        restored.Day,
 			kind:       TimelineKindUndo,
 			title:      "The DM rewound: " + record.Label,
 			visibility: TimelineVisibilityDm,
 		}
-		var newestPublic *store.TimelineEvent
+		var newestPublic, newestAboutNpc *store.TimelineEvent
 		for index := range undone {
 			if undone[index].Visibility == TimelineVisibilityPublic && (newestPublic == nil || undone[index].Sequence > newestPublic.Sequence) {
 				newestPublic = &undone[index]
 			}
+			if undone[index].NpcName != "" && (newestAboutNpc == nil || undone[index].Sequence > newestAboutNpc.Sequence) {
+				newestAboutNpc = &undone[index]
+			}
+		}
+		if newestAboutNpc != nil {
+			entry.npcID = newestAboutNpc.NpcID
+			entry.npcName = newestAboutNpc.NpcName
 		}
 		if newestPublic != nil {
 			entry.visibility = TimelineVisibilityPublic
 			entry.title = "The DM rewound: " + newestPublic.Title
+			entry.npcID = newestPublic.NpcID
+			entry.npcName = newestPublic.NpcName
+			refusal, err := npcEntryRefusal(requestContext, queries, viewer.campaignID, npcEntry{npcID: entry.npcID, npcName: entry.npcName, title: entry.title}, false)
+			if err != nil {
+				return err
+			}
+			if refusal != "" {
+				entry.title = "The DM rewound a change to the colony"
+			}
 		}
 		if restored.Day != colony.state.Day {
 			entry.body = "Back to " + dayText(restored.Day)
@@ -469,7 +492,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err != nil {
 			return err
 		}
-		board, err := service.readBoard(requestContext, queries, viewer.campaignID)
+		board, err := service.readBoard(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
 			return err
 		}
@@ -479,8 +502,37 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	if err != nil {
 		return ColonyChange{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources)
+	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs)
 	return change, nil
+}
+
+// restoreNpcColonyRoles puts each named colonist back in the role they had. The IDs come from this
+// campaign's own undo slot and are loaded with the campaign; an NPC deleted since is a conflict the DM
+// resolves by hand, as is a role archived since.
+func restoreNpcColonyRoles(requestContext context.Context, queries *store.Queries, colony colonySnapshot, roles map[uuid.UUID]*string) error {
+	for _, npcID := range slices.SortedFunc(maps.Keys(roles), compareIDs) {
+		npc, err := queries.GetNpc(requestContext, store.GetNpcParams{CampaignID: colony.campaignID, ID: npcID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Conflict("Undo can't put that NPC back: they were deleted since.")
+		}
+		if err != nil {
+			return err
+		}
+		roleKey := roles[npcID]
+		if roleKey != nil {
+			role, found := colony.roles[*roleKey]
+			if !found {
+				return Conflict("Undo can't put " + npc.DisplayName + " back: their role no longer exists.")
+			}
+			if role.Archived {
+				return Conflict("Undo can't put " + npc.DisplayName + " back among the " + role.Label + " colonists: that role was archived since.")
+			}
+		}
+		if err := queries.SetNpcColonyRole(requestContext, store.SetNpcColonyRoleParams{CampaignID: colony.campaignID, ID: npcID, ColonyRoleKey: roleKey}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // colonySnapshot is the colony as one operation reads it: the row, the game.State built from it and
@@ -490,6 +542,7 @@ type colonySnapshot struct {
 	row        store.Colony
 	state      game.State
 	resources  map[string]store.Resource
+	roles      map[string]store.Role
 	// order is every resource key in board order, so text lists resources the way the board does.
 	order  []string
 	labels resourceLabels
@@ -526,6 +579,7 @@ func readColony(requestContext context.Context, queries *store.Queries, campaign
 			Roles:     make(map[string]game.Role, len(roles)),
 		},
 		resources: make(map[string]store.Resource, len(resources)),
+		roles:     make(map[string]store.Role, len(roles)),
 		order:     make([]string, 0, len(resources)),
 		labels:    make(resourceLabels, len(resources)),
 	}
@@ -544,9 +598,9 @@ func readColony(requestContext context.Context, queries *store.Queries, campaign
 		snapshot.order = append(snapshot.order, resource.Key)
 		snapshot.labels[resource.Key] = resource.Label
 	}
-	// NamedCount stays 0 until named NPC colonists arrive (M2).
-	for _, role := range roles {
-		snapshot.state.Roles[role.Key] = game.Role{UnnamedCount: int64(role.UnnamedCount), Archived: role.Archived}
+	for _, row := range roles {
+		snapshot.state.Roles[row.Role.Key] = game.Role{Label: row.Role.Label, UnnamedCount: int64(row.Role.UnnamedCount), NamedCount: row.NamedCount, Archived: row.Role.Archived}
+		snapshot.roles[row.Role.Key] = row.Role
 	}
 	return snapshot, nil
 }
@@ -561,6 +615,10 @@ type plannedEntry struct {
 	deltas     Effects
 	// data is the kind-specific JSON (arrivalData, cargoData); nil writes {}.
 	data any
+	// npcID links the entry to the NPC it is about (COLONIST_JOINED, COLONIST_LEFT, WORKFORCE_CHANGED),
+	// and npcName is the display name its text uses (npcEntryRefusal).
+	npcID   *uuid.UUID
+	npcName string
 }
 
 // colonyOutcome is what one colony mutation decided: the State to save, the undo label and the
@@ -569,6 +627,15 @@ type colonyOutcome struct {
 	after   game.State
 	label   string
 	entries []plannedEntry
+	// npcRoles is each NPC whose colony role the change sets, keyed by ID, with the role after it
+	// (nil: no longer a colonist). The counts in after already include them.
+	npcRoles map[uuid.UUID]npcRoleChange
+}
+
+// npcRoleChange is one named colonist's role before and after a colony mutation; nil is no role.
+type npcRoleChange struct {
+	before *string
+	after  *string
 }
 
 // mutateColony is the write path every form-started colony mutation shares (spec §5.1): lock the
@@ -581,6 +648,7 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 		return ColonyChange{}, err
 	}
 	var change ColonyChange
+	outcomeTouchedNpcs := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
@@ -593,8 +661,20 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 		if err != nil {
 			return err
 		}
+		outcomeTouchedNpcs = len(outcome.npcRoles) > 0
 		if err := saveState(requestContext, queries, viewer.campaignID, colony.state, outcome.after); err != nil {
 			return err
+		}
+		before := snapshotBefore(colony.state, outcome.after)
+		for _, npcID := range slices.SortedFunc(maps.Keys(outcome.npcRoles), compareIDs) {
+			change := outcome.npcRoles[npcID]
+			if err := queries.SetNpcColonyRole(requestContext, store.SetNpcColonyRoleParams{CampaignID: viewer.campaignID, ID: npcID, ColonyRoleKey: change.after}); err != nil {
+				return err
+			}
+			if before.NpcColonyRoles == nil {
+				before.NpcColonyRoles = map[uuid.UUID]*string{}
+			}
+			before.NpcColonyRoles[npcID] = change.before
 		}
 		groupID := uuid.New()
 		record, err := json.Marshal(lastChangeRecord{
@@ -603,7 +683,7 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 			Day:          outcome.after.Day,
 			VersionAfter: colony.row.Version + 1,
 			ChangedAt:    time.Now().UTC(),
-			Before:       snapshotBefore(colony.state, outcome.after),
+			Before:       before,
 		})
 		if err != nil {
 			return fmt.Errorf("core: encode colony.last_change: %w", err)
@@ -615,7 +695,7 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 		if err != nil {
 			return err
 		}
-		board, err := service.readBoard(requestContext, queries, viewer.campaignID)
+		board, err := service.readBoard(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
 			return err
 		}
@@ -625,9 +705,18 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 	if err != nil {
 		return ColonyChange{}, err
 	}
-	// The DM's /settings list shows amounts too, so resources goes with colony and timeline.
-	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources)
+	// The DM's /settings list shows amounts too, so resources goes with colony and timeline; any
+	// mutation can move headcounts (new colonists land in Unassigned), so people goes too.
+	topics := []Topic{TopicColony, TopicTimeline, TopicResources, TopicPeople}
+	if outcomeTouchedNpcs {
+		topics = append(topics, TopicNpcs)
+	}
+	service.broker.Publish(viewer.campaignID, topics...)
 	return change, nil
+}
+
+func compareIDs(first uuid.UUID, second uuid.UUID) int {
+	return strings.Compare(first.String(), second.String())
 }
 
 // snapshotBefore records the day, the schedule and every amount and headcount the change touches, as
@@ -751,6 +840,8 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 			Deltas:     deltas,
 			Data:       data,
 			CreatedBy:  memberReference(viewer),
+			NpcID:      entry.npcID,
+			NpcName:    entry.npcName,
 		})
 		if err != nil {
 			return nil, err
@@ -1000,7 +1091,7 @@ func joinLines(summary string, reason string) string {
 
 // readBoard reads one campaign's board with the given queries, so a mutation can answer with the
 // board its own transaction wrote.
-func (service *Service) readBoard(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) (ColonyBoard, error) {
+func (service *Service) readBoard(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, dmProjection bool) (ColonyBoard, error) {
 	colony, err := queries.GetColony(requestContext, campaignID)
 	if err != nil {
 		return ColonyBoard{}, campaignGone(err)
@@ -1017,11 +1108,12 @@ func (service *Service) readBoard(requestContext context.Context, queries *store
 	if err != nil {
 		return ColonyBoard{}, err
 	}
-	return toColonyBoard(colony, campaign.Name, resources, roles)
+	return toColonyBoard(colony, campaign.Name, resources, roles, dmProjection)
 }
 
-// toColonyBoard fills Dm unconditionally; the Transformer decides who keeps it.
-func toColonyBoard(colony store.Colony, campaignName string, resources []store.Resource, roles []store.Role) (ColonyBoard, error) {
+// toColonyBoard fills Dm unconditionally; the Transformer decides who keeps it. Headcounts follow the
+// projection (roleHeadcount): hidden named colonists count for players as unnamed ones.
+func toColonyBoard(colony store.Colony, campaignName string, resources []store.Resource, roles []store.ListRolesRow, dmProjection bool) (ColonyBoard, error) {
 	board := ColonyBoard{
 		CampaignName: campaignName,
 		ColonyName:   colony.Name,
@@ -1047,22 +1139,17 @@ func toColonyBoard(colony store.Colony, campaignName string, resources []store.R
 		})
 	}
 	headcounts := make(map[string]game.Role, len(roles))
-	for _, role := range roles {
-		headcounts[role.Key] = game.Role{UnnamedCount: int64(role.UnnamedCount), Archived: role.Archived}
+	for _, row := range roles {
+		role := row.Role
+		headcounts[role.Key] = game.Role{UnnamedCount: int64(role.UnnamedCount), NamedCount: row.NamedCount, Archived: role.Archived}
+		headcount := roleHeadcount(row, dmProjection)
 		if role.Key == game.UnassignedRoleKey {
-			board.Unassigned = int64(role.UnnamedCount)
+			board.Unassigned = headcount.Total
 		}
 		if role.Archived {
 			continue
 		}
-		board.Roles = append(board.Roles, RoleHeadcount{
-			Key:          role.Key,
-			Label:        role.Label,
-			Icon:         role.Icon,
-			UnnamedCount: int64(role.UnnamedCount),
-			Total:        int64(role.UnnamedCount),
-			IsSystem:     role.IsSystem,
-		})
+		board.Roles = append(board.Roles, headcount)
 	}
 	board.Colonists = game.Colonists(headcounts)
 	lastChange, err := availableLastChange(colony)
@@ -1095,6 +1182,26 @@ func usableLastChange(colony store.Colony) (*lastChangeRecord, error) {
 		return nil, nil
 	}
 	return &record, nil
+}
+
+// roleHeadcount is one role's line as a projection sees it. Players see every role's total, but a
+// hidden named colonist is counted among the unnamed, so the numbers never hint that one exists.
+func roleHeadcount(row store.ListRolesRow, dmProjection bool) RoleHeadcount {
+	unnamed := int64(row.Role.UnnamedCount)
+	named := row.NamedCount
+	if !dmProjection {
+		unnamed += row.NamedCount - row.RevealedNamedCount
+		named = row.RevealedNamedCount
+	}
+	return RoleHeadcount{
+		Key:          row.Role.Key,
+		Label:        row.Role.Label,
+		Icon:         row.Role.Icon,
+		UnnamedCount: unnamed,
+		NamedCount:   named,
+		Total:        unnamed + named,
+		IsSystem:     row.Role.IsSystem,
+	}
 }
 
 func toShipmentSchedule(day int64, intervalDays *int32, nextDay *int32) *ShipmentSchedule {

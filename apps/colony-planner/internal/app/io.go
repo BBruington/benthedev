@@ -75,3 +75,36 @@ type adminCampaignBodyInput[Body any] struct {
 	CampaignID uuid.UUID `path:"campaignId" format:"uuid"`
 	Body       Body
 }
+
+type npcPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	NpcID      uuid.UUID `path:"npcId" format:"uuid"`
+}
+
+type npcBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	NpcID      uuid.UUID `path:"npcId" format:"uuid"`
+	Body       Body
+}
+
+type placePath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	PlaceID    uuid.UUID `path:"placeId" format:"uuid"`
+}
+
+type placeBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	PlaceID    uuid.UUID `path:"placeId" format:"uuid"`
+	Body       Body
+}
+
+type roleBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	RoleKey    string    `path:"roleKey"`
+	Body       Body
+}
+
+// RevealInput is the body of the reveal switches on NPCs and places.
+type RevealInput struct {
+	Revealed bool `json:"revealed"`
+}

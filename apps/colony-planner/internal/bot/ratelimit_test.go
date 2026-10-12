@@ -7,7 +7,7 @@ import (
 
 func TestUserRateLimiterAllowsABurstThenOneEveryTwoSeconds(t *testing.T) {
 	clock := newFakeClock()
-	limiter := newUserRateLimiter(clock.now)
+	limiter := newUserRateLimiter(clock.now, commandBurst, commandRefillInterval)
 
 	for attempt := range commandBurst {
 		if !limiter.allow(activeUserID) {
@@ -32,7 +32,7 @@ func TestUserRateLimiterAllowsABurstThenOneEveryTwoSeconds(t *testing.T) {
 
 func TestUserRateLimiterRefillsNoFurtherThanTheBurst(t *testing.T) {
 	clock := newFakeClock()
-	limiter := newUserRateLimiter(clock.now)
+	limiter := newUserRateLimiter(clock.now, commandBurst, commandRefillInterval)
 	limiter.allow(activeUserID)
 	clock.advance(time.Hour)
 
@@ -48,7 +48,7 @@ func TestUserRateLimiterRefillsNoFurtherThanTheBurst(t *testing.T) {
 }
 
 func TestUserRateLimiterKeepsUsersApart(t *testing.T) {
-	limiter := newUserRateLimiter(newFakeClock().now)
+	limiter := newUserRateLimiter(newFakeClock().now, commandBurst, commandRefillInterval)
 	for range commandBurst {
 		limiter.allow(activeUserID)
 	}
@@ -62,7 +62,7 @@ func TestUserRateLimiterKeepsUsersApart(t *testing.T) {
 
 func TestUserRateLimiterForgetsIdleUsers(t *testing.T) {
 	clock := newFakeClock()
-	limiter := newUserRateLimiter(clock.now)
+	limiter := newUserRateLimiter(clock.now, commandBurst, commandRefillInterval)
 	limiter.allow(activeUserID)
 	clock.advance(idleLimiterLifetime + time.Second)
 	limiter.allow(dmUserID)

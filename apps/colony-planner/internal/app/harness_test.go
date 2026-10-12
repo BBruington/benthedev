@@ -99,6 +99,12 @@ type campaignFixture struct {
 	pathIDs map[string]string
 	// arrivalEntryID is a SHIPMENT_ARRIVED entry, for cargo bodies.
 	arrivalEntryID uuid.UUID
+	// hiddenIDs are the IDs of rows players must never see (hidden NPCs and places): DM-only literals.
+	hiddenIDs []string
+	// keptPlaceID is a hidden place no sweep deletes, for valid NPC bodies in pass 4.
+	keptPlaceID uuid.UUID
+	// hiddenNpcID is a hidden named colonist.
+	hiddenNpcID uuid.UUID
 }
 
 // harness is the whole server on a fresh test schema with the accounts and campaigns of the

@@ -11,29 +11,90 @@ import (
 	"github.com/google/uuid"
 )
 
-const listRoles = `-- name: ListRoles :many
-SELECT key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id FROM role WHERE campaign_id = $1 ORDER BY sort_order, key
+const createRole = `-- name: CreateRole :one
+INSERT INTO role (campaign_id, key, label, icon, sort_order)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id
 `
 
-// Every role, archived ones included, in display order. Colonists = the sum of the headcounts (spec
-// §4.2); from M2 the named NPC colonists of each role are added by their own query.
-func (q *Queries) ListRoles(ctx context.Context, campaignID uuid.UUID) ([]Role, error) {
-	rows, err := q.db.Query(ctx, listRoles, campaignID)
+type CreateRoleParams struct {
+	CampaignID uuid.UUID
+	Key        string
+	Label      string
+	Icon       ColonyIcon
+	SortOrder  int32
+}
+
+func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error) {
+	row := q.db.QueryRow(ctx, createRole,
+		arg.CampaignID,
+		arg.Key,
+		arg.Label,
+		arg.Icon,
+		arg.SortOrder,
+	)
+	var i Role
+	err := row.Scan(
+		&i.Key,
+		&i.Label,
+		&i.Icon,
+		&i.SortOrder,
+		&i.UnnamedCount,
+		&i.IsSystem,
+		&i.Archived,
+		&i.CampaignID,
+	)
+	return i, err
+}
+
+const listNamedColonists = `-- name: ListNamedColonists :many
+SELECT id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id FROM npc
+WHERE campaign_id = $1
+  AND colony_role_key IS NOT NULL
+  AND ($2::boolean OR revealed)
+ORDER BY lower(display_name), created_at, id
+`
+
+type ListNamedColonistsParams struct {
+	CampaignID   uuid.UUID
+	DmProjection bool
+}
+
+// The named colonists the given projection may list, for /people; hidden ones still count (spec §5.5).
+func (q *Queries) ListNamedColonists(ctx context.Context, arg ListNamedColonistsParams) ([]Npc, error) {
+	rows, err := q.db.Query(ctx, listNamedColonists, arg.CampaignID, arg.DmProjection)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Role
+	var items []Npc
 	for rows.Next() {
-		var i Role
+		var i Npc
 		if err := rows.Scan(
-			&i.Key,
-			&i.Label,
-			&i.Icon,
-			&i.SortOrder,
-			&i.UnnamedCount,
-			&i.IsSystem,
-			&i.Archived,
+			&i.ID,
+			&i.Name,
+			&i.KnownName,
+			&i.DisplayName,
+			&i.Revealed,
+			&i.Aliases,
+			&i.Labels,
+			&i.Race,
+			&i.CharacterClass,
+			&i.Level,
+			&i.Age,
+			&i.Appearance,
+			&i.Personality,
+			&i.Backstory,
+			&i.PlayerNotes,
+			&i.DmNotes,
+			&i.Status,
+			&i.Health,
+			&i.Relation,
+			&i.CurrentPlaceID,
+			&i.OriginPlaceID,
+			&i.ColonyRoleKey,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.CampaignID,
 		); err != nil {
 			return nil, err
@@ -44,6 +105,68 @@ func (q *Queries) ListRoles(ctx context.Context, campaignID uuid.UUID) ([]Role, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const listRoles = `-- name: ListRoles :many
+SELECT role.key, role.label, role.icon, role.sort_order, role.unnamed_count, role.is_system, role.archived, role.campaign_id,
+       (SELECT count(*) FROM npc
+        WHERE npc.campaign_id = role.campaign_id AND npc.colony_role_key = role.key)::bigint AS named_count,
+       (SELECT count(*) FROM npc
+        WHERE npc.campaign_id = role.campaign_id AND npc.colony_role_key = role.key AND npc.revealed)::bigint AS revealed_named_count
+FROM role
+WHERE role.campaign_id = $1
+ORDER BY role.sort_order, role.key
+`
+
+type ListRolesRow struct {
+	Role               Role
+	NamedCount         int64
+	RevealedNamedCount int64
+}
+
+// Every role, archived ones included, in display order, with its named NPC colonists counted (all of
+// them, and the revealed ones for the player projection). Colonists = the sum of unnamed and named
+// headcounts (spec §4.2, §5.5).
+func (q *Queries) ListRoles(ctx context.Context, campaignID uuid.UUID) ([]ListRolesRow, error) {
+	rows, err := q.db.Query(ctx, listRoles, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRolesRow
+	for rows.Next() {
+		var i ListRolesRow
+		if err := rows.Scan(
+			&i.Role.Key,
+			&i.Role.Label,
+			&i.Role.Icon,
+			&i.Role.SortOrder,
+			&i.Role.UnnamedCount,
+			&i.Role.IsSystem,
+			&i.Role.Archived,
+			&i.Role.CampaignID,
+			&i.NamedCount,
+			&i.RevealedNamedCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const nextRoleSortOrder = `-- name: NextRoleSortOrder :one
+SELECT (COALESCE(max(sort_order), 0) + 10)::integer FROM role WHERE campaign_id = $1
+`
+
+func (q *Queries) NextRoleSortOrder(ctx context.Context, campaignID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, nextRoleSortOrder, campaignID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const setRoleUnnamedCount = `-- name: SetRoleUnnamedCount :exec
@@ -60,4 +183,48 @@ type SetRoleUnnamedCountParams struct {
 func (q *Queries) SetRoleUnnamedCount(ctx context.Context, arg SetRoleUnnamedCountParams) error {
 	_, err := q.db.Exec(ctx, setRoleUnnamedCount, arg.UnnamedCount, arg.CampaignID, arg.Key)
 	return err
+}
+
+const updateRole = `-- name: UpdateRole :one
+UPDATE role
+SET label = $1,
+    icon = $2,
+    sort_order = $3,
+    archived = $4
+WHERE campaign_id = $5 AND key = $6
+RETURNING key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id
+`
+
+type UpdateRoleParams struct {
+	Label      string
+	Icon       ColonyIcon
+	SortOrder  int32
+	Archived   bool
+	CampaignID uuid.UUID
+	Key        string
+}
+
+// Replaces a role's settings (PUT semantics). Headcounts change only through colony mutations; the
+// schema refuses archiving a role anyone is in.
+func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error) {
+	row := q.db.QueryRow(ctx, updateRole,
+		arg.Label,
+		arg.Icon,
+		arg.SortOrder,
+		arg.Archived,
+		arg.CampaignID,
+		arg.Key,
+	)
+	var i Role
+	err := row.Scan(
+		&i.Key,
+		&i.Label,
+		&i.Icon,
+		&i.SortOrder,
+		&i.UnnamedCount,
+		&i.IsSystem,
+		&i.Archived,
+		&i.CampaignID,
+	)
+	return i, err
 }

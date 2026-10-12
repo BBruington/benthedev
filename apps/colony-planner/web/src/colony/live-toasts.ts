@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type { Schemas } from "@/api/client";
 import { recentTimelineQuery } from "@/api/queries";
-import { entriesToToast, newestWrittenAt } from "@/lib/colony";
+import { entriesToToast, isColonyChangePath, newestWrittenAt } from "@/lib/colony";
 
 type TimelineEntry = Schemas["TimelineEntry"];
 
@@ -27,7 +27,7 @@ function isOwnColonyChangeInFlight(queryClient: QueryClient): boolean {
 		queryClient.isMutating({
 			predicate: (mutation) => {
 				const path = mutation.options.mutationKey?.[1];
-				return typeof path === "string" && path.startsWith("/api/campaigns/{campaignId}/colony");
+				return typeof path === "string" && isColonyChangePath(path);
 			},
 		}) > 0
 	);

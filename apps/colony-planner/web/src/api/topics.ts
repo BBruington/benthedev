@@ -10,10 +10,16 @@ import {
 	membersQuery,
 	meQuery,
 	myCampaignsQuery,
+	npcQueryKeyPrefix,
+	npcsQueryKeyPrefix,
+	placeQueryKeyPrefix,
+	placesQueryKeyPrefix,
 	recentTimelineQuery,
 	resourcesQuery,
+	rolesQuery,
 	settingsQuery,
 	timelineQueryKeyPrefix,
+	workforceQuery,
 } from "./queries";
 
 export type Topic = Schemas["Topic"];
@@ -35,6 +41,10 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 		// view as player (a session toggle that the account read carries too).
 		me: [campaignMeQuery(campaignId).queryKey, myCampaignsQuery.queryKey, meQuery.queryKey],
 		members: [membersQuery(campaignId).queryKey],
+		npcs: [npcsQueryKeyPrefix(campaignId), npcQueryKeyPrefix(campaignId)],
+		// Role settings live beside /people: both show headcounts.
+		people: [workforceQuery(campaignId).queryKey, rolesQuery(campaignId).queryKey],
+		places: [placesQueryKeyPrefix(campaignId), placeQueryKeyPrefix(campaignId)],
 		resources: [resourcesQuery(campaignId).queryKey],
 		// The Discord card and its channel list live under settings; so does the campaign name.
 		settings: [
