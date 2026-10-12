@@ -38,6 +38,7 @@ import { dayName, shipmentLine, voyageProgress } from "@/lib/colony";
 import { focusFirstVisible } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
+import { MyRequestsCard, PendingRequestsCard } from "@/ventures/board-ventures";
 
 type ColonyBoard = Schemas["ColonyBoard"];
 
@@ -98,6 +99,11 @@ function ColonyPage() {
 				<ResourceTiles resources={data.resources} />
 			</section>
 			<ColonistsStrip board={data} />
+			{canUseDmTools(me) ? (
+				<PendingRequestsCard resources={data.resources} />
+			) : (
+				<MyRequestsCard resources={data.resources} />
+			)}
 			<RecentEntries
 				entries={recent.data?.entries}
 				isError={recent.isError}

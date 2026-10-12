@@ -33,6 +33,12 @@ const (
 	TopicNpcs Topic = "npcs"
 	// TopicPlaces is the place list and every place page.
 	TopicPlaces Topic = "places"
+	// TopicQuests is the quest list and every quest page.
+	TopicQuests Topic = "quests"
+	// TopicPatrons is the patron list, every patron page and their actions and favor.
+	TopicPatrons Topic = "patrons"
+	// TopicRequests is the DM's approval queue, my requests and the party's request history.
+	TopicRequests Topic = "requests"
 )
 
 // InvalidateMessage is the data of every `event: invalidate` message on a campaign stream.
@@ -43,7 +49,7 @@ type InvalidateMessage struct {
 // AllTopics lists every topic; it feeds the Topic enum in the OpenAPI document, reconnect catch-up
 // and view as player. TestAllTopicsListsEveryTopicConstant fails when a Topic constant is missing here.
 func AllTopics() []Topic {
-	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces}
+	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces, TopicQuests, TopicPatrons, TopicRequests}
 }
 
 // StreamMessage is one `event: invalidate` message, with its `<bootId>-<seq>` id.

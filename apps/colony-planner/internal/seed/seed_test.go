@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"testing"
 
 	"github.com/BBruington/colony-planner/db/dbtest"
@@ -109,8 +110,8 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	playerTimeline, err := service.ListTimeline(testContext, player, core.TimelineRangeInput{FromDay: 0, ToDay: 30})
-	if err != nil || len(playerTimeline.Entries) != len(dmTimeline.Entries)-2 {
-		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment and the hidden colonist's joining (%v)",
+	if err != nil || len(playerTimeline.Entries) != len(dmTimeline.Entries)-3 {
+		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment, the hidden colonist's joining and Lady Vex's favor adjustment (%v)",
 			len(playerTimeline.Entries), len(dmTimeline.Entries), err)
 	}
 
@@ -138,6 +139,73 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatalf("named colonists = %d, want 3 (%v)", len(colonists.Npcs), err)
 	}
 
+	// M3: quests in every state, Lady Vex on favor 5 (Example G), and a request in every state.
+	for _, check := range []struct {
+		viewer                          core.Viewer
+		quests, patrons, actions, asked int
+	}{{dm, 4, 3, 5, 4}, {player, 3, 1, 1, 4}} {
+		quests, err := service.ListQuests(testContext, check.viewer)
+		if err != nil || len(quests.Quests) != check.quests {
+			t.Fatalf("quests: %d, want %d (%v)", len(quests.Quests), check.quests, err)
+		}
+		patrons, err := service.ListPatrons(testContext, check.viewer)
+		if err != nil || len(patrons.Patrons) != check.patrons || patrons.Patrons[0].Name != "Lady Vex" || patrons.Patrons[0].Favor != 5 {
+			t.Fatalf("patrons: %+v (%v)", patrons, err)
+		}
+		actions, err := service.ListPatronActions(testContext, check.viewer)
+		if err != nil || len(actions) != check.actions {
+			t.Fatalf("actions: %d, want %d (%v)", len(actions), check.actions, err)
+		}
+		requests, err := service.ListRequests(testContext, check.viewer, core.RequestFilter{})
+		if err != nil || len(requests.Requests) != check.asked || requests.Requests[0].Status != core.RequestStatusPending {
+			t.Fatalf("requests: %+v (%v)", requests, err)
+		}
+		statuses := map[core.RequestStatus]int{}
+		for _, request := range requests.Requests {
+			statuses[request.Status]++
+			// Sela's decline note reaches only Sela and the DM, so Ana never reads it.
+			if request.Status == core.RequestStatusDeclined && (request.DecisionNote != nil) != check.viewer.IsDM() {
+				t.Fatalf("the decline note for this viewer = %v", request.DecisionNote)
+			}
+		}
+		if statuses[core.RequestStatusApproved] != 1 || statuses[core.RequestStatusDeclined] != 1 || statuses[core.RequestStatusWithdrawn] != 1 {
+			t.Fatalf("request statuses = %v", statuses)
+		}
+	}
+	sela, err := service.EnterCampaign(testContext, callerOf("seed:bram"), sampleColony.Campaign.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selaRequests, err := service.ListRequests(testContext, sela, core.RequestFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	declinedIndex := slices.IndexFunc(selaRequests.Requests, func(request core.Request) bool { return request.Status == core.RequestStatusDeclined })
+	if declinedIndex < 0 || selaRequests.Requests[declinedIndex].DecisionNote == nil || *selaRequests.Requests[declinedIndex].DecisionNote != "Vex is busy this week." {
+		t.Fatalf("Sela doesn't read her own decline note: %+v", selaRequests.Requests)
+	}
+	questStatuses := map[core.QuestStatus]int{}
+	dmQuests, err := service.ListQuests(testContext, dm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, quest := range dmQuests.Quests {
+		questStatuses[quest.Status]++
+		if quest.Title == "Clear the Wolf Den" && (quest.RewardFavor != 2 || quest.Dm.FailureFavor != 2 || quest.Patron == nil) {
+			t.Fatalf("Clear the Wolf Den = %+v", quest)
+		}
+	}
+	if questStatuses[core.QuestStatusActive] != 2 || questStatuses[core.QuestStatusCompleted] != 1 || questStatuses[core.QuestStatusFailed] != 1 {
+		t.Fatalf("quest statuses = %v", questStatuses)
+	}
+	var failedEntry bool
+	for _, entry := range playerTimeline.Entries {
+		failedEntry = failedEntry || (entry.Kind == core.TimelineKindQuestFailed && entry.Body == "Food −7 · Lady Vex favor −1")
+	}
+	if !failedEntry {
+		t.Fatal("the failed quest's cost is not in the players' history")
+	}
+
 	// Hollis DMs Second Sample and plays Pell in Sample Colony.
 	hollis := callerOf("seed:hollis")
 	hollisCampaigns := campaignBySlug(hollis)
@@ -159,6 +227,14 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	}
 	if second.ColonyName != "Ridgehold" || second.Day != 9 || secondAmounts["food"] != 140 || secondAmounts["timber"] != 25 {
 		t.Fatalf("Second Sample = %+v, %v", second, secondAmounts)
+	}
+	secondPatrons, err := service.ListPatrons(testContext, secondDm)
+	if err != nil || len(secondPatrons.Patrons) != 1 || secondPatrons.Patrons[0].Favor != 3 {
+		t.Fatalf("Second Sample's patrons = %+v, %v", secondPatrons, err)
+	}
+	secondRequests, err := service.ListRequests(testContext, secondDm, core.RequestFilter{})
+	if err != nil || len(secondRequests.Requests) != 1 || secondRequests.Requests[0].Status != core.RequestStatusPending {
+		t.Fatalf("Second Sample's requests = %+v, %v", secondRequests, err)
 	}
 	if jun := campaignBySlug(callerOf("seed:jun"))["second-sample"]; jun.Status != core.MemberStatusPending {
 		t.Fatalf("Jun = %+v", jun)

@@ -5,10 +5,19 @@ import { problemMessage, problemStatus } from "@/api/problem";
 import {
 	adjustPreviewQueryKeyPrefix,
 	advancePreviewQueryKeyPrefix,
+	approveRequestPreviewQueryKeyPrefix,
 	colonyBoardQuery,
 	npcQueryKeyPrefix,
 	npcsQueryKeyPrefix,
+	patronActionsQuery,
+	patronQueryKeyPrefix,
+	patronsQuery,
+	questPreviewQueryKeyPrefixes,
+	questQueryKeyPrefix,
+	questsQueryKeyPrefix,
 	recentTimelineQuery,
+	requestQueryKeyPrefix,
+	requestsQueryKeyPrefix,
 	resourcesQuery,
 	rolesQuery,
 	timelineQueryKeyPrefix,
@@ -39,11 +48,22 @@ function refreshAfter(
 	}
 	queryClient.invalidateQueries({ queryKey: advancePreviewQueryKeyPrefix(campaignId) });
 	queryClient.invalidateQueries({ queryKey: adjustPreviewQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: approveRequestPreviewQueryKeyPrefix(campaignId) });
+	for (const queryKey of questPreviewQueryKeyPrefixes(campaignId)) {
+		queryClient.invalidateQueries({ queryKey });
+	}
 	queryClient.invalidateQueries({ queryKey: timelineQueryKeyPrefix(campaignId) });
 	queryClient.invalidateQueries({ queryKey: recentTimelineQuery(campaignId).queryKey });
 	queryClient.invalidateQueries({ queryKey: resourcesQuery(campaignId).queryKey });
 	queryClient.invalidateQueries({ queryKey: npcsQueryKeyPrefix(campaignId) });
 	queryClient.invalidateQueries({ queryKey: npcQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: questsQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: questQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: patronsQuery(campaignId).queryKey });
+	queryClient.invalidateQueries({ queryKey: patronQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: patronActionsQuery(campaignId).queryKey });
+	queryClient.invalidateQueries({ queryKey: requestsQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: requestQueryKeyPrefix(campaignId) });
 	return Promise.all([
 		queryClient.invalidateQueries({ queryKey: workforceQuery(campaignId).queryKey }),
 		queryClient.invalidateQueries({ queryKey: rolesQuery(campaignId).queryKey }),
@@ -76,7 +96,8 @@ export function isConflict(error: unknown): boolean {
 }
 
 /**
- * Every colony write the DM makes from the board, the timeline, /people and an NPC's page. The callbacks live on the
+ * Every colony write the DM makes from the board, the timeline, /people, an NPC's page, a quest, a
+ * patron and the approval sheet. The callbacks live on the
  * mutations themselves, so a toast's Undo still works after the screen that made the change closes.
  * Each screen adds its own callbacks when it calls mutate (closing a sheet, moving focus).
  */
@@ -117,7 +138,17 @@ export function useColonyChanges() {
 
 	return {
 		adjust: api.useMutation("post", "/api/campaigns/{campaignId}/colony/adjust", changeOptions),
+		adjustFavor: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/patrons/{patronId}/adjust-favor",
+			changeOptions,
+		),
 		advance: api.useMutation("post", "/api/campaigns/{campaignId}/colony/advance", changeOptions),
+		approveRequest: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/requests/{requestId}/approve",
+			changeOptions,
+		),
 		changeColonyRole: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/npcs/{npcId}/change-role",
@@ -128,9 +159,19 @@ export function useColonyChanges() {
 			"/api/campaigns/{campaignId}/colony/shipments/clear",
 			changeOptions,
 		),
+		completeQuest: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/quests/{questId}/complete",
+			changeOptions,
+		),
 		correctDay: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/colony/correct-day",
+			changeOptions,
+		),
+		failQuest: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/quests/{questId}/fail",
 			changeOptions,
 		),
 		/** The path parameters every change sends: the campaign on screen. */
@@ -143,6 +184,11 @@ export function useColonyChanges() {
 		leaveColony: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/npcs/{npcId}/leave-colony",
+			changeOptions,
+		),
+		reopenQuest: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/quests/{questId}/reopen",
 			changeOptions,
 		),
 		setRoleCount: api.useMutation(
@@ -162,6 +208,11 @@ export function useColonyChanges() {
 		),
 		undo,
 		undoGroup,
+		useActionNow: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/requests/use-action",
+			changeOptions,
+		),
 	};
 }
 

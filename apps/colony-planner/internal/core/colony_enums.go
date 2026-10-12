@@ -86,6 +86,12 @@ const (
 	TimelineKindWorkforceChanged        TimelineKind = "WORKFORCE_CHANGED"
 	TimelineKindColonistJoined          TimelineKind = "COLONIST_JOINED"
 	TimelineKindColonistLeft            TimelineKind = "COLONIST_LEFT"
+	TimelineKindQuestPosted             TimelineKind = "QUEST_POSTED"
+	TimelineKindQuestCompleted          TimelineKind = "QUEST_COMPLETED"
+	TimelineKindQuestFailed             TimelineKind = "QUEST_FAILED"
+	TimelineKindQuestReopened           TimelineKind = "QUEST_REOPENED"
+	TimelineKindPatronAction            TimelineKind = "PATRON_ACTION"
+	TimelineKindFavorAdjusted           TimelineKind = "FAVOR_ADJUSTED"
 )
 
 // AllTimelineKinds lists every kind, for the API's enum schema and the DM's filter chips.
@@ -102,6 +108,12 @@ func AllTimelineKinds() []TimelineKind {
 		TimelineKindWorkforceChanged,
 		TimelineKindColonistJoined,
 		TimelineKindColonistLeft,
+		TimelineKindQuestPosted,
+		TimelineKindQuestCompleted,
+		TimelineKindQuestFailed,
+		TimelineKindQuestReopened,
+		TimelineKindPatronAction,
+		TimelineKindFavorAdjusted,
 	}
 }
 

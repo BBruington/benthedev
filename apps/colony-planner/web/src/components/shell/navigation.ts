@@ -91,7 +91,6 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug/npcs",
 	},
 	patrons: {
-		arrivesIn: "M3",
 		icon: CrownIcon,
 		id: "patrons",
 		label: "Patrons",
@@ -122,7 +121,6 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug/players",
 	},
 	quests: {
-		arrivesIn: "M3",
 		icon: SwordsIcon,
 		id: "quests",
 		label: "Quests",
@@ -130,7 +128,6 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		to: "/c/$campaignSlug/quests",
 	},
 	requests: {
-		arrivesIn: "M3",
 		icon: InboxIcon,
 		id: "requests",
 		label: "Requests",

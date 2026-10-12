@@ -181,6 +181,92 @@ export function placeQuery(campaignId: string, placeId: string) {
 	});
 }
 
+// M3: quests, patrons, their actions and requests. Every read is already projected for the viewer by
+// the server: hidden quests, patrons and actions never reach players, and a decision note reaches only
+// the requester and the DM.
+
+export function questsQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/quests", inCampaign(campaignId));
+}
+
+export function questQuery(campaignId: string, questId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/quests/{questId}", {
+		params: { path: { campaignId, questId } },
+	});
+}
+
+/** What Complete would pay: "Food 40 → 60 · +3 to Unassigned · Lady Vex favor 1 → 3". */
+export function completeQuestPreviewQuery(campaignId: string, questId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/quests/{questId}/complete-preview",
+		{ params: { path: { campaignId, questId } } },
+		{ meta: { dmOnly: true } },
+	);
+}
+
+/** What Fail would cost, from the quest's DM-only failure cost. */
+export function failQuestPreviewQuery(campaignId: string, questId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/quests/{questId}/fail-preview",
+		{ params: { path: { campaignId, questId } } },
+		{ meta: { dmOnly: true } },
+	);
+}
+
+export function patronsQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/patrons", inCampaign(campaignId));
+}
+
+/** A patron's page: the patron, its actions and its request history. */
+export function patronQuery(campaignId: string, patronId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/patrons/{patronId}", {
+		params: { path: { campaignId, patronId } },
+	});
+}
+
+/** Every action the viewer may see, for pickers; the DM's list keeps archived ones, flagged. */
+export function patronActionsQuery(campaignId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/patron-actions",
+		inCampaign(campaignId),
+	);
+}
+
+export type RequestListFilter = NonNullable<operations["listRequests"]["parameters"]["query"]>;
+
+/** The DM's queue and history or the party's history; `{ mine: true }` is "my requests". */
+export function requestsQuery(campaignId: string, filter: RequestListFilter = {}) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/requests", {
+		params: { path: { campaignId }, query: filter },
+	});
+}
+
+export function requestQuery(campaignId: string, requestId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/requests/{requestId}", {
+		params: { path: { campaignId, requestId } },
+	});
+}
+
+/**
+ * The approval sheet's before → after and validity line for a grant, with the DM's tweak if any. A
+ * POST because it takes the tweak as a body, but it writes nothing.
+ */
+export function approveRequestPreviewQuery(
+	campaignId: string,
+	requestId: string,
+	input: Schemas["ApproveRequestInput"],
+) {
+	return api.queryOptions(
+		"post",
+		"/api/campaigns/{campaignId}/requests/{requestId}/approve-preview",
+		{ body: input, params: { path: { campaignId, requestId } } },
+		{ meta: { dmOnly: true } },
+	);
+}
+
 // Key prefixes that match every parameterized read of one path in one campaign, for live
 // invalidation. TanStack Query matches the trailing object partially, so the query parameters and
 // bodies of each read don't matter.
@@ -218,4 +304,47 @@ export function placesQueryKeyPrefix(campaignId: string) {
 
 export function placeQueryKeyPrefix(campaignId: string) {
 	return ["get", "/api/campaigns/{campaignId}/places/{placeId}", inCampaign(campaignId)] as const;
+}
+
+export function questsQueryKeyPrefix(campaignId: string) {
+	return ["get", "/api/campaigns/{campaignId}/quests", inCampaign(campaignId)] as const;
+}
+
+export function questQueryKeyPrefix(campaignId: string) {
+	return ["get", "/api/campaigns/{campaignId}/quests/{questId}", inCampaign(campaignId)] as const;
+}
+
+export function questPreviewQueryKeyPrefixes(campaignId: string) {
+	return [
+		[
+			"get",
+			"/api/campaigns/{campaignId}/quests/{questId}/complete-preview",
+			inCampaign(campaignId),
+		],
+		["get", "/api/campaigns/{campaignId}/quests/{questId}/fail-preview", inCampaign(campaignId)],
+	] as const;
+}
+
+export function patronQueryKeyPrefix(campaignId: string) {
+	return ["get", "/api/campaigns/{campaignId}/patrons/{patronId}", inCampaign(campaignId)] as const;
+}
+
+export function requestsQueryKeyPrefix(campaignId: string) {
+	return ["get", "/api/campaigns/{campaignId}/requests", inCampaign(campaignId)] as const;
+}
+
+export function requestQueryKeyPrefix(campaignId: string) {
+	return [
+		"get",
+		"/api/campaigns/{campaignId}/requests/{requestId}",
+		inCampaign(campaignId),
+	] as const;
+}
+
+export function approveRequestPreviewQueryKeyPrefix(campaignId: string) {
+	return [
+		"post",
+		"/api/campaigns/{campaignId}/requests/{requestId}/approve-preview",
+		inCampaign(campaignId),
+	] as const;
 }

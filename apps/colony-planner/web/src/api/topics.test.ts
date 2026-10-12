@@ -18,19 +18,46 @@ describe("topic → query-key map", () => {
 	});
 
 	test("collects the keys of several topics, scoped to the campaign", () => {
-		const keys = queryKeysForTopics(campaignA, ["members", "resources"]);
+		const keys = queryKeysForTopics(campaignA, ["resources", "people"]);
 		expect(keys).toEqual([
-			[
-				"get",
-				"/api/campaigns/{campaignId}/members",
-				{ params: { path: { campaignId: campaignA } } },
-			],
 			[
 				"get",
 				"/api/campaigns/{campaignId}/resources",
 				{ params: { path: { campaignId: campaignA } } },
 			],
+			[
+				"get",
+				"/api/campaigns/{campaignId}/people",
+				{ params: { path: { campaignId: campaignA } } },
+			],
+			["get", "/api/campaigns/{campaignId}/roles", { params: { path: { campaignId: campaignA } } }],
 		]);
+	});
+
+	test("refreshes quests and requests that show a giver, a patron or a requester's name", () => {
+		const paths = (topic: "npcs" | "patrons" | "members") =>
+			topicQueryKeys(campaignA)[topic].map((key) => key[1]);
+		expect(paths("npcs")).toEqual(
+			expect.arrayContaining([
+				"/api/campaigns/{campaignId}/quests",
+				"/api/campaigns/{campaignId}/quests/{questId}",
+			]),
+		);
+		expect(paths("patrons")).toEqual(
+			expect.arrayContaining([
+				"/api/campaigns/{campaignId}/quests",
+				"/api/campaigns/{campaignId}/quests/{questId}",
+				"/api/campaigns/{campaignId}/requests",
+				"/api/campaigns/{campaignId}/requests/{requestId}",
+			]),
+		);
+		expect(paths("members")).toEqual(
+			expect.arrayContaining([
+				"/api/campaigns/{campaignId}/requests",
+				"/api/campaigns/{campaignId}/requests/{requestId}",
+				"/api/campaigns/{campaignId}/patrons/{patronId}",
+			]),
+		);
 	});
 
 	test("a campaign's keys never name another campaign", () => {

@@ -348,6 +348,35 @@
         ],
         "type": "object"
       },
+      "ApproveRequestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "appliedEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "Effects for this grant only; leave it out to apply what was asked"
+          },
+          "note": {
+            "description": "At most 500 characters; only the requester and the DM read it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "type": "object"
+      },
+      "ArchiveInput": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "archived"
+        ],
+        "type": "object"
+      },
       "ArrivalRun": {
         "additionalProperties": false,
         "properties": {
@@ -806,6 +835,19 @@
         ],
         "type": "object"
       },
+      "DeclineRequestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "description": "At most 500 characters; only the requester and the DM read it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "type": "object"
+      },
       "DeleteCampaignInput": {
         "additionalProperties": false,
         "properties": {
@@ -983,6 +1025,76 @@
           }
         },
         "type": "object"
+      },
+      "FavorAdjustInput": {
+        "additionalProperties": false,
+        "properties": {
+          "delta": {
+            "description": "The change; null when setTo is given",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "public": {
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "At most 200 characters; may be blank",
+            "type": "string"
+          },
+          "setTo": {
+            "description": "The new favor; null when delta is given",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "delta",
+          "setTo",
+          "reason",
+          "public"
+        ],
+        "type": "object"
+      },
+      "FavorChangePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "before": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "patronId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "patronName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "patronId",
+          "patronName",
+          "before",
+          "after"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
       },
       "InvalidateMessage": {
         "additionalProperties": false,
@@ -1180,6 +1292,30 @@
         },
         "required": [
           "discordEnabled"
+        ],
+        "type": "object"
+      },
+      "LootItem": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 500 characters",
+            "type": "string"
+          },
+          "name": {
+            "description": "1 to 80 characters",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "1 to 1,000,000",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "quantity",
+          "description"
         ],
         "type": "object"
       },
@@ -1492,6 +1628,87 @@
         ],
         "type": "object"
       },
+      "NewPatronActionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "effects": {
+            "$ref": "#/components/schemas/Effects"
+          },
+          "favorCost": {
+            "description": "0 or more",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "1 to 80 characters",
+            "type": "string"
+          },
+          "patronId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "revealed": {
+            "description": "Visible to players; the create form starts it off",
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "patronId",
+          "revealed",
+          "name",
+          "description",
+          "favorCost",
+          "effects",
+          "sortOrder"
+        ],
+        "type": "object"
+      },
+      "NewPatronInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "dmNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "name": {
+            "description": "1 to 80 characters",
+            "type": "string"
+          },
+          "playerNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "revealed": {
+            "description": "Visible to players; the create form starts it off",
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revealed",
+          "name",
+          "description",
+          "playerNotes",
+          "dmNotes",
+          "sortOrder"
+        ],
+        "type": "object"
+      },
       "NewPlaceInput": {
         "additionalProperties": false,
         "properties": {
@@ -1521,6 +1738,92 @@
           "name",
           "description",
           "playerNotes",
+          "dmNotes"
+        ],
+        "type": "object"
+      },
+      "NewQuestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "dmNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "failureEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "The optional failure cost, applied in CLAMP mode when the quest fails"
+          },
+          "failureFavor": {
+            "description": "0 or more; taken from the patron giver when the quest fails, even below 0",
+            "format": "int64",
+            "type": "integer"
+          },
+          "giverNpcId": {
+            "description": "null for none",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/QuestKind",
+            "description": "A label with no logic; blank means COLONY"
+          },
+          "loot": {
+            "description": "At most 50 items",
+            "items": {
+              "$ref": "#/components/schemas/LootItem"
+            },
+            "type": "array"
+          },
+          "patronId": {
+            "description": "The patron giver; null for none. Favor needs one.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postToTimeline": {
+            "description": "Write a PUBLIC QUEST_POSTED entry when the quest is visible; the form starts it on",
+            "type": "boolean"
+          },
+          "revealed": {
+            "description": "Visible to players; the create form starts it on",
+            "type": "boolean"
+          },
+          "rewardEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "Applied in CLAMP mode on completion"
+          },
+          "rewardFavor": {
+            "description": "0 or more; paid to the patron giver on completion",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "1 to 120 characters",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revealed",
+          "postToTimeline",
+          "title",
+          "description",
+          "kind",
+          "giverNpcId",
+          "patronId",
+          "rewardEffects",
+          "rewardFavor",
+          "failureEffects",
+          "failureFavor",
+          "loot",
           "dmNotes"
         ],
         "type": "object"
@@ -1895,6 +2198,270 @@
         ],
         "type": "string"
       },
+      "Patron": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dm": {
+            "$ref": "#/components/schemas/PatronDm"
+          },
+          "favor": {
+            "description": "May be below 0 after a DM adjustment or a failed quest",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "playerNotes": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "favor",
+          "playerNotes",
+          "archived",
+          "sortOrder"
+        ],
+        "type": "object"
+      },
+      "PatronAction": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dm": {
+            "$ref": "#/components/schemas/PatronActionDm"
+          },
+          "effects": {
+            "$ref": "#/components/schemas/Effects"
+          },
+          "favorCost": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "patronId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "patronId",
+          "name",
+          "description",
+          "favorCost",
+          "effects",
+          "archived",
+          "sortOrder"
+        ],
+        "type": "object"
+      },
+      "PatronActionDm": {
+        "additionalProperties": false,
+        "properties": {
+          "revealed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revealed"
+        ],
+        "type": "object"
+      },
+      "PatronActionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "effects": {
+            "$ref": "#/components/schemas/Effects"
+          },
+          "favorCost": {
+            "description": "0 or more",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "1 to 80 characters",
+            "type": "string"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "favorCost",
+          "effects",
+          "sortOrder"
+        ],
+        "type": "object"
+      },
+      "PatronActionList": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "description": "For players, only revealed, unarchived actions of revealed, unarchived patrons; the DM also gets archived ones, flagged",
+            "items": {
+              "$ref": "#/components/schemas/PatronAction"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "actions"
+        ],
+        "type": "object"
+      },
+      "PatronDm": {
+        "additionalProperties": false,
+        "properties": {
+          "dmNotes": {
+            "type": "string"
+          },
+          "revealed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revealed",
+          "dmNotes"
+        ],
+        "type": "object"
+      },
+      "PatronInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "dmNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "name": {
+            "description": "1 to 80 characters",
+            "type": "string"
+          },
+          "playerNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "sortOrder": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "playerNotes",
+          "dmNotes",
+          "sortOrder"
+        ],
+        "type": "object"
+      },
+      "PatronList": {
+        "additionalProperties": false,
+        "properties": {
+          "patrons": {
+            "description": "Unarchived first, then by position and name",
+            "items": {
+              "$ref": "#/components/schemas/Patron"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "patrons"
+        ],
+        "type": "object"
+      },
+      "PatronPage": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "description": "For players, only revealed, unarchived actions",
+            "items": {
+              "$ref": "#/components/schemas/PatronAction"
+            },
+            "type": "array"
+          },
+          "patron": {
+            "$ref": "#/components/schemas/Patron"
+          },
+          "requests": {
+            "description": "This patron's requests, pending first, then newest",
+            "items": {
+              "$ref": "#/components/schemas/Request"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "patron",
+          "actions",
+          "requests"
+        ],
+        "type": "object"
+      },
+      "PatronReference": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
       "Place": {
         "additionalProperties": false,
         "properties": {
@@ -2026,6 +2593,296 @@
         ],
         "type": "object"
       },
+      "Quest": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dm": {
+            "$ref": "#/components/schemas/QuestDm"
+          },
+          "giverNpc": {
+            "$ref": "#/components/schemas/QuestGiverNpc",
+            "description": "null when unset or hidden from this viewer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/QuestKind"
+          },
+          "loot": {
+            "description": "Display only",
+            "items": {
+              "$ref": "#/components/schemas/LootItem"
+            },
+            "type": "array"
+          },
+          "patron": {
+            "$ref": "#/components/schemas/PatronReference",
+            "description": "The patron giver; null when unset or hidden from this viewer"
+          },
+          "resolvedAt": {
+            "description": "null while active",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resolvedDay": {
+            "description": "The colony day it was completed or failed; null while active",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rewardEffects": {
+            "$ref": "#/components/schemas/Effects"
+          },
+          "rewardFavor": {
+            "description": "Favor the patron giver gains on completion; 0 when the patron is hidden from this viewer",
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QuestStatus"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "kind",
+          "status",
+          "giverNpc",
+          "patron",
+          "rewardEffects",
+          "rewardFavor",
+          "loot",
+          "resolvedDay",
+          "resolvedAt",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "QuestDm": {
+        "additionalProperties": false,
+        "properties": {
+          "dmNotes": {
+            "type": "string"
+          },
+          "failureEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "Applied in CLAMP mode when the quest fails"
+          },
+          "failureFavor": {
+            "description": "Favor the patron giver loses when the quest fails; it may take favor below 0",
+            "format": "int64",
+            "type": "integer"
+          },
+          "revealed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revealed",
+          "dmNotes",
+          "failureEffects",
+          "failureFavor"
+        ],
+        "type": "object"
+      },
+      "QuestGiverNpc": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "QuestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "dmNotes": {
+            "description": "At most 4000 characters",
+            "type": "string"
+          },
+          "failureEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "The optional failure cost, applied in CLAMP mode when the quest fails"
+          },
+          "failureFavor": {
+            "description": "0 or more; taken from the patron giver when the quest fails, even below 0",
+            "format": "int64",
+            "type": "integer"
+          },
+          "giverNpcId": {
+            "description": "null for none",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/QuestKind",
+            "description": "A label with no logic; blank means COLONY"
+          },
+          "loot": {
+            "description": "At most 50 items",
+            "items": {
+              "$ref": "#/components/schemas/LootItem"
+            },
+            "type": "array"
+          },
+          "patronId": {
+            "description": "The patron giver; null for none. Favor needs one.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rewardEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "Applied in CLAMP mode on completion"
+          },
+          "rewardFavor": {
+            "description": "0 or more; paid to the patron giver on completion",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "1 to 120 characters",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "kind",
+          "giverNpcId",
+          "patronId",
+          "rewardEffects",
+          "rewardFavor",
+          "failureEffects",
+          "failureFavor",
+          "loot",
+          "dmNotes"
+        ],
+        "type": "object"
+      },
+      "QuestKind": {
+        "enum": [
+          "MAINLAND",
+          "COLONY"
+        ],
+        "type": "string"
+      },
+      "QuestList": {
+        "additionalProperties": false,
+        "properties": {
+          "quests": {
+            "description": "Newest first",
+            "items": {
+              "$ref": "#/components/schemas/Quest"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "quests"
+        ],
+        "type": "object"
+      },
+      "QuestResolutionPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "colonistsAfter": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "colonistsBefore": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "favor": {
+            "$ref": "#/components/schemas/FavorChangePreview",
+            "description": "null when the quest has no patron giver"
+          },
+          "resources": {
+            "description": "Every resource the reward or cost names, sorted by key",
+            "items": {
+              "$ref": "#/components/schemas/ResourceChangePreview"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "description": "e.g. Food 0 → 20 · Morale 98 → 100 (capped) · 3 colonists (Unassigned) · Lady Vex favor 1 → 3",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resources",
+          "colonistsBefore",
+          "colonistsAfter",
+          "favor",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "QuestRevealInput": {
+        "additionalProperties": false,
+        "properties": {
+          "postToTimeline": {
+            "description": "When the quest becomes visible, write a PUBLIC QUEST_POSTED entry",
+            "type": "boolean"
+          },
+          "revealed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revealed",
+          "postToTimeline"
+        ],
+        "type": "object"
+      },
+      "QuestStatus": {
+        "enum": [
+          "ACTIVE",
+          "COMPLETED",
+          "FAILED"
+        ],
+        "type": "string"
+      },
       "RecentTimeline": {
         "additionalProperties": false,
         "properties": {
@@ -2047,6 +2904,225 @@
           "LEFT",
           "DENIED",
           "REMOVED"
+        ],
+        "type": "string"
+      },
+      "Request": {
+        "additionalProperties": false,
+        "properties": {
+          "appliedEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "The DM's tweak to this grant; absent when the request applied as asked or isn't granted"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decidedAt": {
+            "description": "null while pending",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decisionNote": {
+            "description": "The DM's note; only the requester and the DM read it, so it is null for anyone else",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "What was asked for"
+          },
+          "favorCost": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RequestKind"
+          },
+          "mine": {
+            "description": "This viewer asked, so may withdraw it while it is pending",
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          },
+          "onBehalfOf": {
+            "$ref": "#/components/schemas/RequestMember",
+            "description": "The character the DM used the action for; null for none"
+          },
+          "patronActionId": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "patronId": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "patronName": {
+            "description": "The patron's name when it was asked",
+            "type": "string"
+          },
+          "requestedBy": {
+            "$ref": "#/components/schemas/RequestMember"
+          },
+          "requestedDay": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequestStatus"
+          },
+          "title": {
+            "description": "What was asked for, as it was named then",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "patronId",
+          "patronName",
+          "patronActionId",
+          "favorCost",
+          "effects",
+          "requestedBy",
+          "onBehalfOf",
+          "requestedDay",
+          "note",
+          "status",
+          "decidedAt",
+          "decisionNote",
+          "mine",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "RequestApprovalPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "affordable": {
+            "type": "boolean"
+          },
+          "colonistsAfter": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "colonistsBefore": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "favor": {
+            "$ref": "#/components/schemas/FavorChangePreview",
+            "description": "null for a request with no patron"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceChangePreview"
+            },
+            "type": "array"
+          },
+          "shortfall": {
+            "description": "e.g. Not enough favor: Lady Vex has 2, needs 3; blank when affordable",
+            "type": "string"
+          },
+          "summary": {
+            "description": "e.g. Lady Vex favor 12 → 9 · Food 40 → 47",
+            "type": "string"
+          }
+        },
+        "required": [
+          "affordable",
+          "shortfall",
+          "resources",
+          "colonistsBefore",
+          "colonistsAfter",
+          "favor",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "RequestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "actionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "note": {
+            "description": "At most 500 characters; may be blank",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actionId",
+          "note"
+        ],
+        "type": "object"
+      },
+      "RequestKind": {
+        "enum": [
+          "PATRON_ACTION"
+        ],
+        "type": "string"
+      },
+      "RequestList": {
+        "additionalProperties": false,
+        "properties": {
+          "requests": {
+            "description": "Pending first, then newest",
+            "items": {
+              "$ref": "#/components/schemas/Request"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "type": "object"
+      },
+      "RequestMember": {
+        "additionalProperties": false,
+        "properties": {
+          "memberId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "memberId",
+          "name"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "RequestStatus": {
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "DECLINED",
+          "WITHDRAWN"
         ],
         "type": "string"
       },
@@ -2581,6 +3657,30 @@
               "null"
             ]
           },
+          "patronId": {
+            "description": "The patron this entry names; null for none",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "questId": {
+            "description": "The quest this entry is about; null for none, or once that quest is deleted",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestId": {
+            "description": "The request this entry granted; null for none",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "title": {
             "type": "string"
           }
@@ -2595,6 +3695,9 @@
           "deltas",
           "arrivalEntryId",
           "npcId",
+          "questId",
+          "patronId",
+          "requestId",
           "createdAt"
         ],
         "type": "object"
@@ -2615,6 +3718,10 @@
               "null"
             ]
           },
+          "note": {
+            "description": "DM-only detail, e.g. a hidden patron's favor line; blank for none",
+            "type": "string"
+          },
           "undoneAt": {
             "format": "date-time",
             "type": [
@@ -2631,7 +3738,8 @@
           "undoneAt",
           "editedAt",
           "canDelete",
-          "canRecordCargo"
+          "canRecordCargo",
+          "note"
         ],
         "type": "object"
       },
@@ -2675,7 +3783,13 @@
           "CUSTOM",
           "WORKFORCE_CHANGED",
           "COLONIST_JOINED",
-          "COLONIST_LEFT"
+          "COLONIST_LEFT",
+          "QUEST_POSTED",
+          "QUEST_COMPLETED",
+          "QUEST_FAILED",
+          "QUEST_REOPENED",
+          "PATRON_ACTION",
+          "FAVOR_ADJUSTED"
         ],
         "type": "string"
       },
@@ -2746,7 +3860,10 @@
           "resources",
           "people",
           "npcs",
-          "places"
+          "places",
+          "quests",
+          "patrons",
+          "requests"
         ],
         "type": "string"
       },
@@ -2791,6 +3908,42 @@
         },
         "required": [
           "groupId"
+        ],
+        "type": "object"
+      },
+      "UseActionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "actionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "appliedEffects": {
+            "$ref": "#/components/schemas/Effects",
+            "description": "Effects for this use only; leave it out to apply the action's"
+          },
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "note": {
+            "description": "At most 500 characters; may be blank",
+            "type": "string"
+          },
+          "onBehalfOf": {
+            "description": "The member the timeline credits; null credits the DM",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "actionId",
+          "onBehalfOf",
+          "note"
         ],
         "type": "object"
       },
@@ -5210,6 +6363,702 @@
         "x-access": "dm"
       }
     },
+    "/api/campaigns/{campaignId}/patron-actions": {
+      "get": {
+        "operationId": "listPatronActions",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronActionList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every patron action the viewer may see, for pickers (filter out archived ones there)",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "member"
+      },
+      "post": {
+        "operationId": "createPatronAction",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPatronActionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronAction"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add an action to a patron, hidden unless asked otherwise",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patron-actions/{actionId}": {
+      "put": {
+        "operationId": "updatePatronAction",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatronActionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronAction"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Replace an action's record (visibility and archiving each have their own operation); pending requests keep what they asked for",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patron-actions/{actionId}/archived": {
+      "put": {
+        "operationId": "setPatronActionArchived",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronAction"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Archive an action (gone from pickers and players' lists, history kept) or bring it back",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patron-actions/{actionId}/revealed": {
+      "put": {
+        "operationId": "setPatronActionRevealed",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronAction"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Reveal an action to the players, or hide it again",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patrons": {
+      "get": {
+        "operationId": "listPatrons",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Patrons with their favor, in the viewer's projection",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "member"
+      },
+      "post": {
+        "operationId": "createPatron",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPatronInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronPage"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a patron, hidden unless asked otherwise",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patrons/{patronId}": {
+      "get": {
+        "operationId": "getPatron",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "patronId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "One patron with its actions and request history; a hidden one is not found for players",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "member"
+      },
+      "put": {
+        "operationId": "updatePatron",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "patronId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatronInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Replace a patron's record (favor, visibility and archiving each have their own operation)",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patrons/{patronId}/adjust-favor": {
+      "post": {
+        "operationId": "adjustFavor",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "patronId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FavorAdjustInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Change a patron's favor by a delta or set it, below 0 included",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patrons/{patronId}/archived": {
+      "put": {
+        "operationId": "setPatronArchived",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "patronId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Archive a patron (gone from pickers and players' lists, history kept) or bring them back",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/patrons/{patronId}/revealed": {
+      "put": {
+        "operationId": "setPatronRevealed",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "patronId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Reveal a patron to the players, or hide them again",
+        "tags": [
+          "patrons"
+        ],
+        "x-access": "dm"
+      }
+    },
     "/api/campaigns/{campaignId}/people": {
       "get": {
         "operationId": "getWorkforce",
@@ -5696,6 +7545,1081 @@
           "places"
         ],
         "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests": {
+      "get": {
+        "operationId": "listQuests",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every quest in the viewer's projection; players get only visible ones",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "member"
+      },
+      "post": {
+        "operationId": "createQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewQuestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quest"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a quest, visible or hidden, posting it to the timeline when it starts visible",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests/{questId}": {
+      "delete": {
+        "operationId": "deleteQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a quest; its timeline entries keep their text",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      },
+      "get": {
+        "operationId": "getQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quest"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "One quest; a hidden one is not found for players",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "member"
+      },
+      "put": {
+        "operationId": "updateQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quest"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Replace a quest's record (status changes through complete, fail and reopen, visibility through setQuestRevealed)",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests/{questId}/complete": {
+      "post": {
+        "operationId": "completeQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Complete an active quest and pay its reward",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests/{questId}/complete-preview": {
+      "get": {
+        "operationId": "previewCompleteQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestResolutionPreview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "What completing a quest would apply, without doing it",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests/{questId}/fail": {
+      "post": {
+        "operationId": "failQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Fail an active quest and apply its failure cost",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests/{questId}/fail-preview": {
+      "get": {
+        "operationId": "previewFailQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestResolutionPreview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "What failing a quest would cost, without doing it",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests/{questId}/reopen": {
+      "post": {
+        "operationId": "reopenQuest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Reopen a failed quest, giving nothing back",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/quests/{questId}/revealed": {
+      "put": {
+        "operationId": "setQuestRevealed",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "questId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestRevealInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quest"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Show a quest to the players, posting it to the timeline unless asked not to, or hide it again",
+        "tags": [
+          "quests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/requests": {
+      "get": {
+        "operationId": "listRequests",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "$ref": "#/components/schemas/RequestStatus"
+            }
+          },
+          {
+            "description": "Only the viewer's own requests",
+            "explode": false,
+            "in": "query",
+            "name": "mine",
+            "schema": {
+              "description": "Only the viewer's own requests",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Only this patron's requests",
+            "explode": false,
+            "in": "query",
+            "name": "patronId",
+            "schema": {
+              "description": "Only this patron's requests",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The DM's approval queue and history, or the party's history; pending first, then newest",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "member"
+      },
+      "post": {
+        "operationId": "createRequest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Request"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Ask a patron for an action; it must be affordable now",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "member"
+      }
+    },
+    "/api/campaigns/{campaignId}/requests/use-action": {
+      "post": {
+        "operationId": "useActionNow",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UseActionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Use a patron action now, optionally on behalf of a member: a request made and granted at once",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/requests/{requestId}": {
+      "get": {
+        "operationId": "getRequest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Request"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "One request; one for a hidden patron or action is not found for players",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "member"
+      }
+    },
+    "/api/campaigns/{campaignId}/requests/{requestId}/approve": {
+      "post": {
+        "operationId": "approveRequest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Grant a pending request, optionally tweaked for this grant, with an optional note to the requester",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/requests/{requestId}/approve-preview": {
+      "post": {
+        "operationId": "previewApproveRequest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestApprovalPreview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "What granting a request would apply and whether it is affordable, without doing it",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/requests/{requestId}/decline": {
+      "post": {
+        "operationId": "declineRequest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineRequestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Request"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Decline a pending request with an optional note only the requester reads",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/requests/{requestId}/withdraw": {
+      "post": {
+        "operationId": "withdrawRequest",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Request"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Withdraw one of your own pending requests",
+        "tags": [
+          "requests"
+        ],
+        "x-access": "member"
       }
     },
     "/api/campaigns/{campaignId}/resources": {

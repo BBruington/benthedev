@@ -1,6 +1,6 @@
 # Handoff: Colony Planner
 
-**Last updated:** 2026-10-12, after the M2 debrief fixes. M2 is [PR #3](https://github.com/BBruington/colony-planner/pull/3) (branch `claude/m2-people-and-secrecy`), awaiting the author's checklist run and merge.
+**Last updated:** 2026-10-12, after the M3 debrief fixes. M2 is merged ([PR #3](https://github.com/BBruington/colony-planner/pull/3)). M3 is built in the working copy (a jj change on top of `main`), not yet committed, awaiting the author's checklist run (`docs/checklists/M3.md`).
 **For:** the author, and any future session or AI agent picking this project up cold.
 
 This document carries the context that isn't in the code: why the project exists, what the author decided and why, how the author likes to work, what's pending, and what bit us along the way. Read it with:
@@ -27,8 +27,8 @@ It replaces `~/myCodeSpace/party-planner`: the author's earlier, unfinished, gen
 | M0 | Skeleton, direct Discord OAuth2 sign-in, server sessions, DM approval of players, app shell, Beny Bot core | On `main`, committed by the author (`47e58c1`) |
 | M1 | Colony clock and books: Advance N days with preview, shipments (exact cadence), Adjust, Record cargo, Correct day, single-level Undo, timeline, live updates; plus the M0 review hardening | Merged ([PR #1](https://github.com/BBruington/colony-planner/pull/1)) |
 | M1.5 | Multi-campaign: accounts and memberships, site owner, invite links, DM requests and owner approval, one shared Beny Bot with `/link`, cross-campaign isolation; then a cleanup pass that squashed migrations into one `0001` | Merged ([PR #2](https://github.com/BBruington/colony-planner/pull/2)) |
-| M2 | People and secrecy: `/people` (transfers, set counts, named colonists joining and leaving), NPC roster with server-side secrecy, places (unpinned), Settings roles card, Beny Bot `/npc view` | In [PR #3](https://github.com/BBruington/colony-planner/pull/3) (branch `claude/m2-people-and-secrecy`) with the debrief fixes, awaiting the author's checklist run (`docs/checklists/M2.md`) and merge |
-| M3 | Quests (Effects rewards, favor to patron givers), patrons and actions, player requests with DM approval (Discord Grant/Decline buttons) | Planned |
+| M2 | People and secrecy: `/people` (transfers, set counts, named colonists joining and leaving), NPC roster with server-side secrecy, places (unpinned), Settings roles card, Beny Bot `/npc view` | Merged ([PR #3](https://github.com/BBruington/colony-planner/pull/3)) |
+| M3 | Quests (Effects rewards, favor to patron givers, an optional failure cost), patrons and actions, player requests with the DM's approval sheet, Beny Bot Grant/Decline buttons | Built, not yet committed; awaiting the author's checklist run (`docs/checklists/M3.md`). `mise run check` passes |
 | M4 | Hex map (players chart the new world; no fog of war, no history), the mainland map with pins | Planned |
 | M5 | Sessions (local time + time zone), Discord events, reminders, recaps, ICS feed | Planned |
 | M6 | Deploy to the author's existing domain, replacing party-planner. **Optional, and only after the author says the app meets their standards** | Not started |
@@ -49,9 +49,10 @@ Most of these came from conversations, not documents. When code or docs disagree
 - **The DM advances time by hand**, any number of days, with no limit enforced by the site.
 - **Colonists = the sum of role headcounts**, with named NPC colonists counting toward their role. New colonists land in **Unassigned**.
 - **Patrons:** favor is earned by doing quests and missions for a patron. Patrons offer actions that spend favor ("spend X favor → +7 food"). **Players request, the DM approves.**
+- **M3 answers (2026-10-12, SPEC §11 questions 5, 9, 12–14):** quests start visible (with a "Post to timeline" checkbox); patrons and actions start hidden. Missions are quests. Players see each visible patron's exact favor. No limits, cooldowns or quotas on requests; a request must be affordable (STRICT) when made and again at approval, refused with the shortfall named. Spending never takes favor below 0; the DM's adjustments may. Only completed quests and DM adjustments grant favor (Effects has no favor field). **A decline note is seen only by the requester and the DM.** **A quest may have an optional failure cost** (resources, CLAMP; plus favor lost with its patron giver, which may go below 0), DM-only until it fails. Reopening a failed quest is status only; completed quests don't reopen.
 - **A player store is planned for later** (magic items, food, colonists, special NPCs). It's a separate design effort; the data model must not block it.
 - **Coming soon after the milestones above:** buildings, sickness, events. Leave seams; don't design their rules.
-- **Players see exact stockpile numbers** (open question 5, answered 2026-10-10). A role hierarchy where, say, only a treasurer sees gold is a "maybe, probably not": don't build it, don't rule it out. Whether players see each patron's exact favor is still open (part of OQ 5); the spec's default is yes.
+- **Players see exact stockpile numbers** (open question 5, answered 2026-10-10). A role hierarchy where, say, only a treasurer sees gold is a "maybe, probably not": don't build it, don't rule it out. Players also see each visible patron's exact favor (answered 2026-10-12).
 - **No random or fuzz property tests for the game rules for now.** Keep the fixed worked examples (§5.12). Leave the randomness ban in `.golangci.yml` as it is.
 
 ### People and access
@@ -97,7 +98,8 @@ Most of these came from conversations, not documents. When code or docs disagree
 
 Roughly in order:
 
-- [ ] **Try M2** with `docs/checklists/M2.md` (it starts with `mise run fresh`, which **erases local data** and loads the new sample NPCs and places), then merge PR #3. Step 15 (`/npc view` in real Discord) can only be checked by the author.
+- [ ] **Try M3** with `docs/checklists/M3.md` (it starts with `mise run fresh`, which **erases local data** and loads the sample quests, patrons and requests; the debrief amended `0003`, so a database that already applied it needs that `fresh` anyway). The Discord step (Grant in the test server) can only be checked by the author. Then, if the author asks for a PR, commit on a `claude/` branch.
+- [ ] **M3 choices to confirm** (SPEC.md "As built in M3" notes): a request's own note is visible to the whole party (only the decision note is per viewer); undoing a grant puts the request back to waiting; a `PATRON_ACTION` entry is public only when both the patron and the action are revealed; a hidden patron's favor line goes in the entry's DM-only note; a request the DM used while its patron or action was hidden stays DM-only even after both are revealed; the DM can't send a request (only Use action now); undoing Use action now writes "The DM rewound a change to the colony" rather than naming the action, in the DM's timeline too; Use action now's note is visible to players who can see the request (its field says so), and the action carries the board version, so a repeated submit is refused instead of spending twice.
 - [ ] **Remove Beny Bot's legacy guild-command cleanup.** That's `DISCORD_GUILD_ID` / `LegacyGuildID` in `internal/bot/bot.go`, `cmd/colony/serve.go` and `cmd/colony/config.go`, plus its tests and docs. Waiting on the author: if `/beny` appears only once in their Discord test server, the old command is gone. Then delete `DISCORD_GUILD_ID` from `.env` and remove the code.
 - [ ] **Bump Go to 1.27.2 on or after 2026-10-22** (in `mise.toml` and `go.mod`), then remove the 10 accepted stdlib advisories from `scripts/vulncheck.sh`. The author was asked whether to take these security fixes earlier and hasn't answered.
 - [ ] **Offered, not yet decided:**
@@ -113,13 +115,22 @@ Roughly in order:
   - The owner-ping limiter counts a failed DM toward its hourly cap.
   - The broker's `memberActive` map is never pruned (tiny memory growth).
   - A campaign with no DM row (only possible by editing the database directly) disappears from Site admin.
+- [ ] **Known small things, fine for now** (from the M3 build):
+  - Beny Bot stores a request prompt's message ID but not its channel. If the DM picks another DM channel after a prompt is posted, that prompt can't be edited and keeps its buttons (clicks still answer correctly). Fix: store the channel with the message.
+  - There is no exported "already decided" error, so the bot reads the request once more after any Conflict to tell it from a shortfall.
+  - The pending-request count shows on the top-bar badge only, not on the sidebar or the phone's More tab.
+  - Use action now has no server preview; its sheet checks the shortfall in the browser.
+  - A request made with Use action now is the DM's, so it shows "Yours" to the DM and isn't in the credited player's "My requests".
+  - Web tests still cover helpers only (`web/src/lib/ventures.ts`, `web/src/lib/clipboard.ts`), not the M3 screens (the approval sheet, the quest and patron sheets, Use action now). Screen tests need a component-test library, such as Testing Library on happy-dom; adding one is the author's call.
+  - Real-Discord behavior of request prompts (posting to the DM channel, Grant and Decline, the edited outcome) has been checked only with fakes; the checklist's Discord step is the author's to run.
+  - Add loot and Copy invite link over `mise run dev:phone` (plain http, where `crypto.randomUUID` and the clipboard are missing) were fixed but checked only in Chromium on localhost, not on a real phone.
 - [ ] **Known small things, fine for now** (from the M2 debrief):
   - A narrow race: setting an NPC's known name in one tab while joining that NPC to the colony in another can write a PUBLIC entry that uses the true name.
   - Renames only ever move an NPC's entries to DM-only and never move them back. Changing a revealed NPC's known name also hides entries that use the old name, which the party did know.
   - Web tests still cover helpers only, not screens (the NPC and place sheets and pages, People, the timeline's NPC links).
   - Beny Bot's `/npc view` needs the exact known name and doesn't match aliases, and NPCs who share a display name can't be reached there.
 
-The full open-question list, with defaults, is SPEC.md §11. The "Before M2" questions were answered on 2026-10-11 (all defaults). Ask the "Before M3" ones, plus the quest half of question 9, when M3 starts.
+The full open-question list, with defaults, is SPEC.md §11. The "Before M2" questions were answered on 2026-10-11 (all defaults) and the "Before M3" ones on 2026-10-12. Ask the "Before M5" ones when M5 starts.
 
 M2 sequencing decided on 2026-10-11: columns arrive with the tables they point at. `npc.first_session_id` comes with sessions in M5; NPC portraits (`npc.avatar_url`) and place pins (`place.map_id`, `pin_x`, `pin_y`) come with images and maps in M4. M2 shows initials avatars.
 
@@ -179,3 +190,5 @@ Ana plays in both. Wren has a pending request to run a campaign. These sandbox s
 - **2026-10-11:** the author decided to support other DMs. The multi-campaign design was written, critiqued and approved with C1–C6. M1.5 was built in about 2 hours, with independent browser verification. A cleanup pass squashed migrations (schema proven byte-identical), removed the upgrade scaffolding and applied the pre-merge fixes. This handoff was written. PR #2 was merged.
 - **2026-10-11 (evening):** the author answered the "Before M2" questions (all defaults). M2 was built in about 1 hour 40 minutes (9 agents). The first review found 11 issues, including a hidden NPC's true name reaching players through a timeline entry; all were fixed, then a second adversarial round re-checked the fixes.
 - **2026-10-12:** M2 went up as PR #3. After the debrief the author approved follow-up fixes for it: an NPC's or place's visibility now changes only through the switch on its page (edits and stale edit sheets can't reveal it again), a server field error no longer keeps Save disabled after it's corrected, timeline entries about an NPC link to their page, and some wording and switch polish.
+- **2026-10-12 (later):** M2 merged. The author answered the "Before M3" questions and added the failure cost. M3 was built in stages (core, app, web, Beny Bot, then integration), with the secrecy sweep extended to quests, patrons and per-viewer decision notes, and walked on a sandbox with curl and the browser.
+- **2026-10-12 (evening):** the M3 debrief's fixes: undo after a quest delete, action-named `PATRON_ACTION` titles, SPEC and migration corrections (`CHECK (reward_favor >= 0)` in `0003`), unarchived-only patron and action limits with an unarchive guard and a ceiling counting archived rows, Add loot and copying on plain http, archived resources in the effects editor, field errors and hints in Use action now and the approval sheet, and broader live-update topics.

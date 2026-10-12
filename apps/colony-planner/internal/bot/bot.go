@@ -1,7 +1,8 @@
 // Package bot is Beny Bot, the Discord bot, running in-process over discordgo. It is off unless Beny Bot Dev's
 // variables are set. One shared bot serves every campaign: each Discord server is linked to one campaign
 // with /link, and every interaction is routed guild → linked campaign → membership
-// (docs/design/multi-campaign.md §6). Every reply and post is built from the player projection.
+// (docs/design/multi-campaign.md §6). Every reply and post is built from the player projection, except
+// the request prompts in the DM's own channel, which only the DM decides (spec §7.5).
 package bot
 
 import (
@@ -22,7 +23,8 @@ import (
 const (
 	// Discord drops an interaction that gets no response within three seconds.
 	interactionDeadline = 3 * time.Second
-	// gatewayWorkTimeout bounds the database work a gateway event (Ready, GuildDelete) starts.
+	// gatewayWorkTimeout bounds the database work a gateway event (Ready, GuildDelete, an acknowledged
+	// button click) starts.
 	gatewayWorkTimeout = 10 * time.Second
 )
 
@@ -56,6 +58,9 @@ type discordClient interface {
 	ApplicationCommandBulkOverwrite(applicationID string, guildID string, commands []*discordgo.ApplicationCommand, options ...discordgo.RequestOption) ([]*discordgo.ApplicationCommand, error)
 	InteractionRespond(interaction *discordgo.Interaction, response *discordgo.InteractionResponse, options ...discordgo.RequestOption) error
 	ChannelMessageSendComplex(channelID string, message *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessage(channelID string, messageID string, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessageEditComplex(edit *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	FollowupMessageCreate(interaction *discordgo.Interaction, wait bool, data *discordgo.WebhookParams, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	UserChannelCreate(recipientID string, options ...discordgo.RequestOption) (*discordgo.Channel, error)
 }
 
@@ -69,12 +74,15 @@ type colonyService interface {
 	ReconcileGuilds(requestContext context.Context, presentGuildIDs []string) (int, error)
 	SuggestRevealedNpcs(requestContext context.Context, viewer core.Viewer, prefix string, limit int) ([]core.Npc, error)
 	FindRevealedNpc(requestContext context.Context, viewer core.Viewer, displayName string) (core.Npc, error)
+	DecideRequestFromDiscord(requestContext context.Context, viewer core.Viewer, requestID uuid.UUID, grant bool) (core.RequestOutcome, error)
+	GetRequest(requestContext context.Context, viewer core.Viewer, requestID uuid.UUID) (core.Request, error)
 }
 
 var (
 	_ discordClient         = (*discordgo.Session)(nil)
 	_ colonyService         = (*core.Service)(nil)
 	_ core.Notifier         = (*Bot)(nil)
+	_ core.RequestNotifier  = (*Bot)(nil)
 	_ core.DiscordDirectory = (*Bot)(nil)
 )
 
@@ -100,7 +108,7 @@ type Bot struct {
 
 // New prepares Beny Bot without connecting. Without a bot token it returns a Bot that is off: Run only
 // waits and the notifier methods do nothing, which is the default for local development. The caller
-// passes the Bot to core as its Notifier and Directory, then calls Run with the core service.
+// passes the Bot to core as its Notifier, RequestNotifier and Directory, then calls Run with the core service.
 func New(options Options) (*Bot, error) {
 	if options.Logger == nil {
 		options.Logger = slog.Default()
@@ -319,7 +327,10 @@ func (benyBot *Bot) handleInteraction(lifetimeContext context.Context, event *di
 		return
 	}
 	interaction := event.Interaction
-	// Buttons (M3) are routed here once they exist, through the same guild routing.
+	if interaction.Type == discordgo.InteractionMessageComponent {
+		benyBot.handleButton(lifetimeContext, interaction)
+		return
+	}
 	isAutocomplete := interaction.Type == discordgo.InteractionApplicationCommandAutocomplete
 	if interaction.Type != discordgo.InteractionApplicationCommand && !isAutocomplete {
 		return

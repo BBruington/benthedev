@@ -4,6 +4,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
@@ -27,6 +29,12 @@ type campaignSide struct {
 	extraResource string
 	// extraRole is a role only this campaign has ("" for none); roleKey names it, or FARMER.
 	extraRole string
+	// requester is the member whose declined request carries a DM-only note: its account name, Discord
+	// ID, username (DM-only) and character name. No sweep caller signs in as them.
+	requester [4]string
+	// failureGold and failureFavor are the revealed quest's DM-only failure cost: numbers no other
+	// planted value uses, so a player response holding either has leaked it.
+	failureGold, failureFavor int64
 }
 
 func (testHarness *harness) sides() []campaignSide {
@@ -40,6 +48,9 @@ func (testHarness *harness) sides() []campaignSide {
 			colonyName:     "Port Alpha",
 			characterNames: map[string]string{"ana": "Thorin", "otherA": "Sela", "dmB": "Pell"},
 			memberTarget:   "otherA",
+			requester:      [4]string{"requesterA", "100000000000000007", "rhea." + canaryA, "Mira"},
+			failureGold:    4321,
+			failureFavor:   8765,
 		},
 		{
 			campaign:       testHarness.campaignB,
@@ -53,6 +64,9 @@ func (testHarness *harness) sides() []campaignSide {
 			memberTarget:   "bOnly",
 			extraResource:  "Brine",
 			extraRole:      "Brinewright",
+			requester:      [4]string{"requesterB", "200000000000000004", "tova." + canaryBdm, "Odile " + canaryB},
+			failureGold:    5432,
+			failureFavor:   9876,
 		},
 	}
 }
@@ -335,6 +349,238 @@ var secrecyFixtures = []secrecyFixture{
 			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, hiddenSince.ID.String())
 		},
 		dmProof: []string{"/npcs", "/places", "/people", "/timeline/recent"},
+	},
+	{
+		feature: "quests, patrons and requests",
+		// Patrons: a revealed one (the {patronId} row) whose dm_notes are DM-only; a hidden one whose every
+		// value is; one revealed while a PUBLIC favor entry was written, then hidden; an archived one.
+		// Actions on the revealed patron: a revealed one (the {actionId} row), a hidden one used with Use
+		// action now, one hidden after a member asked for it, and an archived one; plus a revealed action
+		// of the hidden patron. Quests: a revealed one (the {questId} row) whose dm_notes and failure cost
+		// are DM-only; a hidden one whose every value is, given by the hidden NPC and patron; one posted to
+		// the timeline and then hidden; one for the hidden patron completed (its favor line is DM-only);
+		// one failed. Use action now on a hidden patron's hidden action, both renamed and revealed since; Use
+		// action now on a revealed action, undone, and the action hidden since. A completed hidden quest, a
+		// hidden patron's favor change and a hidden action's use, each undone with its UNDO entry made
+		// PUBLIC. Requests by the requester: a pending one (the {requestId} row), a declined one and a
+		// granted one whose decision notes are DM-only to everyone but the requester. Hidden rows' IDs are
+		// DM-only literals.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			campaign := side.campaign
+			dmViewer := testHarness.enter(side.dm, campaign.id)
+			secret, visible := side.dmSecret, side.playerVisible
+			requestContext := testHarness.context
+			service := testHarness.core
+			version := func() int64 {
+				board, err := service.GetColonyBoard(requestContext, dmViewer)
+				if err != nil {
+					t.Fatalf("read %s's board: %v", campaign.name, err)
+				}
+				return board.Version
+			}
+			check := func(what string, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("%s in %s: %v", what, campaign.name, err)
+				}
+			}
+			gold := func(amount int64) core.Effects {
+				return core.Effects{Resources: map[string]int64{"gold": amount}}
+			}
+			delta := func(amount int64) *int64 { return &amount }
+
+			requester := testHarness.signUp(side.requester[0], side.requester[1], side.requester[2], "Requester")
+			testHarness.join(campaign, side.dm, requester, "approve")
+			characterName := side.requester[3]
+			_, err := service.SetCharacterName(requestContext, dmViewer, campaign.members[requester.name], core.CharacterNameInput{CharacterName: &characterName})
+			check("name the requester's character", err)
+			campaign.requester = requester
+			requesterViewer := testHarness.enter(requester, campaign.id)
+
+			createPatron := func(input core.NewPatronInput) uuid.UUID {
+				t.Helper()
+				page, err := service.CreatePatron(requestContext, dmViewer, input)
+				check("plant patron "+input.Name, err)
+				return page.Patron.ID
+			}
+			adjustFavor := func(patronID uuid.UUID, amount int64, reason string, public bool) {
+				t.Helper()
+				_, err := service.AdjustFavor(requestContext, dmViewer, patronID, core.FavorAdjustInput{ExpectedVersion: version(), Delta: delta(amount), Reason: reason, Public: public})
+				check("adjust favor", err)
+			}
+			shownPatron := createPatron(core.NewPatronInput{Revealed: true, PatronInput: core.PatronInput{
+				Name: "Lady Vex" + visible, Description: "Grain factor" + visible, PlayerNotes: "Likes punctuality" + visible,
+				DmNotes: secret + " owes the crown", SortOrder: 1,
+			}})
+			adjustFavor(shownPatron, 60, secret+" seed favor", false)
+			hiddenPatron := createPatron(core.NewPatronInput{PatronInput: core.PatronInput{
+				Name: secret + " Shadow Broker", Description: secret, PlayerNotes: secret, DmNotes: secret,
+			}})
+			adjustFavor(hiddenPatron, 20, secret+" hidden favor", true)
+			hiddenSincePatron := createPatron(core.NewPatronInput{Revealed: true, PatronInput: core.PatronInput{Name: secret + " Faded Ally"}})
+			adjustFavor(hiddenSincePatron, 4, "Helped at the docks", true)
+			_, err = service.SetPatronRevealed(requestContext, dmViewer, hiddenSincePatron, false)
+			check("hide a patron after their public favor entry", err)
+			archivedPatron := createPatron(core.NewPatronInput{Revealed: true, PatronInput: core.PatronInput{Name: "Retired Patron" + visible}})
+			_, err = service.SetPatronArchived(requestContext, dmViewer, archivedPatron, true)
+			check("archive a patron", err)
+
+			createAction := func(patronID uuid.UUID, revealed bool, name string, description string) uuid.UUID {
+				t.Helper()
+				action, err := service.CreatePatronAction(requestContext, dmViewer, core.NewPatronActionInput{PatronID: patronID, Revealed: revealed, PatronActionInput: core.PatronActionInput{
+					Name: name, Description: description, FavorCost: 3, Effects: gold(2), SortOrder: 1,
+				}})
+				check("plant action "+name, err)
+				return action.ID
+			}
+			shownAction := createAction(shownPatron, true, "Grain Barge"+visible, "A barge of grain"+visible)
+			hiddenAction := createAction(shownPatron, false, secret+" Night Run", secret)
+			hiddenPatronAction := createAction(hiddenPatron, true, secret+" Whisper Network", secret)
+			hiddenSinceAction := createAction(shownPatron, true, secret+" Smuggler's Favor", secret)
+			archivedAction := createAction(shownPatron, true, "Old Favor"+visible, "Retired"+visible)
+			_, err = service.SetPatronActionArchived(requestContext, dmViewer, archivedAction, true)
+			check("archive an action", err)
+
+			ask := func(actionID uuid.UUID, note string) uuid.UUID {
+				t.Helper()
+				request, err := service.CreateRequest(requestContext, requesterViewer, core.RequestInput{ActionID: actionID, Note: note})
+				check("the requester asks", err)
+				return request.ID
+			}
+			pending := ask(shownAction, "For the winter"+visible)
+			declined := ask(shownAction, "Again please"+visible)
+			_, err = service.DeclineRequest(requestContext, dmViewer, declined, core.DeclineRequestInput{Note: secret + " decline note"})
+			check("decline a request", err)
+			granted := ask(shownAction, "")
+			tweak := gold(1)
+			_, err = service.ApproveRequest(requestContext, dmViewer, granted, core.ApproveRequestInput{AppliedEffects: &tweak, Note: secret + " approval note"})
+			check("grant a request", err)
+			hiddenSinceRequest := ask(hiddenSinceAction, "Quietly"+visible)
+			_, err = service.SetPatronActionRevealed(requestContext, dmViewer, hiddenSinceAction, false)
+			check("hide an action after a member asked for it", err)
+			onBehalfOf := campaign.members[requester.name]
+			var usedRequests []string
+			for _, actionID := range []uuid.UUID{hiddenAction, hiddenPatronAction} {
+				used, err := service.UseActionNow(requestContext, dmViewer, core.UseActionInput{ExpectedVersion: version(), ActionID: actionID, OnBehalfOf: &onBehalfOf, Note: secret + " used quietly"})
+				check("use a hidden action now", err)
+				for _, entry := range used.Entries {
+					if entry.RequestID != nil {
+						usedRequests = append(usedRequests, entry.RequestID.String())
+					}
+				}
+			}
+			if len(usedRequests) != 2 {
+				t.Fatalf("using two hidden actions in %s linked %d requests, want 2", campaign.name, len(usedRequests))
+			}
+			// Used while its patron and action were hidden, then both renamed and revealed: the request
+			// keeps the old names, so it stays away from players.
+			veiledPatron := createPatron(core.NewPatronInput{PatronInput: core.PatronInput{Name: secret + " Veiled Guild", DmNotes: secret}})
+			adjustFavor(veiledPatron, 5, "Kept quiet", false)
+			veiledAction := createAction(veiledPatron, false, secret+" Dead Drop", secret)
+			usedWhileHidden, err := service.UseActionNow(requestContext, dmViewer, core.UseActionInput{ExpectedVersion: version(), ActionID: veiledAction, OnBehalfOf: &onBehalfOf, Note: secret + " used before the reveal"})
+			check("use a hidden patron's hidden action now", err)
+			_, err = service.UpdatePatron(requestContext, dmViewer, veiledPatron, core.PatronInput{Name: "Merchant Guild" + visible})
+			check("rename the hidden patron", err)
+			_, err = service.UpdatePatronAction(requestContext, dmViewer, veiledAction, core.PatronActionInput{Name: "Courier" + visible, FavorCost: 3, Effects: gold(2), SortOrder: 1})
+			check("rename the hidden action", err)
+			_, err = service.SetPatronRevealed(requestContext, dmViewer, veiledPatron, true)
+			check("reveal the renamed patron", err)
+			_, err = service.SetPatronActionRevealed(requestContext, dmViewer, veiledAction, true)
+			check("reveal the renamed action", err)
+			var veiledRequest uuid.UUID
+			for _, entry := range usedWhileHidden.Entries {
+				if entry.RequestID != nil {
+					veiledRequest = *entry.RequestID
+					usedRequests = append(usedRequests, entry.RequestID.String())
+				}
+			}
+			if veiledRequest == uuid.Nil {
+				t.Fatalf("using the veiled action in %s linked no request", campaign.name)
+			}
+			// Use action now on a revealed action, undone (which deletes the request), then the action
+			// hidden: the UNDO entry has no request to follow, so it must not name the action.
+			rewoundAction := createAction(shownPatron, true, secret+" Rowboat", secret)
+			rewound, err := service.UseActionNow(requestContext, dmViewer, core.UseActionInput{ExpectedVersion: version(), ActionID: rewoundAction, OnBehalfOf: &onBehalfOf})
+			check("use a revealed action now", err)
+			_, err = service.UndoLastChange(requestContext, dmViewer, core.UndoInput{GroupID: rewound.GroupID})
+			check("undo the use", err)
+			_, err = service.SetPatronActionRevealed(requestContext, dmViewer, rewoundAction, false)
+			check("hide the action whose use was undone", err)
+
+			createQuest := func(input core.NewQuestInput) uuid.UUID {
+				t.Helper()
+				quest, err := service.CreateQuest(requestContext, dmViewer, input)
+				check("plant quest "+input.Title, err)
+				return quest.ID
+			}
+			revealedNpc := uuid.MustParse(campaign.pathIDs["npcId"])
+			shownQuest := createQuest(core.NewQuestInput{Revealed: true, PostToTimeline: true, QuestInput: core.QuestInput{
+				Title: "Clear the Docks" + visible, Description: "Rats" + visible, Kind: core.QuestKindColony,
+				GiverNpcID: &revealedNpc, PatronID: &shownPatron, RewardEffects: gold(5), RewardFavor: 2,
+				FailureEffects: gold(-side.failureGold), FailureFavor: side.failureFavor,
+				Loot:    []core.LootItem{{Name: "Rat King's Crown" + visible, Quantity: 1, Description: "Tarnished" + visible}},
+				DmNotes: secret + " the rats are spies",
+			}})
+			hiddenQuest := createQuest(core.NewQuestInput{PostToTimeline: true, QuestInput: core.QuestInput{
+				Title: secret + " Burn the Archive", Description: secret, Kind: core.QuestKindMainland,
+				GiverNpcID: &campaign.hiddenNpcID, PatronID: &hiddenPatron, RewardEffects: gold(3), RewardFavor: 4,
+				FailureEffects: gold(-2), FailureFavor: 3,
+				Loot:    []core.LootItem{{Name: secret, Quantity: 2, Description: secret}},
+				DmNotes: secret,
+			}})
+			hiddenSinceQuest := createQuest(core.NewQuestInput{Revealed: true, PostToTimeline: true, QuestInput: core.QuestInput{Title: secret + " Lost Map"}})
+			_, err = service.SetQuestRevealed(requestContext, dmViewer, hiddenSinceQuest, core.QuestRevealInput{Revealed: false})
+			check("hide a quest after it was posted", err)
+			// Changes to the hidden quest, patron and action, each undone and its DM-only UNDO entry then
+			// made PUBLIC: the entry follows the same links, so it stays away from players. Planted before
+			// the last colony change, whose undo slot the sweep borrows.
+			publishUndo := func(what string, change core.ColonyChange, err error) {
+				t.Helper()
+				check(what, err)
+				undone, err := service.UndoLastChange(requestContext, dmViewer, core.UndoInput{GroupID: change.GroupID})
+				check("undo "+what, err)
+				for _, entry := range undone.Entries {
+					_, err := service.UpdateTimelineEntry(requestContext, dmViewer, entry.ID, core.TimelineEntryInput{
+						Day: entry.Day, Title: entry.Title, Body: entry.Body, Visibility: core.TimelineVisibilityPublic,
+					})
+					check("make the UNDO of "+what+" PUBLIC", err)
+				}
+			}
+			completed, err := service.CompleteQuest(requestContext, dmViewer, hiddenQuest)
+			publishUndo("complete the hidden quest", completed, err)
+			adjusted, err := service.AdjustFavor(requestContext, dmViewer, hiddenPatron, core.FavorAdjustInput{ExpectedVersion: version(), Delta: delta(1), Reason: secret + " undone favor"})
+			publishUndo("adjust the hidden patron's favor", adjusted, err)
+			usedHidden, err := service.UseActionNow(requestContext, dmViewer, core.UseActionInput{ExpectedVersion: version(), ActionID: hiddenAction, OnBehalfOf: &onBehalfOf, Note: secret + " undone use"})
+			publishUndo("use the hidden action now", usedHidden, err)
+			brokerQuest := createQuest(core.NewQuestInput{Revealed: true, QuestInput: core.QuestInput{
+				Title: "Deliver a Letter" + visible, PatronID: &hiddenPatron, RewardEffects: gold(1), RewardFavor: 5,
+			}})
+			_, err = service.CompleteQuest(requestContext, dmViewer, brokerQuest)
+			check("complete a quest for the hidden patron", err)
+			failedQuest := createQuest(core.NewQuestInput{Revealed: true, QuestInput: core.QuestInput{
+				Title: "Escort the Barge" + visible, PatronID: &shownPatron, FailureEffects: gold(-1), FailureFavor: 1,
+			}})
+			_, err = service.FailQuest(requestContext, dmViewer, failedQuest)
+			check("fail a quest", err)
+
+			campaign.pathIDs["patronId"] = shownPatron.String()
+			campaign.pathIDs["actionId"] = shownAction.String()
+			campaign.pathIDs["questId"] = shownQuest.String()
+			campaign.pathIDs["requestId"] = pending.String()
+			campaign.declinedRequestID = declined
+			campaign.hiddenQuestID = hiddenQuest
+			campaign.hiddenPatronID = hiddenPatron
+			campaign.hiddenRequestID = veiledRequest
+			campaign.archivedIDs = []string{archivedPatron.String(), archivedAction.String()}
+			campaign.failureCost = []int64{side.failureGold, side.failureFavor}
+			campaign.hiddenIDs = append(campaign.hiddenIDs,
+				hiddenPatron.String(), hiddenSincePatron.String(),
+				hiddenAction.String(), hiddenPatronAction.String(), hiddenSinceAction.String(),
+				hiddenQuest.String(), hiddenSinceQuest.String(), hiddenSinceRequest.String(), rewoundAction.String())
+			campaign.hiddenIDs = append(campaign.hiddenIDs, usedRequests...)
+		},
+		dmProof: []string{"/quests", "/patrons", "/patron-actions", "/requests", "/timeline/recent"},
 	},
 	{
 		feature: "invite link",

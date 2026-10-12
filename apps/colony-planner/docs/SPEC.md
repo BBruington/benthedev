@@ -150,7 +150,7 @@ Colony Planner is a private website for colony campaigns; the author's **Colony 
    - No handler calls redaction itself.
 5. **Text never leaks.**
    - Timeline text is rendered when the event is written, using player-facing names.
-   - A PUBLIC event never names a hidden NPC, quest giver or patron. If the subject is hidden, the event is written with DM visibility, or the hidden detail goes into the event's `dm.data`.
+   - A PUBLIC event never names a hidden NPC, quest giver or patron. If the subject is hidden, the event is written with DM visibility, or the hidden detail goes into the event's DM-only `dm.note`.
 6. **Secrecy and access test (part of `mise run check`, §8.12).**
    - Each feature plants a canary string in every `dm` field and every hidden row it stores (a per-feature fixture in `internal/app/secrecy_fixtures_test.go`), and names a real row for each path parameter its routes use.
    - It then calls **every operation in the OpenAPI document and every route in the route table** as a player, the DM viewing as player, a pending member, a removed member and a visitor, with path parameters pointing at the fixtures' rows and required query parameters filled from their schemas:
@@ -357,10 +357,10 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role WHERE campaign_id = @ca
 | Table | Key fields | Notes |
 |---|---|---|
 | `npc` | `id`, `name` (true name), `known_name NULL`, `revealed bool DEFAULT false`, `aliases text[]`, `labels text[]`, `race`, `character_class`, `level`, `age`, `appearance`, `personality`, `backstory`, `player_notes`, `dm_notes`, `status`, `health`, `relation` (old enums kept), `avatar_url`, `current_place_id → place SET NULL`, `origin_place_id → place SET NULL`, `first_session_id → session SET NULL`, `colony_role_key → role NULL`, timestamps | `colony_role_key IS NOT NULL` means the NPC is a colonist in that role. Such an NPC can't be deleted until they leave the colony (§5.5). As built in M2: `known_name` is `NOT NULL DEFAULT ''` ('' means none), a stored generated `display_name` backs search, `avatar_url` waits for M4 and `first_session_id` for M5. Core caps names at 80 characters, labels at 40, aliases and labels at 20 each, prose at 4,000, and level at 0–100. |
-| `quest` | `id`, `title`, `description`, `kind quest_kind` (MAINLAND, COLONY), `status quest_status` (ACTIVE, COMPLETED, FAILED), `revealed bool DEFAULT true`, `giver_npc_id → npc SET NULL`, `patron_id → patron RESTRICT`, `reward_effects jsonb`, `reward_favor int DEFAULT 0`, `loot jsonb` (`[{name, quantity, description}]`, display only), `dm_notes`, `resolved_day NULL`, `resolved_at NULL`, timestamps | `CHECK (reward_favor = 0 OR patron_id IS NOT NULL)`. Patrons are never deleted, so a delete can't break this check. Status changes only through actions (§5.6). |
-| `patron` | `id`, `name`, `description`, `revealed bool DEFAULT false`, `archived bool DEFAULT false`, `favor int DEFAULT 0`, `player_notes`, `dm_notes`, `sort_order`, timestamps | Archived, never deleted. There is no delete operation, and foreign keys to it are RESTRICT, so a stray SQL delete fails loudly. |
-| `patron_action` | `id`, `patron_id → patron RESTRICT`, `name`, `description`, `favor_cost int CHECK (≥ 0)`, `effects jsonb`, `revealed bool DEFAULT false`, `archived bool`, `sort_order`, timestamps | Archived, never deleted. Example: "Grain Barge", cost 3, effects `{"resources":{"food":7}}`. |
-| `request` | `id`, `kind text` (validated in Go; v1 has only `PATRON_ACTION`), `title text` (snapshot of what was asked for, e.g. "Grain Barge"), `patron_id → patron NULL SET NULL`, `patron_name text NULL` (snapshot), `patron_action_id → patron_action NULL SET NULL`, `cost jsonb` (snapshot, e.g. `{"favor":3}`), `effects jsonb` (snapshot), `applied_effects jsonb NULL`, `requested_by → member`, `on_behalf_of → member NULL`, `requested_day`, `note`, `status request_status` (PENDING, APPROVED, DECLINED, WITHDRAWN), `decided_by NULL`, `decided_at NULL`, `decision_note NULL`, `event_group_id NULL`, `discord_message_id NULL`, `created_at` | `CHECK (kind <> 'PATRON_ACTION' OR patron_name IS NOT NULL)`. Snapshots never change, so history reads correctly after the action is edited or archived. `applied_effects` records a DM tweak. A future kind fills `title`, `cost` and `effects` the same way and adds its own nullable reference column (§3.3). |
+| `quest` | `id`, `title`, `description`, `kind quest_kind` (MAINLAND, COLONY), `status quest_status` (ACTIVE, COMPLETED, FAILED), `revealed bool DEFAULT true`, `giver_npc_id → npc SET NULL`, `patron_id → patron NO ACTION` (patrons are never deleted, §5.7), `reward_effects jsonb`, `reward_favor int DEFAULT 0 CHECK (≥ 0)`, `failure_effects jsonb` and `failure_favor int DEFAULT 0 CHECK (≥ 0)` (DM-only until the quest fails, Open Question 14), `loot jsonb` (`[{name, quantity, description}]`, display only), `dm_notes`, `resolved_day NULL`, `resolved_at NULL`, timestamps | `CHECK (reward_favor = 0 OR patron_id IS NOT NULL)` and the same for `failure_favor`. Patrons are never deleted, so a delete can't break this check. Status changes only through actions (§5.6). |
+| `patron` | `id`, `name`, `description`, `revealed bool DEFAULT false`, `archived bool DEFAULT false`, `favor int DEFAULT 0`, `player_notes`, `dm_notes`, `sort_order`, timestamps | Archived, never deleted. There is no delete operation, and foreign keys to it are NO ACTION (§5.7), so a stray SQL delete fails loudly. |
+| `patron_action` | `id`, `patron_id → patron NO ACTION` (§5.7), `name`, `description`, `favor_cost int CHECK (≥ 0)`, `effects jsonb`, `revealed bool DEFAULT false`, `archived bool`, `sort_order`, timestamps | Archived, never deleted. Example: "Grain Barge", cost 3, effects `{"resources":{"food":7}}`. |
+| `request` | `id`, `kind text` (validated in Go; v1 has only `PATRON_ACTION`), `title text` (snapshot of what was asked for, e.g. "Grain Barge"), `patron_id → patron NULL NO ACTION`, `patron_name text NULL` (snapshot), `patron_action_id → patron_action NULL NO ACTION` (patrons and actions are never deleted, §5.7), `cost jsonb` (snapshot, e.g. `{"favor":3}`), `effects jsonb` (snapshot), `applied_effects jsonb NULL`, `requested_by → member`, `on_behalf_of → member NULL`, `requested_day`, `note`, `status request_status` (PENDING, APPROVED, DECLINED, WITHDRAWN), `decided_by NULL`, `decided_at NULL`, `decision_note text NOT NULL DEFAULT ''` (core returns null to every viewer but the requester and the DM, §5.7), `event_group_id NULL`, `discord_message_id NULL`, `created_at` | `CHECK (kind <> 'PATRON_ACTION' OR patron_name IS NOT NULL)`. Snapshots never change, so history reads correctly after the action is edited or archived. `applied_effects` records a DM tweak. A future kind fills `title`, `cost` and `effects` the same way and adds its own nullable reference column (§3.3). |
 | `timeline_event` | `id`, `group_id uuid NULL` (shared by every entry one mutation writes), `sequence` (write order), `day int`, `kind text`, `title`, `body`, `visibility timeline_visibility` (PUBLIC, DM), `deltas jsonb` (applied Effects only), `data jsonb` (kind-specific), `quest_id`, `patron_id`, `request_id`, `npc_id`, `session_id` (all `SET NULL`), `undone_at NULL`, `created_by → member NULL`, `created_at`, `edited_at NULL`; index `(day, created_at)` | Named `timeline_event` so it isn't confused with the future Events mechanic. Text is rendered at write time. M1 creates it without the five link columns: each arrives with its table (`quest_id` in M3, `npc_id` in M2, and so on). `sequence` orders entries within one transaction, which share `created_at`. `CARGO_RECORDED` links to its arrival in `data` (`{arrivalEntryId}`); `SHIPMENT_ARRIVED` keeps `{first, every, count}` there. |
 
 **`Effects` JSON** is one Go type and one generated TypeScript type, used everywhere:
@@ -376,7 +376,7 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role WHERE campaign_id = @ca
   - an action's favor cost;
   - DM adjustments.
 
-  Whether an action, cargo or a store item may also grant favor is Open Question 12. If the answer is yes, `favor` becomes one more optional Effects field, with no migration.
+  Nothing else grants favor (Open Question 12, resolved 2026-10-12). If that ever changes, `favor` becomes one more optional Effects field, with no migration.
 
 ### 4.4 World
 
@@ -446,7 +446,7 @@ commit → stream.Publish(topics…) → best-effort Discord post
 ```
 
 - **Guards.**
-  - Mutations started from a form carry `expectedVersion`: advance, adjust, cargo, correct day, schedule, workforce and favor. This stops double clicks and two devices from overwriting each other.
+  - Mutations started from a form carry `expectedVersion`: advance, adjust, cargo, correct day, schedule, workforce, favor and Use action now. This stops double clicks and two devices from overwriting each other (as built in M3, Use action now makes a new request each time, so no status guard could stop a repeat from spending favor twice).
   - Quest and request decisions are guarded by their status instead (`WHERE status = 'ACTIVE'` or `'PENDING'`), so a Discord button needs no version.
 - **Undo (DM).**
   - Allowed only while `colony.version == last_change.version_after`, meaning nothing has happened since.
@@ -592,15 +592,21 @@ type Step interface {
      - It is PUBLIC if the quest is revealed, otherwise DM.
      - The favor line appears in PUBLIC text only if the patron is revealed; otherwise it goes in `dm.data`.
   - A quest with an empty reward completes fine.
-- **Fail (DM).** ACTIVE → FAILED. **No effects**, as today. Writes `QUEST_FAILED`.
+- **Fail (DM)** opens a preview sheet like Complete. In one transaction it locks the colony, moves ACTIVE → FAILED (409 "Already resolved" otherwise), applies the quest's optional failure cost (`failure_effects` in CLAMP mode; `failure_favor` taken from the patron giver, which may go below 0), and writes `QUEST_FAILED`: PUBLIC if the quest is revealed, otherwise DM, with the favor line in PUBLIC text only if the patron is revealed. It is a colony mutation, so Undo reverses it while it is the latest change. A quest with no failure cost fails with no effects. The failure cost is DM-only until it happens (Open Question 14).
 - **Reopen (DM).** FAILED → ACTIVE. Writes `QUEST_REOPENED`.
   - By default a completed quest doesn't reopen. A mistaken Complete is fixed with Undo (while it is the latest change) or an adjustment.
-  - Whether completed quests can reopen, and whether completing one again pays again, is Open Question 14.
+  - Completed quests don't reopen, and reopening a failed quest gives nothing back (Open Question 14, resolved 2026-10-12).
 - **Other rules.**
   - Loot is display-only.
   - Missions are treated as quests (Open Question 13).
   - `kind` (MAINLAND or COLONY) is a label with no logic.
 - **Delete (DM).** A hard delete after confirmation. Its timeline entries keep their text, and `quest_id` becomes NULL.
+- **As built in M3:**
+  - Complete, Fail and Reopen take no expected version: the status guard alone makes a repeat harmless. Reopening an active quest is 409 "That quest is already active."; reopening a completed one is 409 "A completed quest doesn't reopen. Undo the completion while it is the latest change, or adjust the stock.";
+  - the create form's **Post to timeline** checkbox only matters while the quest is visible: a quest created hidden posts nothing until the switch on its page reveals it, and that switch offers the same checkbox. Hiding a quest posts nothing. An edit (PUT) never carries visibility or status, and a body that includes `revealed`, `status`, `archived` or `favor` is refused with 422, so an edit sheet left open can't undo a hide made since;
+  - the failure cost and `dm_notes` live in the quest's `dm` object (`QuestDm`), so players never receive them; the `QUEST_FAILED` entry shows what was actually lost (CLAMP: "Food −90" when only 90 was there; the preview says "(floored)"). Entries show applied deltas only, so a reward capped to no change (Morale at its maximum) is left out of the entry;
+  - quest entries link the patron (`patron_id`) only when their text names them. When the patron is hidden, the favor line goes in the entry's DM-only `dm.note` (not `dm.data`);
+  - deleting a hidden quest first moves its PUBLIC entries to DM, so an old public posting can't reappear once the link is cleared.
 
 ### 5.7 Patrons, favor and the request → approve flow (decision 7)
 
@@ -620,11 +626,25 @@ type Step interface {
   3. Apply the cost and the effects in STRICT mode. The effects are the snapshot, or the DM's per-approval tweak stored in `applied_effects`. The snapshot itself is never changed.
   4. If anything is now short, return 409 with the shortfall text, e.g. "Not enough favor: Lady Vex has 2, needs 3". The DM can adjust favor and approve again.
   5. Mark the request APPROVED.
-  6. Write `PATRON_ACTION`, e.g. "Thorin called in a Grain Barge from Lady Vex: Food +7 (favor −3)". It is PUBLIC if the patron is revealed, otherwise DM.
+  6. Write `PATRON_ACTION`, e.g. "Thorin called in “Grain Barge” from Lady Vex: Food +7 (favor −3)". It is PUBLIC if the patron is revealed, otherwise DM.
   - Nothing is reserved while a request is pending. Several pending requests can't overdraw, because approval checks again.
-- **Decline (DM).** Optional note. DECLINED, and no timeline entry. The party sees the status and the note (Open Question 12).
+- **Decline (DM).** Optional note. DECLINED, and no timeline entry. The party sees the status; **only the requester (and the DM) sees the note** (Open Question 12).
 - **Use action now (DM).** Creates and approves a request in one step, with an optional **on_behalf_of** player, so the timeline credits the right character.
 - **No cooldowns, limits or quotas.** None have been designed (Open Question 12).
+- **As built in M3:**
+  - every request route is campaign-scoped (`POST /api/campaigns/{campaignId}/requests`, multi-campaign design §6.3), and the action, patron and member IDs in a body are loaded with the Viewer's campaign; another campaign's ID is the same 422 field error as a missing one;
+  - a shortfall reads "Not enough favor: Lady Vex has 2, needs 3." (core's errors end with a period) as a 422 on request and a 409 on approval; the approval sheet's validity line shows it without the period. Several shortfalls are listed one after another;
+  - a request's own note is visible to the whole party (the spec gives no rule for it), Use action now's included, whose field says "Players who can see this request read it."; only the DM's decision note is per viewer: it reaches the requester and the DM, and is null for every other player and for the DM in view as player;
+  - players see each visible patron's exact favor, negative included. A player's own requests and the party's are listed on `/requests`; a request whose action or patron is hidden now, or was hidden when it was made (`request.made_while_revealed`, false for Use action now on a hidden patron or action), is absent for players, so revealing them later under new names never shows the old ones;
+  - requests are the players': the DM, in view as player or not, gets 403 "Use action now to use an action yourself.";
+  - a free action (cost 0) is affordable at any favor, negative included, in the browser as on the server;
+  - an approval preview that falls short has no before → after (favor, resources, summary): spending never takes favor below 0, so the sheet shows only the shortfall;
+  - archived patrons and actions leave players' lists and every picker. A revealed archived patron's page still opens from a link (its history stays), and asking for an archived action, or an action of an archived patron, is refused with "That action is archived.";
+  - **Use action now** has no server preview: its sheet checks the shortfall in the browser and shows the server's refusal if they disagree. Its request is recorded as the DM's, crediting the player chosen in `on_behalf_of`;
+  - **Undo** of a grant puts the request back to PENDING (its Discord prompt gets its buttons back); undo of Use action now deletes the request it created, so its UNDO entry can't follow the action and never names it, DM-only or PUBLIC ("The DM rewound a change to the colony", still linked to the patron). Undo also restores favor and quest status, except the status of a quest deleted since, which stays deleted while the rest is undone;
+  - a prompt posted after its request was decided (granted, declined or withdrawn while Beny Bot was still posting) is edited to "Granted", "Declined" or "Withdrawn" without buttons as soon as its message ID is stored, since the decision had no message to edit;
+  - favor changes lock the patron `FOR NO KEY UPDATE`, so a quest edit or request naming that patron neither waits for a grant nor deadlocks with an undo;
+  - foreign keys to `patron`, `patron_action` and the requesting member are `NO ACTION` rather than `RESTRICT`: a stray delete of one still fails, and deleting a whole campaign still cascades.
 
 ### 5.8 Timeline
 
@@ -656,6 +676,7 @@ type Step interface {
   - The page opens on the page containing today, with today ringed. A "Jump to day" box handles very large days.
   - **Session bands** span `colony_day_start`–`colony_day_end`, e.g. "Session 14 · Days 36–41".
   - The DM has filter chips by kind and a "Hide DM-only" switch.
+- **As built in M3:** entries carry `quest_id`, `patron_id` and `request_id`, and the IDs reach players only for rows they can see. A player's timeline also hides an entry linked to a quest, patron or requested action that is hidden now (as M2 does for NPCs), or to a request players never saw. `PATRON_ACTION` is PUBLIC only when both the patron and the action are revealed, since the DM may use a hidden action. `FAVOR_ADJUSTED`'s public switch takes effect only while the patron is revealed; for a hidden patron the entry stays DM-only. A quest's completion or failure puts a hidden patron's favor line in `dm.note`, which the DM's timeline shows under the entry. An `UNDO` repeats what it undid, so it carries the newest undone entry's quest, patron and request links even when it is DM-only: a DM who makes it PUBLIC later still can't show players a hidden quest or patron.
 
 ### 5.9 Secrecy: NPCs, places, quests, patrons
 
@@ -680,6 +701,7 @@ type Step interface {
   - quests, places and maps start visible, because players saw every quest, location and region before;
   - patrons and patron actions start hidden, because players have never seen patrons.
 - The DM reveals or hides a row with the switch, and a "Hidden" badge marks hidden rows in the DM's view. After an NPC or place is created, the switch on its page is the only way to change its visibility: edits never carry it, so an edit form left open can't undo a hide made since.
+- **As built in M3:** the same holds for quests, patrons and patron actions, and for archiving patrons and actions: each has its own switch endpoint, create takes the starting visibility, and an edit can't change either. A quest's failure cost lives in its `dm` object with `dm_notes`. A request's decision note is the one per-viewer field: it isn't in a `dm` object, so core itself returns it only to the requester and the DM (not in view as player), and the secrecy sweep plants a canary note that every other player must never receive.
 
 ### 5.10 Hex map (decision 9; history cut by F6)
 
@@ -1040,6 +1062,12 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
     - "Not enough favor: Lady Vex has 2, needs 3. Open in app.", with the buttons kept.
 - **Decisions made on the website** also edit the Discord message, via `request.discord_message_id`.
 - **Deploy overlap.** Two processes may both receive a click. The status guard makes the second one a harmless no-op.
+- **As built in M3:**
+  - core hands Beny Bot the prompt's parts (requester, title, patron, terms, favor now) and the bot escapes them, because character names are the players' own text;
+  - only the prompt's message ID is stored, not its channel: if the DM picks another DM channel after a prompt is posted, that prompt can't be edited and keeps its buttons (clicking them still answers correctly). Requests made while Beny Bot was off, such as the seeded one, have no prompt;
+  - a click decided in Discord edits the message twice with the same text (once from the click, once from core's outcome notice); a withdrawal edits it to "Withdrawn" and an undone grant to "Undone" with the buttons back;
+  - keeping the request line above the outcome needs **Read Message History** in the DM channel; without it the edit shows the outcome alone;
+  - a waiting prompt also has an **Open in app** link button to its approval sheet (`<PUBLIC_URL>/c/<slug>/requests?review=<requestId>`), so a shortfall can be fixed on the website; it goes away with Grant and Decline once the request is decided.
 
 ---
 
@@ -1588,18 +1616,14 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 
 **Before M1**
 
-5. **What players see.** **Resolved in part (2026-10-10):** players see exact stockpile numbers. A role hierarchy (say, only a treasurer sees gold) is a "maybe, probably not": don't build it, don't rule it out. Still open: should players see each visible patron's exact favor? That would be new, since players have never seen patrons or favor. *Default: yes; they need favor to make requests.*
+5. **What players see.** **Resolved in part (2026-10-10):** players see exact stockpile numbers. A role hierarchy (say, only a treasurer sees gold) is a "maybe, probably not": don't build it, don't rule it out. **Resolved (2026-10-12):** players see each visible patron's exact favor, so they know what they can ask for.
 6. **Population import.** **Resolved (F2):** there is no import, so there is nothing to reconcile. Named NPC colonists count on top of each role's unnamed headcount (§5.5).
 7. **Shipment cargo.** Should shipments stay "countdown + Record cargo when it lands", or have a standing manifest applied on each arrival (e.g. +20 food, +2 colonists, landing in Unassigned)? Could a patron change it? *Default: Record cargo.*
 
 **Before M2**
 
 8. **NPC secrecy depth.** **Resolved (2026-10-11):** hide only the true name and DM notes. Aliases, backstory, personality and every other field stay visible to players once an NPC is revealed, as today.
-9. **Starting visibility.** **Resolved in part (2026-10-11):** NPCs start hidden and places start visible, as today. Still open, to ask before M3:
-   - Should new quests start hidden instead, so you reveal them when the party learns of them?
-   - Patrons and actions are new, so they start hidden, because players have never seen patrons. Is that right?
-
-   *Default: as described.*
+9. **Starting visibility.** **Resolved (2026-10-11 and 2026-10-12):** NPCs start hidden, places start visible, quests start visible (as today), and patrons and patron actions start hidden.
 10. **First-encountered session.** **Resolved (2026-10-11):** keep it, as a link showing the session's title and date. It arrives with sessions in M5; M2 ships without it.
 11. **Beny Bot replies.** **Resolved (2026-10-11):** yes. Replies are always ephemeral and show only what players see, even when the DM runs the command; DM detail stays on the site.
 
@@ -1612,14 +1636,18 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
     - Can anything besides a quest for that patron grant favor: an action, shipment cargo, a store item?
     - Should a decline note be visible to the whole party or only the requester?
 
-    *Default: no limits; yes; refuse; no (Effects gains a `favor` field if you say yes); the whole party.*
-13. **Missions.** Decision 7 says "quests & missions". Are missions different from quests, for example short patron tasks with their own flow? *Default: missions are quests; a patron-given quest pays favor to that patron.*
+    **Resolved (2026-10-12):** no limits, cooldowns or quotas; yes, your adjustments may push favor below 0 (spending never can); refuse with the shortfall named; no, favor comes only from quests and your adjustments (Effects has no `favor` field); **a decline note is visible only to the requester** (and the DM). Other players see only that the request was declined.
+13. **Missions.** Decision 7 says "quests & missions". Are missions different from quests, for example short patron tasks with their own flow? **Resolved (2026-10-12):** missions are quests; a patron-given quest pays favor to that patron.
 14. **Failures, departures and reopening.**
     - Should a failed quest ever cost something?
     - When colonists die or leave, do they come out of a specific role?
     - Can a completed quest be reopened, and would completing it again pay again?
 
-    *Default: no failure effects; you use Set count; only failed quests reopen (Undo or Adjust fixes a mistaken Complete).*
+    **Resolved (2026-10-12):**
+    - **A quest may have an optional failure cost**, set per quest: resource effects plus favor lost with the quest's patron giver. It applies when the DM marks the quest failed. Resources stop at their minimums (CLAMP), since a failure can't be refused; the favor loss applies in full and **may take favor below 0**.
+    - **The failure cost is DM-only until it happens.** Players never see it on the quest; the `QUEST_FAILED` entry shows what was lost (the favor line only if the patron is revealed).
+    - Colonists who die or leave are recorded with Set count (M2), not by quest failure.
+    - Only failed quests reopen, and **reopening is status only**: it gives nothing back. Undo (while it is the latest change) or an adjustment fixes a mistaken Fail or Complete.
 
 **Before M5**
 

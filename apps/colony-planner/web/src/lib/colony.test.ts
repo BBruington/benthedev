@@ -6,6 +6,7 @@ import {
 	describeEffects,
 	entriesToToast,
 	formatDelta,
+	isColonyChangePath,
 	needsRetype,
 	newestWrittenAt,
 	nextPage,
@@ -132,8 +133,11 @@ describe("effects text", () => {
 		);
 	});
 
-	test("names a resource the board no longer lists by its key, and skips zeros", () => {
-		expect(describeEffects({ resources: { food: 0, timber: 5 } }, resources)).toBe("timber +5");
+	test("names a resource the board no longer lists from its key, and skips zeros", () => {
+		expect(describeEffects({ resources: { food: 0, timber: 5 } }, resources)).toBe("Timber +5");
+		expect(describeEffects({ resources: { dragon_scales: -2 } }, resources)).toBe(
+			"Dragon scales −2",
+		);
 		expect(describeEffects({}, resources)).toBe("");
 	});
 });
@@ -175,5 +179,29 @@ describe("live toasts", () => {
 			entriesToToast(newestFirst, new Set(["b"]), newestSeenAt).map((entry) => entry.id),
 		).toEqual(["d"]);
 		expect(newestWrittenAt([])).toBeNull();
+	});
+});
+
+describe("colony change paths", () => {
+	test("quest resolutions, favor adjustments and grants are colony changes; plain edits are not", () => {
+		for (const path of [
+			"/api/campaigns/{campaignId}/quests/{questId}/complete",
+			"/api/campaigns/{campaignId}/quests/{questId}/fail",
+			"/api/campaigns/{campaignId}/quests/{questId}/reopen",
+			"/api/campaigns/{campaignId}/patrons/{patronId}/adjust-favor",
+			"/api/campaigns/{campaignId}/requests/{requestId}/approve",
+			"/api/campaigns/{campaignId}/requests/use-action",
+		]) {
+			expect(isColonyChangePath(path)).toBe(true);
+		}
+		for (const path of [
+			"/api/campaigns/{campaignId}/quests/{questId}",
+			"/api/campaigns/{campaignId}/quests/{questId}/revealed",
+			"/api/campaigns/{campaignId}/requests",
+			"/api/campaigns/{campaignId}/requests/{requestId}/decline",
+			"/api/campaigns/{campaignId}/requests/{requestId}/approve-preview",
+		]) {
+			expect(isColonyChangePath(path)).toBe(false);
+		}
 	});
 });

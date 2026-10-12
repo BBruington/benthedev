@@ -39,7 +39,12 @@ type TimelineEntry struct {
 	// NpcID links an entry about an NPC to their page. Players only get entries whose NPC is revealed
 	// or unlinked, so it never names a hidden NPC to them. The name the entry was written with stays
 	// out: it can be a name the party doesn't know (Invariant 15).
-	NpcID     *uuid.UUID       `json:"npcId" format:"uuid" nullable:"true" doc:"The NPC this entry is about; null for none, or once that NPC is deleted"`
+	NpcID *uuid.UUID `json:"npcId" format:"uuid" nullable:"true" doc:"The NPC this entry is about; null for none, or once that NPC is deleted"`
+	// QuestID, PatronID and RequestID link an entry to what it is about. Players only get entries whose
+	// linked rows they can see, so a link never names a hidden quest, patron or action to them.
+	QuestID   *uuid.UUID       `json:"questId" format:"uuid" nullable:"true" doc:"The quest this entry is about; null for none, or once that quest is deleted"`
+	PatronID  *uuid.UUID       `json:"patronId" format:"uuid" nullable:"true" doc:"The patron this entry names; null for none"`
+	RequestID *uuid.UUID       `json:"requestId" format:"uuid" nullable:"true" doc:"The request this entry granted; null for none"`
 	CreatedAt time.Time        `json:"createdAt"`
 	Dm        *TimelineEntryDm `json:"dm,omitempty"`
 }
@@ -54,6 +59,8 @@ type TimelineEntryDm struct {
 	CanDelete bool `json:"canDelete"`
 	// CanRecordCargo is true for a SHIPMENT_ARRIVED entry that has not been undone.
 	CanRecordCargo bool `json:"canRecordCargo"`
+	// Note is detail kept off the entry's text, such as a hidden patron's favor line (spec §5.6).
+	Note string `json:"note" doc:"DM-only detail, e.g. a hidden patron's favor line; blank for none"`
 }
 
 // TimelineRangeInput is GET /api/campaigns/{campaignId}/timeline?fromDay=&toDay= (both inclusive).
@@ -99,6 +106,11 @@ type arrivalData struct {
 	First int64 `json:"first"`
 	Every int64 `json:"every"`
 	Count int64 `json:"count"`
+}
+
+// dmNoteData is the data of an entry with DM-only detail: {dmNote}.
+type dmNoteData struct {
+	DmNote string `json:"dmNote"`
 }
 
 // cargoData is a CARGO_RECORDED entry's data: {arrivalEntryId}.
@@ -462,6 +474,9 @@ func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 		Title:     row.Title,
 		Body:      row.Body,
 		NpcID:     row.NpcID,
+		QuestID:   row.QuestID,
+		PatronID:  row.PatronID,
+		RequestID: row.RequestID,
 		CreatedAt: row.CreatedAt.UTC(),
 		Dm: &TimelineEntryDm{
 			Visibility:     row.Visibility,
@@ -491,6 +506,12 @@ func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 			arrivalEntryID := data.ArrivalEntryID
 			entry.ArrivalEntryID = &arrivalEntryID
 		}
+	case TimelineKindQuestCompleted, TimelineKindQuestFailed:
+		var data dmNoteData
+		if err := json.Unmarshal(row.Data, &data); err != nil {
+			return TimelineEntry{}, fmt.Errorf("core: decode timeline_event %s data: %w", row.ID, err)
+		}
+		entry.Dm.Note = data.DmNote
 	}
 	return entry, nil
 }

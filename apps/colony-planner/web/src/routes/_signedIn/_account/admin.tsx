@@ -58,6 +58,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { useAccount } from "@/hooks/use-me";
 import { slugProblem } from "@/lib/campaigns";
+import { copyToClipboard } from "@/lib/clipboard";
 import { focusFirstVisible } from "@/lib/focus";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { countOf } from "@/lib/words";
@@ -669,7 +670,7 @@ function CampaignMenu({
 			<DropdownMenuContent align="end" className="w-56">
 				<DropdownMenuItem
 					onSelect={() => {
-						navigator.clipboard.writeText(campaign.id).then(
+						copyToClipboard(campaign.id).then(
 							() => {
 								toast.success("Campaign ID copied.");
 							},

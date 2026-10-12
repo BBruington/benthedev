@@ -3,6 +3,7 @@ import type { Schemas } from "./client";
 import {
 	adjustPreviewQueryKeyPrefix,
 	advancePreviewQueryKeyPrefix,
+	approveRequestPreviewQueryKeyPrefix,
 	campaignMeQuery,
 	colonyBoardQuery,
 	discordChannelsQuery,
@@ -12,9 +13,17 @@ import {
 	myCampaignsQuery,
 	npcQueryKeyPrefix,
 	npcsQueryKeyPrefix,
+	patronActionsQuery,
+	patronQueryKeyPrefix,
+	patronsQuery,
 	placeQueryKeyPrefix,
 	placesQueryKeyPrefix,
+	questPreviewQueryKeyPrefixes,
+	questQueryKeyPrefix,
+	questsQueryKeyPrefix,
 	recentTimelineQuery,
+	requestQueryKeyPrefix,
+	requestsQueryKeyPrefix,
 	resourcesQuery,
 	rolesQuery,
 	settingsQuery,
@@ -36,15 +45,54 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 			colonyBoardQuery(campaignId).queryKey,
 			advancePreviewQueryKeyPrefix(campaignId),
 			adjustPreviewQueryKeyPrefix(campaignId),
+			...questPreviewQueryKeyPrefixes(campaignId),
+			approveRequestPreviewQueryKeyPrefix(campaignId),
 		],
 		// The caller's own membership or session changed: their status here, the picker's card, and
 		// view as player (a session toggle that the account read carries too).
 		me: [campaignMeQuery(campaignId).queryKey, myCampaignsQuery.queryKey, meQuery.queryKey],
-		members: [membersQuery(campaignId).queryKey],
-		npcs: [npcsQueryKeyPrefix(campaignId), npcQueryKeyPrefix(campaignId)],
+		// Requests, a patron's request history among them, name their requester by character name.
+		members: [
+			membersQuery(campaignId).queryKey,
+			requestsQueryKeyPrefix(campaignId),
+			requestQueryKeyPrefix(campaignId),
+			patronQueryKeyPrefix(campaignId),
+		],
+		// Quests show their giver NPC by display name, and only while that NPC is visible.
+		npcs: [
+			npcsQueryKeyPrefix(campaignId),
+			npcQueryKeyPrefix(campaignId),
+			questsQueryKeyPrefix(campaignId),
+			questQueryKeyPrefix(campaignId),
+		],
+		// Favor and the actions feed the quest and grant previews as well as the patron screens. Quests
+		// show their patron giver, and requests whose patron or action is hidden leave players' lists.
+		patrons: [
+			patronsQuery(campaignId).queryKey,
+			patronQueryKeyPrefix(campaignId),
+			patronActionsQuery(campaignId).queryKey,
+			...questPreviewQueryKeyPrefixes(campaignId),
+			approveRequestPreviewQueryKeyPrefix(campaignId),
+			questsQueryKeyPrefix(campaignId),
+			questQueryKeyPrefix(campaignId),
+			requestsQueryKeyPrefix(campaignId),
+			requestQueryKeyPrefix(campaignId),
+		],
 		// Role settings live beside /people: both show headcounts.
 		people: [workforceQuery(campaignId).queryKey, rolesQuery(campaignId).queryKey],
 		places: [placesQueryKeyPrefix(campaignId), placeQueryKeyPrefix(campaignId)],
+		quests: [
+			questsQueryKeyPrefix(campaignId),
+			questQueryKeyPrefix(campaignId),
+			...questPreviewQueryKeyPrefixes(campaignId),
+		],
+		// A patron's page carries its request history.
+		requests: [
+			requestsQueryKeyPrefix(campaignId),
+			requestQueryKeyPrefix(campaignId),
+			patronQueryKeyPrefix(campaignId),
+			approveRequestPreviewQueryKeyPrefix(campaignId),
+		],
 		resources: [resourcesQuery(campaignId).queryKey],
 		// The Discord card and its channel list live under settings; so does the campaign name.
 		settings: [

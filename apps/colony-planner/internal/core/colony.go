@@ -206,6 +206,25 @@ type undoSnapshot struct {
 	// NpcColonyRoles is each named colonist's role before the change, keyed by NPC ID; null means
 	// they weren't a colonist (spec §5.5).
 	NpcColonyRoles map[uuid.UUID]*string `json:"npcColonyRoles,omitempty"`
+	// PatronFavor is each patron's favor before the change, keyed by patron ID.
+	PatronFavor map[uuid.UUID]int64 `json:"patronFavor,omitempty"`
+	// Quests is each quest's status before the change it resolved (spec §5.6), keyed by quest ID.
+	Quests map[uuid.UUID]questBefore `json:"quests,omitempty"`
+	// Requests is each request the change approved, keyed by request ID (spec §5.7).
+	Requests map[uuid.UUID]requestBefore `json:"requests,omitempty"`
+}
+
+// questBefore is a quest's status as it was before a colony mutation resolved or reopened it.
+type questBefore struct {
+	Status      QuestStatus `json:"status"`
+	ResolvedDay *int32      `json:"resolvedDay"`
+	ResolvedAt  *time.Time  `json:"resolvedAt"`
+}
+
+// requestBefore says how to put an approved request back: a request "Use action now" created did not
+// exist before, so undo deletes it; any other waits again as PENDING.
+type requestBefore struct {
+	Created bool `json:"created"`
 }
 
 // GetColonyBoard is the board every active member reads.
@@ -414,6 +433,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		return ColonyChange{}, err
 	}
 	var change ColonyChange
+	var undoneRequests []RequestOutcome
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
@@ -442,13 +462,19 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err := restoreNpcColonyRoles(requestContext, queries, colony, record.Before.NpcColonyRoles); err != nil {
 			return err
 		}
+		undoneRequests, err = restoreQuestsPatronsAndRequests(requestContext, queries, viewer.campaignID, record.Before)
+		if err != nil {
+			return err
+		}
 		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
 		if err != nil {
 			return err
 		}
 		// PUBLIC only if a player saw something being undone, and then named by the newest public
 		// entry's own title, so a public UNDO never names what players were never shown (spec §5.8).
-		// It repeats an NPC's name, so it carries the NPC like the entry it names (Invariant 15).
+		// It repeats the names of what it undid, so it carries their NPC, quest, patron and request
+		// links, DM-only ones included, and a DM who makes it PUBLIC later can't show players a hidden
+		// row (Invariants 15 and 16).
 		entry := plannedEntry{
 			day:        restored.Day,
 			kind:       TimelineKindUndo,
@@ -468,11 +494,15 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 			entry.npcID = newestAboutNpc.NpcID
 			entry.npcName = newestAboutNpc.NpcName
 		}
+		entry.questID, entry.patronID, entry.requestID = newestLinks(undone)
 		if newestPublic != nil {
 			entry.visibility = TimelineVisibilityPublic
 			entry.title = "The DM rewound: " + newestPublic.Title
 			entry.npcID = newestPublic.NpcID
 			entry.npcName = newestPublic.NpcName
+			entry.questID = newestPublic.QuestID
+			entry.patronID = newestPublic.PatronID
+			entry.requestID = newestPublic.RequestID
 			refusal, err := npcEntryRefusal(requestContext, queries, viewer.campaignID, npcEntry{npcID: entry.npcID, npcName: entry.npcName, title: entry.title}, false)
 			if err != nil {
 				return err
@@ -480,6 +510,11 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 			if refusal != "" {
 				entry.title = "The DM rewound a change to the colony"
 			}
+		}
+		// Undoing Use action now deletes its request (the foreign key clears the link), and with it the
+		// only link that hides the action's name, so neither a public nor a DM-only UNDO names it.
+		if deletesCreatedRequest(record.Before) {
+			entry.title = "The DM rewound a change to the colony"
 		}
 		if restored.Day != colony.state.Day {
 			entry.body = "Back to " + dayText(restored.Day)
@@ -502,8 +537,97 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	if err != nil {
 		return ColonyChange{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs)
+	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicQuests, TopicPatrons, TopicRequests)
+	for _, outcome := range undoneRequests {
+		service.requestNotifier.RequestDecided(requestContext, outcome)
+	}
 	return change, nil
+}
+
+// newestLinks returns the quest, patron and request links of the newest undone entries that carry them.
+func newestLinks(undone []store.TimelineEvent) (questID *uuid.UUID, patronID *uuid.UUID, requestID *uuid.UUID) {
+	var questSequence, patronSequence, requestSequence int64
+	for _, event := range undone {
+		if event.QuestID != nil && event.Sequence > questSequence {
+			questID, questSequence = event.QuestID, event.Sequence
+		}
+		if event.PatronID != nil && event.Sequence > patronSequence {
+			patronID, patronSequence = event.PatronID, event.Sequence
+		}
+		if event.RequestID != nil && event.Sequence > requestSequence {
+			requestID, requestSequence = event.RequestID, event.Sequence
+		}
+	}
+	return questID, patronID, requestID
+}
+
+func deletesCreatedRequest(before undoSnapshot) bool {
+	for _, request := range before.Requests {
+		if request.Created {
+			return true
+		}
+	}
+	return false
+}
+
+// restoreQuestsPatronsAndRequests puts back the favor, quest statuses and approved requests a colony
+// mutation changed (spec §5.1). Every ID comes from this campaign's own undo slot and is loaded with
+// the campaign. A quest deleted since stays deleted: its status has nowhere to go, and refusing the
+// whole undo would keep the DM from getting the stock and favor back. It returns the Discord messages
+// of requests that wait again, so Beny Bot can mark them.
+func restoreQuestsPatronsAndRequests(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, before undoSnapshot) ([]RequestOutcome, error) {
+	for _, patronID := range slices.SortedFunc(maps.Keys(before.PatronFavor), compareIDs) {
+		if _, err := queries.GetPatronForUpdate(requestContext, store.GetPatronForUpdateParams{CampaignID: campaignID, ID: patronID}); err != nil {
+			return nil, err
+		}
+		if err := queries.SetPatronFavor(requestContext, store.SetPatronFavorParams{CampaignID: campaignID, ID: patronID, Favor: int32(before.PatronFavor[patronID])}); err != nil {
+			return nil, err
+		}
+	}
+	for _, questID := range slices.SortedFunc(maps.Keys(before.Quests), compareIDs) {
+		if _, err := queries.GetQuest(requestContext, store.GetQuestParams{CampaignID: campaignID, ID: questID}); errors.Is(err, pgx.ErrNoRows) {
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		quest := before.Quests[questID]
+		if err := queries.RestoreQuestStatus(requestContext, store.RestoreQuestStatusParams{
+			CampaignID:  campaignID,
+			ID:          questID,
+			Status:      quest.Status,
+			ResolvedDay: quest.ResolvedDay,
+			ResolvedAt:  quest.ResolvedAt,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	outcomes := []RequestOutcome{}
+	for _, requestID := range slices.SortedFunc(maps.Keys(before.Requests), compareIDs) {
+		request, err := queries.GetRequest(requestContext, store.GetRequestParams{CampaignID: campaignID, ID: requestID})
+		if err != nil {
+			return nil, err
+		}
+		if before.Requests[requestID].Created {
+			if err := queries.DeleteApprovedRequest(requestContext, store.DeleteApprovedRequestParams{CampaignID: campaignID, ID: requestID}); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if err := queries.ReopenApprovedRequest(requestContext, store.ReopenApprovedRequestParams{CampaignID: campaignID, ID: requestID}); err != nil {
+			return nil, err
+		}
+		if request.DiscordMessageID != nil {
+			outcomes = append(outcomes, RequestOutcome{
+				CampaignID:       campaignID,
+				RequestID:        requestID,
+				DiscordMessageID: *request.DiscordMessageID,
+				Status:           RequestStatusPending,
+				Text:             "Undone",
+				Undone:           true,
+			})
+		}
+	}
+	return outcomes, nil
 }
 
 // restoreNpcColonyRoles puts each named colonist back in the role they had. The IDs come from this
@@ -619,6 +743,14 @@ type plannedEntry struct {
 	// and npcName is the display name its text uses (npcEntryRefusal).
 	npcID   *uuid.UUID
 	npcName string
+	// questID, patronID and requestID link the entry to what it is about. A patron is linked only when
+	// the entry's text names them, so players lose the entry once that patron is hidden.
+	questID   *uuid.UUID
+	patronID  *uuid.UUID
+	requestID *uuid.UUID
+	// dmNote is detail only the DM reads, such as a hidden patron's favor line (spec §5.6); it is stored
+	// in data and served in the entry's Dm.
+	dmNote string
 }
 
 // colonyOutcome is what one colony mutation decided: the State to save, the undo label and the
@@ -630,6 +762,24 @@ type colonyOutcome struct {
 	// npcRoles is each NPC whose colony role the change sets, keyed by ID, with the role after it
 	// (nil: no longer a colonist). The counts in after already include them.
 	npcRoles map[uuid.UUID]npcRoleChange
+	// groupID is the timeline group decide already wrote into a row (a request's event_group_id); zero
+	// means mutateColony picks one.
+	groupID uuid.UUID
+	// patronFavor is each patron whose favor the change sets: decide saved it; the undo slot records before.
+	patronFavor map[uuid.UUID]favorChange
+	// quests and requests are the rows decide moved past their status guard, as they were before.
+	quests   map[uuid.UUID]questBefore
+	requests map[uuid.UUID]requestBefore
+	// topics are published after commit beside the colony's own.
+	topics []Topic
+	// afterCommit runs once the transaction has committed (Beny Bot's best-effort posts).
+	afterCommit []func(requestContext context.Context)
+}
+
+// favorChange is one patron's favor before and after a colony mutation.
+type favorChange struct {
+	before int64
+	after  int64
 }
 
 // npcRoleChange is one named colonist's role before and after a colony mutation; nil is no role.
@@ -644,17 +794,33 @@ type npcRoleChange struct {
 func (service *Service) mutateColony(requestContext context.Context, viewer Viewer, expectedVersion int64,
 	decide func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error),
 ) (ColonyChange, error) {
+	return service.runColonyMutation(requestContext, viewer, &expectedVersion, decide)
+}
+
+// mutateColonyGuardedByStatus is the same write path for quest and request decisions, which a status
+// guard protects instead of the version (spec §5.1), so a Discord button needs no version.
+func (service *Service) mutateColonyGuardedByStatus(requestContext context.Context, viewer Viewer,
+	decide func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error),
+) (ColonyChange, error) {
+	return service.runColonyMutation(requestContext, viewer, nil, decide)
+}
+
+func (service *Service) runColonyMutation(requestContext context.Context, viewer Viewer, expectedVersion *int64,
+	decide func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error),
+) (ColonyChange, error) {
 	if err := requireDm(viewer); err != nil {
 		return ColonyChange{}, err
 	}
 	var change ColonyChange
 	outcomeTouchedNpcs := false
+	var extraTopics []Topic
+	var afterCommit []func(requestContext context.Context)
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
 			return err
 		}
-		if colony.row.Version != expectedVersion {
+		if expectedVersion != nil && colony.row.Version != *expectedVersion {
 			return Conflict("The colony changed (now " + dayText(int64(colony.row.Day)) + "). Review and retry.")
 		}
 		outcome, err := decide(colony, queries)
@@ -662,6 +828,8 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 			return err
 		}
 		outcomeTouchedNpcs = len(outcome.npcRoles) > 0
+		extraTopics = outcome.topics
+		afterCommit = outcome.afterCommit
 		if err := saveState(requestContext, queries, viewer.campaignID, colony.state, outcome.after); err != nil {
 			return err
 		}
@@ -676,7 +844,22 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 			}
 			before.NpcColonyRoles[npcID] = change.before
 		}
+		for patronID, favor := range outcome.patronFavor {
+			if before.PatronFavor == nil {
+				before.PatronFavor = map[uuid.UUID]int64{}
+			}
+			before.PatronFavor[patronID] = favor.before
+		}
+		if len(outcome.quests) > 0 {
+			before.Quests = outcome.quests
+		}
+		if len(outcome.requests) > 0 {
+			before.Requests = outcome.requests
+		}
 		groupID := uuid.New()
+		if outcome.groupID != uuid.Nil {
+			groupID = outcome.groupID
+		}
 		record, err := json.Marshal(lastChangeRecord{
 			GroupID:      groupID,
 			Label:        outcome.label,
@@ -711,7 +894,11 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 	if outcomeTouchedNpcs {
 		topics = append(topics, TopicNpcs)
 	}
+	topics = append(topics, extraTopics...)
 	service.broker.Publish(viewer.campaignID, topics...)
+	for _, run := range afterCommit {
+		run(requestContext)
+	}
 	return change, nil
 }
 
@@ -823,6 +1010,9 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 			return nil, fmt.Errorf("core: encode timeline deltas: %w", err)
 		}
 		data := []byte("{}")
+		if entry.data == nil && entry.dmNote != "" {
+			entry.data = dmNoteData{DmNote: entry.dmNote}
+		}
 		if entry.data != nil {
 			data, err = json.Marshal(entry.data)
 			if err != nil {
@@ -842,6 +1032,9 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 			CreatedBy:  memberReference(viewer),
 			NpcID:      entry.npcID,
 			NpcName:    entry.npcName,
+			QuestID:    entry.questID,
+			PatronID:   entry.patronID,
+			RequestID:  entry.requestID,
 		})
 		if err != nil {
 			return nil, err

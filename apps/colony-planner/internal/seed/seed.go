@@ -159,7 +159,10 @@ func Run(requestContext context.Context, options Options) error {
 	}); err != nil {
 		return fmt.Errorf("seed settings: %w", err)
 	}
-	if err := seedColony(requestContext, options.Core, queries, dm); err != nil {
+	enterSampleColony := func(discordUserID string) (core.Viewer, error) {
+		return options.Core.EnterCampaign(requestContext, callerOf(discordUserID), sampleColony)
+	}
+	if err := seedColony(requestContext, options.Core, queries, dm, enterSampleColony); err != nil {
 		return fmt.Errorf("seed the colony: %w", err)
 	}
 
@@ -176,7 +179,10 @@ func Run(requestContext context.Context, options Options) error {
 	if err != nil {
 		return err
 	}
-	if err := seedSecondColony(requestContext, options.Core, queries, secondDm); err != nil {
+	enterSecondSample := func(discordUserID string) (core.Viewer, error) {
+		return options.Core.EnterCampaign(requestContext, callerOf(discordUserID), secondSample)
+	}
+	if err := seedSecondColony(requestContext, options.Core, queries, secondDm, enterSecondSample); err != nil {
 		return fmt.Errorf("seed the second colony: %w", err)
 	}
 
@@ -259,7 +265,7 @@ var sampleHeadcounts = map[string]int32{
 // stores, a 7-day shipment schedule, three weeks of advances, cargo recorded on the first arrival and a
 // DM-only adjustment. It ends on Day 22 with 63 food for 19 colonists and the next ship on Day 28, and
 // the last advance still in the undo slot.
-func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer) error {
+func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs) error {
 	for key, count := range sampleHeadcounts {
 		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{CampaignID: dm.CampaignID(), Key: key, UnnamedCount: count}); err != nil {
 			return fmt.Errorf("headcount %s: %w", key, err)
@@ -337,6 +343,9 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 		}},
 		{"second week", advanceBy(requestContext, service, dm, 7)},
 		{"five days", advanceBy(requestContext, service, dm, 5)},
+		{"quests, patrons and requests", func(int64) (core.ColonyChange, error) {
+			return core.ColonyChange{}, seedQuestsAndPatrons(requestContext, service, dm, enter)
+		}},
 		{"DM-only adjustment", func(expectedVersion int64) (core.ColonyChange, error) {
 			return service.AdjustStock(requestContext, dm, core.AdjustInput{
 				ExpectedVersion: expectedVersion,
@@ -391,7 +400,7 @@ var secondSampleHeadcounts = map[string]int32{
 
 // seedSecondColony gives Second Sample its own short history on different numbers, so isolation is
 // easy to see: Ridgehold, Day 9, Food 140, an extra Timber resource and one DM-only adjustment.
-func seedSecondColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer) error {
+func seedSecondColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs) error {
 	if _, err := service.UpdateSettings(requestContext, dm, core.SettingsInput{
 		CampaignName: "Second Sample",
 		ColonyName:   "Ridgehold",
@@ -452,5 +461,5 @@ func seedSecondColony(requestContext context.Context, service *core.Service, que
 			return fmt.Errorf("%s: %w", step.name, err)
 		}
 	}
-	return nil
+	return seedSecondQuestsAndPatrons(requestContext, service, dm, enter)
 }

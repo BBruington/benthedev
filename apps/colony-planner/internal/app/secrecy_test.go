@@ -599,6 +599,12 @@ var mixedIDFields = map[string]string{
 	"toRoleKey":      "key",
 	"deltas":         "map",
 	"setTo":          "map",
+	"actionId":       "uuid",
+	"onBehalfOf":     "uuid",
+	"giverNpcId":     "uuid",
+	"patronId":       "uuid",
+	// Every Effects (rewardEffects, failureEffects, effects, appliedEffects) keys resources here.
+	"resources": "map",
 }
 
 func bodyFields(t *testing.T, label string, document map[string]any, schema map[string]any, prefix []string) []bodyField {
@@ -667,6 +673,10 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"roleKey":        campaignB.pathIDs["roleKey"],
 		"fromRoleKey":    campaignB.pathIDs["roleKey"],
 		"toRoleKey":      campaignB.pathIDs["roleKey"],
+		"actionId":       campaignB.pathIDs["actionId"],
+		"onBehalfOf":     campaignB.members["bOnly"].String(),
+		"giverNpcId":     campaignB.pathIDs["npcId"],
+		"patronId":       campaignB.pathIDs["patronId"],
 	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
@@ -717,6 +727,57 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	validBodies["/people/set-count"] = func() map[string]any {
 		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "roleKey": roleKeyA, "count": 2, "public": false}
 	}
+	// Pass 3 archived A's {patronId} and {actionId} rows with its sample bodies, and an archived patron
+	// or action can't be asked for or used, so these bodies bring them back first.
+	patronA, actionA := uuid.MustParse(campaignA.pathIDs["patronId"]), uuid.MustParse(campaignA.pathIDs["actionId"])
+	usablePatronAction := func() {
+		t.Helper()
+		if _, err := testHarness.core.SetPatronArchived(testHarness.context, dmViewerA, patronA, false); err != nil {
+			t.Fatalf("unarchive A's patron: %v", err)
+		}
+		if _, err := testHarness.core.SetPatronRevealed(testHarness.context, dmViewerA, patronA, true); err != nil {
+			t.Fatalf("reveal A's patron: %v", err)
+		}
+		if _, err := testHarness.core.SetPatronActionArchived(testHarness.context, dmViewerA, actionA, false); err != nil {
+			t.Fatalf("unarchive A's action: %v", err)
+		}
+		if _, err := testHarness.core.SetPatronActionRevealed(testHarness.context, dmViewerA, actionA, true); err != nil {
+			t.Fatalf("reveal A's action: %v", err)
+		}
+	}
+	effectsOfA := func() map[string]any {
+		return map[string]any{"resources": map[string]any{"gold": 1}, "colonists": 0}
+	}
+	validBodies["/quests"] = func() map[string]any {
+		usablePatronAction()
+		return map[string]any{
+			"title": "Pass Four", "description": "", "kind": string(core.QuestKindColony),
+			"giverNpcId": campaignA.pathIDs["npcId"], "patronId": campaignA.pathIDs["patronId"],
+			"rewardEffects": effectsOfA(), "rewardFavor": 1, "failureEffects": effectsOfA(), "failureFavor": 1,
+			"loot": []any{}, "dmNotes": "", "revealed": false, "postToTimeline": false,
+		}
+	}
+	validBodies["/patron-actions"] = func() map[string]any {
+		usablePatronAction()
+		return map[string]any{
+			"patronId": campaignA.pathIDs["patronId"], "revealed": false, "name": "Pass Four", "description": "",
+			"favorCost": 1, "effects": effectsOfA(), "sortOrder": 0,
+		}
+	}
+	validBodies["/patron-actions/{actionId}"] = func() map[string]any {
+		return map[string]any{"name": "Grain Barge", "description": "", "favorCost": 3, "effects": effectsOfA(), "sortOrder": 1}
+	}
+	validBodies["/requests"] = func() map[string]any {
+		usablePatronAction()
+		return map[string]any{"actionId": campaignA.pathIDs["actionId"], "note": ""}
+	}
+	validBodies["/requests/use-action"] = func() map[string]any {
+		usablePatronAction()
+		return map[string]any{
+			"expectedVersion": boardOf(dmViewerA).Version, "actionId": campaignA.pathIDs["actionId"],
+			"onBehalfOf": campaignA.members["ana"].String(), "appliedEffects": effectsOfA(), "note": "",
+		}
+	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
 		build, found := validBodies[suffix]
@@ -752,6 +813,11 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		}
 		fields := bodyFields(t, route.label, document, requestBodySchema(route.operation.requestBody), nil)
 		build, hasValidBody := validBodyFor(route)
+		// Requests are the players' (the DM is refused before any ID is read), so a player of A sends them.
+		caller, callerName := testHarness.dmA, "dmA"
+		if route.method == http.MethodPost && strings.HasSuffix(route.path, "/requests") {
+			caller, callerName = testHarness.ana, "ana"
+		}
 		baseline := func() map[string]any {
 			if hasValidBody {
 				return build()
@@ -770,15 +836,15 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 				setBodyField(body, field.path, valuesOfB[fieldName])
 			}
 			encoded, _ := json.Marshal(body)
-			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.dmA), campaignA.pathIDs, string(encoded))
-			expectRefused("dmA: "+route.label+" with B's "+strings.Join(field.path, "."), path, response)
+			path, response := testHarness.call(route, document, testHarness.signIn(caller), campaignA.pathIDs, string(encoded))
+			expectRefused(callerName+": "+route.label+" with B's "+strings.Join(field.path, "."), path, response)
 		}
 		if hasValidBody {
 			encoded, _ := json.Marshal(build())
-			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.dmA), campaignA.pathIDs, string(encoded))
-			checkResponse(t, "dmA: "+route.label+" with A's own values", path, forbidden, response)
+			path, response := testHarness.call(route, document, testHarness.signIn(caller), campaignA.pathIDs, string(encoded))
+			checkResponse(t, callerName+": "+route.label+" with A's own values", path, forbidden, response)
 			if response.Code < 200 || response.Code > 299 {
-				t.Errorf("dmA: %s with A's own values answered %d, so pass 4 proves nothing; body: %s", route.label, response.Code, response.Body.String())
+				t.Errorf("%s: %s with A's own values answered %d, so pass 4 proves nothing; body: %s", callerName, route.label, response.Code, response.Body.String())
 			}
 		}
 	}
@@ -810,7 +876,7 @@ func (testHarness *harness) fingerprint(campaign *campaignFixture, onlyThere ...
 		tables = append(tables, table)
 	}
 	rows.Close()
-	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event"} {
+	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request"} {
 		if !slices.Contains(tables, required) {
 			testHarness.t.Fatalf("found only %v with a campaign_id column; %s is missing", tables, required)
 		}

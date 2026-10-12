@@ -65,6 +65,7 @@ func serve(commandContext context.Context) error {
 	service := core.New(core.Options{
 		Pool:               pool,
 		Notifier:           benyBot,
+		RequestNotifier:    benyBot,
 		Logger:             logger,
 		SiteOwnerDiscordID: siteOwnerDiscordID,
 		Sessions:           sessionCache,
