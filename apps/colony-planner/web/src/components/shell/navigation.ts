@@ -34,20 +34,21 @@ export type NavigationItemId =
 
 export type NavigationItem = {
 	id: NavigationItemId;
+	/** Inside the campaign on screen: links pass its slug as the campaignSlug parameter. */
 	to:
-		| "/"
-		| "/people"
-		| "/timeline"
-		| "/quests"
-		| "/patrons"
-		| "/requests"
-		| "/explore"
-		| "/maps"
-		| "/places"
-		| "/npcs"
-		| "/sessions"
-		| "/players"
-		| "/settings";
+		| "/c/$campaignSlug"
+		| "/c/$campaignSlug/people"
+		| "/c/$campaignSlug/timeline"
+		| "/c/$campaignSlug/quests"
+		| "/c/$campaignSlug/patrons"
+		| "/c/$campaignSlug/requests"
+		| "/c/$campaignSlug/explore"
+		| "/c/$campaignSlug/maps"
+		| "/c/$campaignSlug/places"
+		| "/c/$campaignSlug/npcs"
+		| "/c/$campaignSlug/sessions"
+		| "/c/$campaignSlug/players"
+		| "/c/$campaignSlug/settings";
 	label: string;
 	icon: LucideIcon;
 	/** The milestone that builds the screen; until then it shows a "Coming in" page. */
@@ -63,7 +64,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "colony",
 		label: "Colony",
 		summary: "The day clock, the stockpile, shipments and who works the colony.",
-		to: "/",
+		to: "/c/$campaignSlug",
 	},
 	explore: {
 		arrivesIn: "M4",
@@ -72,7 +73,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		label: "Explore",
 		summary:
 			"The shared hex map of the new world, charted stroke by stroke by the players themselves.",
-		to: "/explore",
+		to: "/c/$campaignSlug/explore",
 	},
 	mainland: {
 		arrivesIn: "M4",
@@ -80,7 +81,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "mainland",
 		label: "Mainland",
 		summary: "The map of Eldari, with pins for every place the party knows.",
-		to: "/maps",
+		to: "/c/$campaignSlug/maps",
 	},
 	npcs: {
 		arrivesIn: "M2",
@@ -88,7 +89,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "npcs",
 		label: "NPCs",
 		summary: "The people of Eldari and the colony, as far as the party knows them.",
-		to: "/npcs",
+		to: "/c/$campaignSlug/npcs",
 	},
 	patrons: {
 		arrivesIn: "M3",
@@ -96,7 +97,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "patrons",
 		label: "Patrons",
 		summary: "The colony's backers on the mainland, their favor, and what they can be asked for.",
-		to: "/patrons",
+		to: "/c/$campaignSlug/patrons",
 	},
 	people: {
 		arrivesIn: "M2",
@@ -105,7 +106,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		label: "People",
 		summary:
 			"Every role's headcount, the unassigned, and the named colonists who keep things running.",
-		to: "/people",
+		to: "/c/$campaignSlug/people",
 	},
 	places: {
 		arrivesIn: "M2",
@@ -113,7 +114,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "places",
 		label: "Places",
 		summary: "Settlements, ruins and landmarks the party has found, and who can be met there.",
-		to: "/places",
+		to: "/c/$campaignSlug/places",
 	},
 	players: {
 		dmOnly: true,
@@ -121,7 +122,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "players",
 		label: "Players",
 		summary: "Who is waiting to join, who plays, and who was removed.",
-		to: "/players",
+		to: "/c/$campaignSlug/players",
 	},
 	quests: {
 		arrivesIn: "M3",
@@ -129,7 +130,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "quests",
 		label: "Quests",
 		summary: "Active, finished and failed quests, with their rewards and who gave them.",
-		to: "/quests",
+		to: "/c/$campaignSlug/quests",
 	},
 	requests: {
 		arrivesIn: "M3",
@@ -137,7 +138,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "requests",
 		label: "Requests",
 		summary: "What the party has asked of its patrons, and the DM's grants and declines.",
-		to: "/requests",
+		to: "/c/$campaignSlug/requests",
 	},
 	sessions: {
 		arrivesIn: "M5",
@@ -146,7 +147,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		label: "Sessions",
 		summary:
 			"Upcoming game nights in your own time zone, recaps of past ones, and a calendar link.",
-		to: "/sessions",
+		to: "/c/$campaignSlug/sessions",
 	},
 	settings: {
 		dmOnly: true,
@@ -154,7 +155,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		id: "settings",
 		label: "Settings",
 		summary: "The campaign's name, time zone, resources and Discord channels.",
-		to: "/settings",
+		to: "/c/$campaignSlug/settings",
 	},
 	timeline: {
 		icon: ScrollTextIcon,
@@ -162,7 +163,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		label: "Timeline",
 		summary:
 			"The colony's ledger: every day advanced, every ship that landed, every session played.",
-		to: "/timeline",
+		to: "/c/$campaignSlug/timeline",
 	},
 };
 

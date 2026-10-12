@@ -1,5 +1,7 @@
 // Package bot is Beny Bot, the Discord bot, running in-process over discordgo. It is off unless Beny Bot Dev's
-// variables are set. Every reply and post is built from the player projection.
+// variables are set. One shared bot serves every campaign: each Discord server is linked to one campaign
+// with /link, and every interaction is routed guild → linked campaign → membership
+// (docs/design/multi-campaign.md §6). Every reply and post is built from the player projection.
 package bot
 
 import (
@@ -12,25 +14,35 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/google/uuid"
 
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
-// Discord drops an interaction that gets no response within three seconds.
-const interactionDeadline = 3 * time.Second
+const (
+	// Discord drops an interaction that gets no response within three seconds.
+	interactionDeadline = 3 * time.Second
+	// gatewayWorkTimeout bounds the database work a gateway event (Ready, GuildDelete) starts.
+	gatewayWorkTimeout = 10 * time.Second
+)
 
 const (
 	slowDownMessage       = "You're sending commands too quickly. Please slow down."
 	unknownCommandMessage = "Beny Bot doesn't know that command."
 	failureMessage        = "Something went wrong. Try again in a moment."
+	useInServerMessage    = "Use Beny Bot in your campaign's server."
+	manageServerMessage   = "Only someone with the Manage Server permission can do that."
 )
 
 type Options struct {
-	Token   string
-	GuildID string
-	// DmDiscordID decides who may press Grant and Decline.
-	DmDiscordID string
-	// PublicURL builds the links in Beny Bot's messages, e.g. <PublicURL>/players.
+	Token string
+	// LegacyGuildID is M1's DISCORD_GUILD_ID, read only for the one-time clean-up of the guild-scoped
+	// commands M1 registered there; empty once the author has deleted it from .env.
+	LegacyGuildID string
+	// SiteOwnerDiscordID is the effective site owner, who gets a direct message when someone asks to run
+	// a campaign. It decides nothing inside a campaign.
+	SiteOwnerDiscordID string
+	// PublicURL builds the links in Beny Bot's messages, e.g. <PublicURL>/c/<slug>/players.
 	PublicURL string
 	Logger    *slog.Logger
 }
@@ -44,30 +56,37 @@ type discordClient interface {
 	ApplicationCommandBulkOverwrite(applicationID string, guildID string, commands []*discordgo.ApplicationCommand, options ...discordgo.RequestOption) ([]*discordgo.ApplicationCommand, error)
 	InteractionRespond(interaction *discordgo.Interaction, response *discordgo.InteractionResponse, options ...discordgo.RequestOption) error
 	ChannelMessageSendComplex(channelID string, message *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	UserChannelCreate(recipientID string, options ...discordgo.RequestOption) (*discordgo.Channel, error)
 }
 
-// colonyService is what Beny Bot reads from core. *core.Service satisfies it; tests substitute a fake so
-// routing is tested without Postgres.
+// colonyService is what Beny Bot asks of core. *core.Service satisfies it; the bot's tests run it
+// against a real core, because only core can build a Viewer.
 type colonyService interface {
-	ViewerByDiscordID(requestContext context.Context, discordUserID string) (core.Viewer, error)
-	DiscordChannels(requestContext context.Context) (core.DiscordChannels, error)
+	ViewerForGuild(requestContext context.Context, guildID string, discordUserID string) (core.Viewer, error)
+	DiscordTargetFor(requestContext context.Context, campaignID uuid.UUID) (core.DiscordTarget, bool, error)
+	LinkGuild(requestContext context.Context, input core.LinkGuildInput) (core.LinkedGuild, error)
+	UnlinkGuildByID(requestContext context.Context, guildID string) (bool, error)
+	ReconcileGuilds(requestContext context.Context, presentGuildIDs []string) (int, error)
 }
 
 var (
-	_ discordClient = (*discordgo.Session)(nil)
-	_ colonyService = (*core.Service)(nil)
-	_ core.Notifier = (*Bot)(nil)
+	_ discordClient         = (*discordgo.Session)(nil)
+	_ colonyService         = (*core.Service)(nil)
+	_ core.Notifier         = (*Bot)(nil)
+	_ core.DiscordDirectory = (*Bot)(nil)
 )
 
 type Bot struct {
 	options Options
-	// client is nil when Beny Bot is off.
+	// client and state are nil when Beny Bot is off.
 	client         discordClient
+	state          gatewayState
 	commands       []command
 	commandLimiter *userRateLimiter
 	waitingPings   *slidingWindowLimiter
+	ownerPings     *slidingWindowLimiter
 
-	// mutex guards service, running and stopping. MemberWaiting can be called from any request
+	// mutex guards service, running and stopping. The notifier methods can be called from any request
 	// goroutine, before Run starts or while it shuts down.
 	mutex    sync.Mutex
 	service  colonyService
@@ -77,27 +96,24 @@ type Bot struct {
 }
 
 // New prepares Beny Bot without connecting. Without a bot token it returns a Bot that is off: Run only
-// waits and MemberWaiting does nothing, which is the default for local development. The caller passes
-// the Bot to core as its Notifier, then calls Run with the core service once both exist.
+// waits and the notifier methods do nothing, which is the default for local development. The caller
+// passes the Bot to core as its Notifier and Directory, then calls Run with the core service.
 func New(options Options) (*Bot, error) {
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
 	if options.Token == "" {
-		return newBot(options, nil, time.Now), nil
-	}
-	if options.GuildID == "" {
-		return nil, errors.New("bot: DISCORD_GUILD_ID is required when DISCORD_BOT_TOKEN is set")
+		return newBot(options, nil, nil, time.Now), nil
 	}
 	session, err := discordgo.New("Bot " + options.Token)
 	if err != nil {
 		return nil, fmt.Errorf("bot: %w", err)
 	}
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildScheduledEvents
-	return newBot(options, session, time.Now), nil
+	return newBot(options, session, session.State, time.Now), nil
 }
 
-func newBot(options Options, client discordClient, now func() time.Time) *Bot {
+func newBot(options Options, client discordClient, state gatewayState, now func() time.Time) *Bot {
 	options.PublicURL = strings.TrimRight(options.PublicURL, "/")
 	if options.Logger == nil {
 		options.Logger = slog.Default()
@@ -105,15 +121,26 @@ func newBot(options Options, client discordClient, now func() time.Time) *Bot {
 	return &Bot{
 		options:        options,
 		client:         client,
+		state:          state,
 		commands:       slashCommands(),
 		commandLimiter: newUserRateLimiter(now),
-		waitingPings:   newSlidingWindowLimiter(waitingPingLimit, waitingPingWindow, now),
+		waitingPings:   newSlidingWindowLimiter(core.WaitingPingsPerHour, pingWindow, now),
+		ownerPings:     newSlidingWindowLimiter(core.OwnerRequestPingsPerHour, pingWindow, now),
 	}
 }
 
 // Enabled reports whether Beny Bot has a bot token and will connect to Discord.
 func (benyBot *Bot) Enabled() bool {
 	return benyBot.client != nil
+}
+
+// Directory is the channel directory core checks Settings against, or nil while Beny Bot is off, so
+// core can tell "off" from "no channels".
+func (benyBot *Bot) Directory() core.DiscordDirectory {
+	if !benyBot.Enabled() {
+		return nil
+	}
+	return benyBot
 }
 
 // Run connects to the Discord gateway and serves interactions until its context is cancelled. When
@@ -141,6 +168,10 @@ func (benyBot *Bot) run(lifetimeContext context.Context, service colonyService) 
 		benyBot.handleInteraction(lifetimeContext, event)
 	})
 	defer removeInteractionHandler()
+	removeGuildDeleteHandler := benyBot.client.AddHandler(func(_ *discordgo.Session, event *discordgo.GuildDelete) {
+		benyBot.handleGuildDelete(lifetimeContext, event)
+	})
+	defer removeGuildDeleteHandler()
 
 	if err := benyBot.client.Open(); err != nil {
 		benyBot.stop()
@@ -179,27 +210,89 @@ func (benyBot *Bot) currentService() colonyService {
 	return benyBot.service
 }
 
-// handleReady runs on every fresh gateway session, so the commands are re-registered after each
-// reconnect. Both overwrites are idempotent.
+// handleReady runs on every fresh gateway session. It registers the commands globally (idempotent),
+// clears M1's guild-scoped commands while LegacyGuildID is still set, and unlinks every linked server
+// that removed Beny Bot while it was offline.
 func (benyBot *Bot) handleReady(lifetimeContext context.Context, ready *discordgo.Ready) {
-	applicationID := readyApplicationID(ready)
-	if applicationID == "" {
-		benyBot.options.Logger.Error("Discord's ready event names no application; Beny Bot's commands are not registered")
+	if ready == nil {
 		return
 	}
-	benyBot.options.Logger.Info("Beny Bot is online", slog.String("guild_id", benyBot.options.GuildID))
+	logger := benyBot.options.Logger
+	logger.Info("Beny Bot is online", slog.Int("guilds", len(ready.Guilds)))
+	benyBot.registerCommands(lifetimeContext, readyApplicationID(ready))
+	benyBot.reconcileGuilds(lifetimeContext, ready.Guilds)
+}
 
+func (benyBot *Bot) registerCommands(lifetimeContext context.Context, applicationID string) {
+	logger := benyBot.options.Logger
+	if applicationID == "" {
+		logger.Error("Discord's ready event names no application; Beny Bot's commands are not registered")
+		return
+	}
 	definitions := make([]*discordgo.ApplicationCommand, 0, len(benyBot.commands))
 	for _, slashCommand := range benyBot.commands {
 		definitions = append(definitions, slashCommand.definition)
 	}
-	if _, err := benyBot.client.ApplicationCommandBulkOverwrite(applicationID, benyBot.options.GuildID, definitions, discordgo.WithContext(lifetimeContext)); err != nil {
-		benyBot.options.Logger.Error("Beny Bot couldn't register its commands in the guild", slog.Any("error", err))
+	// Global commands reach every server the application is in; Discord may take a minute to show them.
+	if _, err := benyBot.client.ApplicationCommandBulkOverwrite(applicationID, "", definitions, discordgo.WithContext(lifetimeContext)); err != nil {
+		logger.Error("Beny Bot couldn't register its commands", slog.Any("error", err))
 	}
-	// Global commands show up in every guild the application is in. Overwriting them with an empty list
-	// (sent as [], not null) clears any that an older build left behind (spec §7.2).
-	if _, err := benyBot.client.ApplicationCommandBulkOverwrite(applicationID, "", []*discordgo.ApplicationCommand{}, discordgo.WithContext(lifetimeContext)); err != nil {
-		benyBot.options.Logger.Error("Beny Bot couldn't clear its global commands", slog.Any("error", err))
+	if benyBot.options.LegacyGuildID == "" {
+		return
+	}
+	// M1 registered /beny in one guild. Left there, that server would show /beny twice. An empty list
+	// (sent as [], not null) clears it.
+	if _, err := benyBot.client.ApplicationCommandBulkOverwrite(applicationID, benyBot.options.LegacyGuildID, []*discordgo.ApplicationCommand{}, discordgo.WithContext(lifetimeContext)); err != nil {
+		logger.Warn("Beny Bot couldn't clear the old guild commands; it tries again on its next start", slog.String("guild_id", benyBot.options.LegacyGuildID), slog.Any("error", err))
+		return
+	}
+	logger.Info("old guild commands cleared; delete DISCORD_GUILD_ID from .env", slog.String("guild_id", benyBot.options.LegacyGuildID))
+}
+
+// reconcileGuilds unlinks every linked server missing from Ready's guild list: the bot was removed
+// while it was offline, which is common locally.
+func (benyBot *Bot) reconcileGuilds(lifetimeContext context.Context, guilds []*discordgo.Guild) {
+	service := benyBot.currentService()
+	if service == nil {
+		return
+	}
+	presentGuildIDs := make([]string, 0, len(guilds))
+	for _, guild := range guilds {
+		if guild != nil && guild.ID != "" {
+			presentGuildIDs = append(presentGuildIDs, guild.ID)
+		}
+	}
+	workContext, cancel := context.WithTimeout(lifetimeContext, gatewayWorkTimeout)
+	defer cancel()
+	unlinked, err := service.ReconcileGuilds(workContext, presentGuildIDs)
+	if err != nil {
+		benyBot.options.Logger.Error("Beny Bot couldn't check its linked servers", slog.Int("unlinked", unlinked), slog.Any("error", err))
+		return
+	}
+	if unlinked > 0 {
+		benyBot.options.Logger.Info("unlinked servers that removed Beny Bot while it was offline", slog.Int("unlinked", unlinked))
+	}
+}
+
+// handleGuildDelete unlinks a server that removed Beny Bot. Discord also sends GuildDelete with
+// Unavailable set during an outage; that server still has the bot, so its link stays.
+func (benyBot *Bot) handleGuildDelete(lifetimeContext context.Context, event *discordgo.GuildDelete) {
+	if event == nil || event.Guild == nil || event.Unavailable || event.ID == "" {
+		return
+	}
+	service := benyBot.currentService()
+	if service == nil {
+		return
+	}
+	workContext, cancel := context.WithTimeout(lifetimeContext, gatewayWorkTimeout)
+	defer cancel()
+	unlinked, err := service.UnlinkGuildByID(workContext, event.ID)
+	if err != nil {
+		benyBot.options.Logger.Error("Beny Bot couldn't unlink a server that removed it", slog.String("guild_id", event.ID), slog.Any("error", err))
+		return
+	}
+	if unlinked {
+		benyBot.options.Logger.Info("unlinked a server that removed Beny Bot", slog.String("guild_id", event.ID))
 	}
 }
 
@@ -222,11 +315,7 @@ func (benyBot *Bot) handleInteraction(lifetimeContext context.Context, event *di
 		return
 	}
 	interaction := event.Interaction
-	// Beny Bot serves one guild. Another server, or a direct message, is not Beny Bot's to answer.
-	if interaction.GuildID != benyBot.options.GuildID {
-		return
-	}
-	// Buttons (M3) and autocomplete (M2) are routed here once they exist.
+	// Buttons (M3) and autocomplete (M2) are routed here once they exist, through the same guild routing.
 	if interaction.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
@@ -238,50 +327,91 @@ func (benyBot *Bot) handleInteraction(lifetimeContext context.Context, event *di
 	if discordUserID == "" {
 		return
 	}
-	logger := benyBot.options.Logger.With(slog.String("command", data.Name), slog.String("discord_user_id", discordUserID))
+	logger := benyBot.options.Logger.With(
+		slog.String("command", data.Name),
+		slog.String("guild_id", interaction.GuildID),
+		slog.String("discord_user_id", discordUserID),
+	)
 
 	interactionContext, cancel := context.WithTimeout(lifetimeContext, interactionDeadline)
 	defer cancel()
+	reply := func(content string) {
+		benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: content})
+	}
 
 	if !benyBot.commandLimiter.allow(discordUserID) {
-		benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: slowDownMessage})
+		reply(slowDownMessage)
 		return
 	}
 	service := benyBot.currentService()
 	if service == nil {
 		return
 	}
-	viewer, err := service.ViewerByDiscordID(interactionContext, discordUserID)
+	// A direct message has no server, so no campaign to route to.
+	if interaction.GuildID == "" {
+		reply(useInServerMessage)
+		return
+	}
+	slashCommand, found := benyBot.findCommand(data.Name)
+	if found && slashCommand.handleServer != nil {
+		benyBot.runServerCommand(interactionContext, logger, service, interaction, slashCommand, data, discordUserID)
+		return
+	}
+
+	viewer, err := service.ViewerForGuild(interactionContext, interaction.GuildID, discordUserID)
 	if err != nil {
-		if operationError, isOperationError := core.AsError(err); isOperationError && operationError.Kind == core.KindNotFound {
-			benyBot.replyEphemeral(interactionContext, logger, interaction, benyBot.signInFirst())
+		// Not linked, paused, not in this campaign, not let in: core's typed errors carry the words.
+		if operationError, isOperationError := core.AsError(err); isOperationError {
+			reply(operationError.Message)
 			return
 		}
 		logger.Error("Beny Bot couldn't look up the caller", slog.Any("error", err))
-		benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: failureMessage})
+		reply(failureMessage)
 		return
 	}
-	if !viewer.IsActive() {
-		benyBot.replyEphemeral(interactionContext, logger, interaction, benyBot.signInFirst())
-		return
-	}
-	// Discord is not the place for DM detail: Beny Bot answers from the player projection, even when the DM
-	// runs the command (spec §7.2), so core's player filters apply to every command.
-	viewer.ViewAsPlayer = true
+	// Discord is not the place for DM detail: Beny Bot answers from the player projection, even when the
+	// DM runs the command (spec §7.2), so core's player filters apply to every command.
+	viewer = viewer.AsPlayer()
 
-	slashCommand, found := benyBot.findCommand(data.Name)
 	if !found {
 		logger.Warn("Beny Bot received a command it doesn't register")
-		benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: unknownCommandMessage})
+		reply(unknownCommandMessage)
 		return
 	}
-	reply, err := slashCommand.handle(interactionContext, viewer, data)
+	response, err := slashCommand.handle(interactionContext, viewer, data)
 	if err != nil {
 		logger.Error("Beny Bot's command failed", slog.Any("error", err))
+		reply(failureMessage)
+		return
+	}
+	benyBot.replyEphemeral(interactionContext, logger, interaction, response)
+}
+
+// runServerCommand runs /link and /unlink: they act for the server, not for a campaign member, so they
+// need Manage Server (or Administrator) instead of a membership. Discord hides them from other members
+// through DefaultMemberPermissions, but a server's admins can override that, so it is checked again.
+func (benyBot *Bot) runServerCommand(interactionContext context.Context, logger *slog.Logger, service colonyService, interaction *discordgo.Interaction, slashCommand command, data discordgo.ApplicationCommandInteractionData, discordUserID string) {
+	if interaction.Member == nil || interaction.Member.Permissions&serverManagerPermissions == 0 {
+		benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: manageServerMessage})
+		return
+	}
+	response, err := slashCommand.handleServer(interactionContext, service, serverInvocation{
+		guildID:       interaction.GuildID,
+		guildName:     benyBot.guildName(interaction.GuildID),
+		discordUserID: discordUserID,
+		data:          data,
+	})
+	if err != nil {
+		if operationError, isOperationError := core.AsError(err); isOperationError {
+			logger.Info("Beny Bot refused a server command", slog.Int("kind", int(operationError.Kind)))
+			benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: operationError.Message})
+			return
+		}
+		logger.Error("Beny Bot's server command failed", slog.Any("error", err))
 		benyBot.replyEphemeral(interactionContext, logger, interaction, &discordgo.InteractionResponseData{Content: failureMessage})
 		return
 	}
-	benyBot.replyEphemeral(interactionContext, logger, interaction, reply)
+	benyBot.replyEphemeral(interactionContext, logger, interaction, response)
 }
 
 func interactionUserID(interaction *discordgo.Interaction) string {
@@ -292,10 +422,6 @@ func interactionUserID(interaction *discordgo.Interaction) string {
 		return interaction.User.ID
 	}
 	return ""
-}
-
-func (benyBot *Bot) signInFirst() *discordgo.InteractionResponseData {
-	return &discordgo.InteractionResponseData{Content: fmt.Sprintf("Sign in at %s first", benyBot.options.PublicURL)}
 }
 
 // replyEphemeral is the only way Beny Bot answers an interaction. Every reply is visible to the caller

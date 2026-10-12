@@ -5,6 +5,7 @@
 **Replaces:** SPEC.md §1.3 principle 1 ("One campaign, one DM, one colony"). Everything else in SPEC.md
 stands unless this document says otherwise; §9 lists every SPEC.md and CLAUDE.md edit.
 **Audience:** the author (developer and DM) first, builders second.
+**Note:** the M1 → M1.5 upgrade scaffolding (migration 0003's conversion, `DM_DISCORD_ID`'s refusal, `mise run env:upgrade`) was removed before merge: 0001–0003 were squashed into one `0001_init.sql` with the same final schema, and a database migrated before that is refused until `mise run fresh` rebuilds it. The text below keeps the history.
 
 ## 0. The decisions on one page
 
@@ -502,7 +503,8 @@ Also:
   traffic (per-campaign sequence).
 - Beny Bot: in a guild linked to A, a Discord user who is only in B gets "You're not in this campaign",
   with no token; `/link` refusals (§6.2) are tested; after A is deleted, `/beny` there says "not linked";
-  Ready unlinks a linked guild that is missing from its guild list.
+  Ready unlinks a linked guild that is missing from its guild list, and a Ready that lists no guild
+  unlinks nothing.
 - The startup-check tests cover the path/level rule, including an `/api/admin/campaigns/{campaignId}/...`
   route at `owner` (allowed) and a `{campaignId}` route at `account` (refused).
 
@@ -610,8 +612,9 @@ the first.
   DISCORD_GUILD_ID from .env". `loadConfig` reads it only for this.
 - Intents stay `Guilds | GuildScheduledEvents`. **Stale links:** `GuildDelete` with `Unavailable == false`
   (the bot was removed) unlinks that server; and on every Ready, core unlinks every linked guild that is
-  not in Ready's guild list (the bot was removed while offline, which is common locally). Either way the
-  DM's Settings shows "Not linked", and re-inviting the bot needs a new `/link`.
+  not in Ready's guild list (the bot was removed while offline, which is common locally). A Ready that
+  lists no guild at all while links exist is taken as incomplete: it unlinks nothing and logs a warning.
+  Either way the DM's Settings shows "Not linked", and re-inviting the bot needs a new `/link`.
 
 ### 6.2 Linking a server to a campaign
 
@@ -627,12 +630,14 @@ member with Manage Server runs the command there). Neither side can attach the o
    `DefaultMemberPermissions: ManageGuild` and the handler checks again
    (`interaction.Member.Permissions & (ManageGuild | Administrator)`), because server admins can override
    command visibility. Refused in direct messages.
-3. Core `LinkGuild(code, guildID, guildName, discordUserID)`: take the code (unknown or expired: "That code
-   doesn't work. Get a new one in your campaign's Settings."); then in one transaction refuse if the server
-   is linked to any campaign ("This server is already linked to a campaign. Its DM can unlink it in
-   Settings, or run /unlink here.", without naming it), if the campaign is linked to another server
-   ("Unlink the other server in Settings first.") or if the campaign is suspended; insert
-   `discord_guild_link`; clear the campaign's channel settings.
+3. Core `LinkGuild(code, guildID, guildName, discordUserID)`: look the code up (unknown or expired: "That
+   code doesn't work. Get a new one in your campaign's Settings."); then in one transaction, holding the
+   campaign row's lock, refuse if the server is linked to any campaign ("This server is already linked to
+   a campaign. Its DM can unlink it in Settings, or run /unlink here.", without naming it), if the
+   campaign is linked to another server ("Unlink the other server in Settings first.") or if the campaign
+   is suspended; insert `discord_guild_link`; clear the campaign's channel settings; and only then use the
+   code up. A refused `/link` leaves the code working until it expires, and two `/link` runs with one code
+   can't both link.
 4. Ephemeral reply: "Linked this server to **Sky Isles**. Pick channels in the campaign's Settings." The
    Settings card (live, `settings` topic) shows "Linked to <server name>" with **Unlink…**.
 5. Wrong codes: the existing per-user limiter (burst 3, one every 2 s) is enough against a 49-bit,
@@ -661,7 +666,10 @@ Every command, autocomplete (M2), button (M3) and scheduled-event update (M5):
 - **Channel picker:** Settings lists the linked server's text channels instead of asking for IDs. Core
   gains one outward seam, `core.DiscordDirectory` (`TextChannels(ctx, guildID) ([]DiscordChannel, error)`),
   implemented by the bot from gateway state; `UpdateSettings` refuses a channel not in that list. Without a
-  link (or with Beny Bot off) the channel fields are disabled with "Link a Discord server first".
+  link (or with Beny Bot off) the channel fields are disabled with "Link a Discord server first". When the
+  gateway can't see the linked server right now (just after a restart, during an outage, or once Beny Bot
+  has left it), `TextChannels` returns `core.ErrDiscordListUnavailable`: the picker is empty and says why,
+  and saving Settings keeps the stored channels and refuses only a change.
 - Rate limits are per campaign: 5 waiting pings an hour per campaign, so one busy campaign never silences
   another.
 

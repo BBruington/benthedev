@@ -210,7 +210,7 @@ func (service *Service) GetColonyBoard(requestContext context.Context, viewer Vi
 	if err := requireActive(viewer); err != nil {
 		return ColonyBoard{}, err
 	}
-	return service.readBoard(requestContext, service.queries)
+	return service.readBoard(requestContext, service.queries, viewer.campaignID)
 }
 
 // PreviewAdvance runs game.Advance without writing (spec §5.2) and returns the version it saw.
@@ -218,7 +218,7 @@ func (service *Service) PreviewAdvance(requestContext context.Context, viewer Vi
 	if err := requireDm(viewer); err != nil {
 		return AdvancePreview{}, err
 	}
-	colony, err := readColony(requestContext, service.queries, false)
+	colony, err := readColony(requestContext, service.queries, viewer.campaignID, false)
 	if err != nil {
 		return AdvancePreview{}, err
 	}
@@ -268,7 +268,7 @@ func (service *Service) PreviewAdjustStock(requestContext context.Context, viewe
 	if err := requireDm(viewer); err != nil {
 		return AdjustPreview{}, err
 	}
-	colony, err := readColony(requestContext, service.queries, false)
+	colony, err := readColony(requestContext, service.queries, viewer.campaignID, false)
 	if err != nil {
 		return AdjustPreview{}, err
 	}
@@ -412,10 +412,13 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	}
 	var change ColonyChange
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
-		colony, err := readColony(requestContext, queries, true)
+		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
 			return err
 		}
+		// The undo slot is this campaign's own colony row, so its groupId and its before snapshot can
+		// only name this campaign's entries, resources and roles; restoreSnapshot and the scoped
+		// queries below refuse anything else.
 		record, err := usableLastChange(colony.row)
 		if err != nil {
 			return err
@@ -430,10 +433,10 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err != nil {
 			return err
 		}
-		if err := saveState(requestContext, queries, colony.state, restored); err != nil {
+		if err := saveState(requestContext, queries, viewer.campaignID, colony.state, restored); err != nil {
 			return err
 		}
-		undone, err := queries.MarkTimelineGroupUndone(requestContext, record.GroupID)
+		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
 		if err != nil {
 			return err
 		}
@@ -458,7 +461,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if restored.Day != colony.state.Day {
 			entry.body = "Back to " + dayText(restored.Day)
 		}
-		if _, err := queries.SaveColonyChange(requestContext, saveColonyParameters(restored, nil)); err != nil {
+		if _, err := queries.SaveColonyChange(requestContext, saveColonyParameters(viewer.campaignID, restored, nil)); err != nil {
 			return err
 		}
 		groupID := uuid.New()
@@ -466,7 +469,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err != nil {
 			return err
 		}
-		board, err := service.readBoard(requestContext, queries)
+		board, err := service.readBoard(requestContext, queries, viewer.campaignID)
 		if err != nil {
 			return err
 		}
@@ -476,45 +479,47 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	if err != nil {
 		return ColonyChange{}, err
 	}
-	service.broker.Publish(TopicColony, TopicTimeline, TopicResources)
+	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources)
 	return change, nil
 }
 
 // colonySnapshot is the colony as one operation reads it: the row, the game.State built from it and
 // what text needs to name resources.
 type colonySnapshot struct {
-	row       store.Colony
-	state     game.State
-	resources map[string]store.Resource
+	campaignID uuid.UUID
+	row        store.Colony
+	state      game.State
+	resources  map[string]store.Resource
 	// order is every resource key in board order, so text lists resources the way the board does.
 	order  []string
 	labels resourceLabels
 }
 
-// readColony loads the colony, locking its row first when a mutation will follow (one lock order,
-// spec §5.1). Unlocked, it reads the row before the stock, so a preview's version is never newer than
-// the numbers it shows: Confirm then fails safe with a 409.
-func readColony(requestContext context.Context, queries *store.Queries, lock bool) (colonySnapshot, error) {
+// readColony loads one campaign's colony, locking its row first when a mutation will follow (one lock
+// order, spec §5.1). Unlocked, it reads the row before the stock, so a preview's version is never
+// newer than the numbers it shows: Confirm then fails safe with a 409.
+func readColony(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, lock bool) (colonySnapshot, error) {
 	var row store.Colony
 	var err error
 	if lock {
-		row, err = queries.GetColonyForUpdate(requestContext)
+		row, err = queries.GetColonyForUpdate(requestContext, campaignID)
 	} else {
-		row, err = queries.GetColony(requestContext)
+		row, err = queries.GetColony(requestContext, campaignID)
 	}
+	if err != nil {
+		return colonySnapshot{}, campaignGone(err)
+	}
+	resources, err := queries.ListResources(requestContext, campaignID)
 	if err != nil {
 		return colonySnapshot{}, err
 	}
-	resources, err := queries.ListResources(requestContext)
-	if err != nil {
-		return colonySnapshot{}, err
-	}
-	roles, err := queries.ListRoles(requestContext)
+	roles, err := queries.ListRoles(requestContext, campaignID)
 	if err != nil {
 		return colonySnapshot{}, err
 	}
 	snapshot := colonySnapshot{
-		row: row,
+		campaignID: campaignID,
+		row:        row,
 		state: game.State{
 			Day:       int64(row.Day),
 			Resources: make(map[string]game.Resource, len(resources)),
@@ -577,7 +582,7 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 	}
 	var change ColonyChange
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
-		colony, err := readColony(requestContext, queries, true)
+		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
 			return err
 		}
@@ -588,7 +593,7 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 		if err != nil {
 			return err
 		}
-		if err := saveState(requestContext, queries, colony.state, outcome.after); err != nil {
+		if err := saveState(requestContext, queries, viewer.campaignID, colony.state, outcome.after); err != nil {
 			return err
 		}
 		groupID := uuid.New()
@@ -603,14 +608,14 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 		if err != nil {
 			return fmt.Errorf("core: encode colony.last_change: %w", err)
 		}
-		if _, err := queries.SaveColonyChange(requestContext, saveColonyParameters(outcome.after, record)); err != nil {
+		if _, err := queries.SaveColonyChange(requestContext, saveColonyParameters(viewer.campaignID, outcome.after, record)); err != nil {
 			return err
 		}
 		entries, err := writeEntries(requestContext, queries, groupID, viewer, outcome.entries)
 		if err != nil {
 			return err
 		}
-		board, err := service.readBoard(requestContext, queries)
+		board, err := service.readBoard(requestContext, queries, viewer.campaignID)
 		if err != nil {
 			return err
 		}
@@ -621,7 +626,7 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 		return ColonyChange{}, err
 	}
 	// The DM's /settings list shows amounts too, so resources goes with colony and timeline.
-	service.broker.Publish(TopicColony, TopicTimeline, TopicResources)
+	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources)
 	return change, nil
 }
 
@@ -687,13 +692,13 @@ func restoreSnapshot(colony colonySnapshot, before undoSnapshot) (game.State, er
 }
 
 // saveState writes every amount and headcount that differs between before and after.
-func saveState(requestContext context.Context, queries *store.Queries, before game.State, after game.State) error {
+func saveState(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, before game.State, after game.State) error {
 	for _, key := range slices.Sorted(maps.Keys(after.Resources)) {
 		amount := after.Resources[key].Amount
 		if previous, found := before.Resources[key]; found && previous.Amount == amount {
 			continue
 		}
-		if err := queries.SetResourceAmount(requestContext, store.SetResourceAmountParams{Key: key, Amount: int32(amount)}); err != nil {
+		if err := queries.SetResourceAmount(requestContext, store.SetResourceAmountParams{CampaignID: campaignID, Key: key, Amount: int32(amount)}); err != nil {
 			return err
 		}
 	}
@@ -702,15 +707,15 @@ func saveState(requestContext context.Context, queries *store.Queries, before ga
 		if previous, found := before.Roles[key]; found && previous.UnnamedCount == count {
 			continue
 		}
-		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{Key: key, UnnamedCount: int32(count)}); err != nil {
+		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{CampaignID: campaignID, Key: key, UnnamedCount: int32(count)}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func saveColonyParameters(state game.State, lastChange []byte) store.SaveColonyChangeParams {
-	parameters := store.SaveColonyChangeParams{Day: int32(state.Day), LastChange: lastChange}
+func saveColonyParameters(campaignID uuid.UUID, state game.State, lastChange []byte) store.SaveColonyChangeParams {
+	parameters := store.SaveColonyChangeParams{CampaignID: campaignID, Day: int32(state.Day), LastChange: lastChange}
 	if state.Schedule != nil {
 		intervalDays := int32(state.Schedule.IntervalDays)
 		nextDay := int32(state.Schedule.NextDay)
@@ -736,6 +741,7 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 			}
 		}
 		row, err := queries.CreateTimelineEvent(requestContext, store.CreateTimelineEventParams{
+			CampaignID: viewer.campaignID,
 			GroupID:    &groupID,
 			Day:        int32(entry.day),
 			Kind:       string(entry.kind),
@@ -758,12 +764,13 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 	return entries, nil
 }
 
-// memberReference is the viewer's member ID for created_by, or nil for a caller with no member row.
+// memberReference is the viewer's membership ID for created_by, or nil for a viewer with no
+// membership row. The composite foreign key keeps it inside the campaign.
 func memberReference(viewer Viewer) *uuid.UUID {
-	if viewer.MemberID == uuid.Nil {
+	if viewer.memberID == uuid.Nil {
 		return nil
 	}
-	memberID := viewer.MemberID
+	memberID := viewer.memberID
 	return &memberID
 }
 
@@ -889,7 +896,7 @@ func planAdjustment(requestContext context.Context, queries *store.Queries, colo
 			fieldErrors = append(fieldErrors, FieldError{Field: "arrivalEntryId", Message: "Only cargo names a shipment arrival."})
 		}
 	case AdjustSourceShipment:
-		found, fieldError, err := arrivalFor(requestContext, queries, input.ArrivalEntryID)
+		found, fieldError, err := arrivalFor(requestContext, queries, colony.campaignID, input.ArrivalEntryID)
 		if err != nil {
 			return plannedAdjustment{}, err
 		}
@@ -948,12 +955,14 @@ func adjustableKeys(field string, values map[string]int64, colony colonySnapshot
 	return fieldErrors
 }
 
-// arrivalFor finds the SHIPMENT_ARRIVED entry cargo names; it must exist and not be undone.
-func arrivalFor(requestContext context.Context, queries *store.Queries, arrivalEntryID *uuid.UUID) (*store.TimelineEvent, *FieldError, error) {
+// arrivalFor finds the SHIPMENT_ARRIVED entry cargo names; it must exist in this campaign and not be
+// undone. The ID comes from the request body, so it is loaded with the campaign: another campaign's
+// arrival is simply not found.
+func arrivalFor(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, arrivalEntryID *uuid.UUID) (*store.TimelineEvent, *FieldError, error) {
 	if arrivalEntryID == nil {
 		return nil, &FieldError{Field: "arrivalEntryId", Message: "Pick the shipment arrival this cargo came on."}, nil
 	}
-	row, err := queries.GetTimelineEvent(requestContext, *arrivalEntryID)
+	row, err := queries.GetTimelineEvent(requestContext, store.GetTimelineEventParams{CampaignID: campaignID, ID: *arrivalEntryID})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return nil, &FieldError{Field: "arrivalEntryId", Message: "That shipment arrival doesn't exist."}, nil
@@ -989,32 +998,32 @@ func joinLines(summary string, reason string) string {
 	return summary + "\n" + reason
 }
 
-// readBoard reads the board with the given queries, so a mutation can answer with the board its own
-// transaction wrote.
-func (service *Service) readBoard(requestContext context.Context, queries *store.Queries) (ColonyBoard, error) {
-	colony, err := queries.GetColony(requestContext)
+// readBoard reads one campaign's board with the given queries, so a mutation can answer with the
+// board its own transaction wrote.
+func (service *Service) readBoard(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) (ColonyBoard, error) {
+	colony, err := queries.GetColony(requestContext, campaignID)
+	if err != nil {
+		return ColonyBoard{}, campaignGone(err)
+	}
+	campaign, err := queries.GetCampaign(requestContext, campaignID)
+	if err != nil {
+		return ColonyBoard{}, campaignGone(err)
+	}
+	resources, err := queries.ListResources(requestContext, campaignID)
 	if err != nil {
 		return ColonyBoard{}, err
 	}
-	settings, err := queries.GetSettings(requestContext)
+	roles, err := queries.ListRoles(requestContext, campaignID)
 	if err != nil {
 		return ColonyBoard{}, err
 	}
-	resources, err := queries.ListResources(requestContext)
-	if err != nil {
-		return ColonyBoard{}, err
-	}
-	roles, err := queries.ListRoles(requestContext)
-	if err != nil {
-		return ColonyBoard{}, err
-	}
-	return toColonyBoard(colony, settings, resources, roles)
+	return toColonyBoard(colony, campaign.Name, resources, roles)
 }
 
 // toColonyBoard fills Dm unconditionally; the Transformer decides who keeps it.
-func toColonyBoard(colony store.Colony, settings store.Settings, resources []store.Resource, roles []store.Role) (ColonyBoard, error) {
+func toColonyBoard(colony store.Colony, campaignName string, resources []store.Resource, roles []store.Role) (ColonyBoard, error) {
 	board := ColonyBoard{
-		CampaignName: settings.CampaignName,
+		CampaignName: campaignName,
 		ColonyName:   colony.Name,
 		Day:          int64(colony.Day),
 		Version:      colony.Version,

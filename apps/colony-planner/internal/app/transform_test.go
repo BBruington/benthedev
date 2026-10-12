@@ -11,31 +11,44 @@ import (
 
 	"github.com/BBruington/colony-planner/internal/auth"
 	"github.com/BBruington/colony-planner/internal/core"
-	"github.com/BBruington/colony-planner/internal/store"
 )
 
+// The Transformer keeps `dm` objects only for a campaign Viewer that sees DM fields: never for a
+// visitor, an account or owner route (no Viewer), a player, a DM elsewhere, or the DM viewing as player.
 func TestRedactionTransformer(t *testing.T) {
+	testHarness := newHarness(t)
+	campaignA := testHarness.campaignA
 	member := core.Member{
 		ID:          uuid.New(),
 		DisplayName: "Ana",
-		Dm:          &core.MemberDm{DiscordUserID: "seed:ana", Status: store.MemberStatusACTIVE},
+		Dm:          &core.MemberDm{DiscordUserID: "100000000000000002", Status: core.MemberStatusActive},
 	}
 	operation := &huma.Operation{Method: http.MethodGet, Path: "/api/test"}
+	dmViewingAsPlayer := testHarness.dmA
+	dmViewingAsPlayer.caller.ViewAsPlayer = true
 
 	for _, testCase := range []struct {
 		name    string
-		viewer  *core.Viewer
+		caller  *account
+		inside  bool
 		keepsDm bool
 	}{
-		{name: "visitor", viewer: nil, keepsDm: false},
-		{name: "player", viewer: &core.Viewer{Status: store.MemberStatusACTIVE}, keepsDm: false},
-		{name: "DM viewing as player", viewer: &core.Viewer{Status: store.MemberStatusACTIVE, IsDM: true, ViewAsPlayer: true}, keepsDm: false},
-		{name: "DM", viewer: &core.Viewer{Status: store.MemberStatusACTIVE, IsDM: true}, keepsDm: true},
+		{name: "visitor"},
+		{name: "the site owner on an owner route", caller: &testHarness.owner},
+		{name: "the DM on an account route", caller: &testHarness.dmA},
+		{name: "player", caller: &testHarness.ana, inside: true},
+		{name: "a DM elsewhere", caller: &testHarness.dmB, inside: true},
+		{name: "DM viewing as player", caller: &dmViewingAsPlayer, inside: true},
+		{name: "DM", caller: &testHarness.dmA, inside: true, keepsDm: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-			if testCase.viewer != nil {
-				request = request.WithContext(auth.WithViewer(request.Context(), *testCase.viewer))
+			if testCase.caller != nil {
+				requestContext := auth.WithCaller(request.Context(), testCase.caller.caller)
+				if testCase.inside {
+					requestContext = withCampaignViewer(requestContext, testHarness.enter(*testCase.caller, campaignA.id))
+				}
+				request = request.WithContext(requestContext)
 			}
 			humaContext := humatest.NewContext(operation, request, httptest.NewRecorder())
 

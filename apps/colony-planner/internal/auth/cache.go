@@ -14,20 +14,19 @@ import (
 const sessionCacheLifetime = 24 * time.Hour
 
 // SessionCache keeps session lookups in memory, so an ordinary request or an SSE reconnect runs no
-// session query (spec §8.5). It holds no role: IsDM is derived from DM_DISCORD_ID on every request.
-// Core evicts through the core.SessionEvictor interface.
+// session query (spec §8.5). It holds no role and no membership: status is per campaign and read by
+// core.EnterCampaign. Core evicts through the core.SessionEvictor interface.
 type SessionCache struct {
 	mutex   sync.Mutex
 	entries map[string]cachedSession
 	// generation changes on every eviction. A lookup that started before an eviction must not store
-	// what it read, or a removed member could keep a stale ACTIVE entry for a day.
+	// what it read, or a signed-out session could stay cached for a day.
 	generation uint64
 }
 
 type cachedSession struct {
-	memberID      uuid.UUID
+	accountID     uuid.UUID
 	discordUserID string
-	status        core.MemberStatus
 	viewAsPlayer  bool
 	expiresAt     time.Time
 	cachedAt      time.Time
@@ -81,12 +80,12 @@ func (cache *SessionCache) EvictSession(tokenHash []byte) {
 	delete(cache.entries, string(tokenHash))
 }
 
-func (cache *SessionCache) EvictMember(memberID uuid.UUID) {
+func (cache *SessionCache) EvictAccount(accountID uuid.UUID) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.generation++
 	for key, entry := range cache.entries {
-		if entry.memberID == memberID {
+		if entry.accountID == accountID {
 			delete(cache.entries, key)
 		}
 	}

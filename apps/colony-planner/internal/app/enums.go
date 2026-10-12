@@ -33,11 +33,15 @@ func newEnumType[Value ~string](name string, allValues func() []Value) enumType 
 // enumTypes lists every closed set the API exposes. Add one line per new Postgres enum.
 var enumTypes = []enumType{
 	newEnumType("MemberStatus", core.AllMemberStatusValues),
+	newEnumType("CampaignRole", core.AllCampaignRoleValues),
+	newEnumType("CampaignStatus", core.AllCampaignStatusValues),
+	newEnumType("CampaignRequestStatus", core.AllCampaignRequestStatusValues),
 	newEnumType("Topic", core.AllTopics),
 	newEnumType("ColonyIcon", core.AllColonyIconValues),
 	newEnumType("TimelineVisibility", core.AllTimelineVisibilityValues),
 	newEnumType("TimelineKind", core.AllTimelineKinds),
 	newEnumType("AdjustSource", core.AllAdjustSources),
+	newEnumType("RemovalKind", core.AllRemovalKinds),
 }
 
 var enumNamesByType = func() map[reflect.Type]string {
@@ -73,5 +77,25 @@ func registerSchemas(api huma.API) {
 	}
 	document.Extensions["x-stream-events"] = map[string]*huma.Schema{
 		"invalidate": registry.Schema(reflect.TypeFor[core.InvalidateMessage](), true, "InvalidateMessage"),
+	}
+}
+
+// nullableEnumFields rewrites each nullable enum field (a pointer to an enum type, tagged
+// nullable:"true") as anyOf the enum and null. huma would set a null type beside the $ref, which isn't
+// valid JSON Schema, and TypeScript would read the field as never null. Run it once every operation
+// is registered.
+func nullableEnumFields(document *huma.OpenAPI) {
+	for _, schema := range document.Components.Schemas.Map() {
+		for name, property := range schema.Properties {
+			if property == nil || property.Ref == "" || !property.Nullable {
+				continue
+			}
+			nullable := &huma.Schema{
+				Description: property.Description,
+				AnyOf:       []*huma.Schema{{Ref: property.Ref}, {Type: "null"}},
+			}
+			nullable.PrecomputeMessages()
+			schema.Properties[name] = nullable
+		}
 	}
 }

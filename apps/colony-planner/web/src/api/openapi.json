@@ -1,6 +1,42 @@
 {
   "components": {
     "schemas": {
+      "AccountMe": {
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discordUsername": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "isSiteOwner": {
+            "type": "boolean"
+          },
+          "viewAsPlayer": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accountId",
+          "displayName",
+          "discordUsername",
+          "avatarUrl",
+          "isSiteOwner",
+          "viewAsPlayer"
+        ],
+        "type": "object"
+      },
       "AdjustInput": {
         "additionalProperties": false,
         "properties": {
@@ -104,6 +140,115 @@
         ],
         "type": "string"
       },
+      "AdminCampaign": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "discordLinked": {
+            "type": "boolean"
+          },
+          "dmDiscordUsername": {
+            "type": "string"
+          },
+          "dmDisplayName": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pendingCount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "playerCount": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CampaignStatus"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "status",
+          "dmDisplayName",
+          "dmDiscordUsername",
+          "playerCount",
+          "pendingCount",
+          "discordLinked",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "AdminCampaignList": {
+        "additionalProperties": false,
+        "properties": {
+          "campaigns": {
+            "items": {
+              "$ref": "#/components/schemas/AdminCampaign"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaigns"
+        ],
+        "type": "object"
+      },
+      "AdminCampaignRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discordUsername": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/CampaignRequestView"
+          }
+        },
+        "required": [
+          "request",
+          "displayName",
+          "discordUsername",
+          "avatarUrl"
+        ],
+        "type": "object"
+      },
+      "AdminCampaignRequestList": {
+        "additionalProperties": false,
+        "properties": {
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/AdminCampaignRequest"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "type": "object"
+      },
       "AdvanceInput": {
         "additionalProperties": false,
         "properties": {
@@ -187,6 +332,22 @@
         ],
         "type": "object"
       },
+      "ApproveCampaignRequestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "description": "null keeps the requested address",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
       "ArrivalRun": {
         "additionalProperties": false,
         "properties": {
@@ -212,6 +373,156 @@
           "every",
           "count",
           "last"
+        ],
+        "type": "object"
+      },
+      "CampaignMe": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "$ref": "#/components/schemas/CampaignSummary"
+          },
+          "dmDisplayName": {
+            "type": "string"
+          },
+          "isDm": {
+            "type": "boolean"
+          },
+          "member": {
+            "$ref": "#/components/schemas/Member"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemberStatus"
+          },
+          "viewAsPlayer": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "campaign",
+          "dmDisplayName",
+          "member",
+          "status",
+          "isDm",
+          "viewAsPlayer"
+        ],
+        "type": "object"
+      },
+      "CampaignRequestInput": {
+        "additionalProperties": false,
+        "properties": {
+          "campaignName": {
+            "description": "1 to 80 characters after trimming",
+            "type": "string"
+          },
+          "note": {
+            "description": "To the site owner; at most 500 characters",
+            "type": "string"
+          },
+          "slug": {
+            "description": "The address /c/\u003cslug\u003e: 3 to 40 of a-z, 0-9 and single dashes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaignName",
+          "slug",
+          "note"
+        ],
+        "type": "object"
+      },
+      "CampaignRequestStatus": {
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "DENIED",
+          "WITHDRAWN"
+        ],
+        "type": "string"
+      },
+      "CampaignRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "$ref": "#/components/schemas/CampaignSummary",
+            "description": "null until approved"
+          },
+          "campaignName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decidedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CampaignRequestStatus"
+          }
+        },
+        "required": [
+          "id",
+          "campaignName",
+          "slug",
+          "note",
+          "status",
+          "createdAt",
+          "decidedAt",
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "CampaignRole": {
+        "enum": [
+          "DM",
+          "PLAYER"
+        ],
+        "type": "string"
+      },
+      "CampaignStatus": {
+        "enum": [
+          "ACTIVE",
+          "SUSPENDED"
+        ],
+        "type": "string"
+      },
+      "CampaignSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CampaignStatus"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "status"
         ],
         "type": "object"
       },
@@ -451,35 +762,95 @@
         ],
         "type": "object"
       },
-      "DevSignInMember": {
+      "DeleteCampaignInput": {
         "additionalProperties": false,
         "properties": {
+          "confirmSlug": {
+            "description": "The campaign's address, typed to confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmSlug"
+        ],
+        "type": "object"
+      },
+      "DevSignInAccount": {
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "askingToRunCampaign": {
+            "type": "boolean"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "isSiteOwner": {
+            "type": "boolean"
+          },
+          "memberships": {
+            "items": {
+              "$ref": "#/components/schemas/DevSignInMembership"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "accountId",
+          "displayName",
+          "isSiteOwner",
+          "memberships",
+          "askingToRunCampaign"
+        ],
+        "type": "object"
+      },
+      "DevSignInMembership": {
+        "additionalProperties": false,
+        "properties": {
+          "campaignName": {
+            "type": "string"
+          },
+          "campaignSlug": {
+            "type": "string"
+          },
           "characterName": {
             "type": [
               "string",
               "null"
             ]
           },
-          "displayName": {
-            "type": "string"
-          },
-          "isDm": {
-            "type": "boolean"
-          },
-          "memberId": {
-            "format": "uuid",
-            "type": "string"
+          "role": {
+            "$ref": "#/components/schemas/CampaignRole"
           },
           "status": {
             "$ref": "#/components/schemas/MemberStatus"
           }
         },
         "required": [
-          "memberId",
-          "displayName",
-          "characterName",
+          "campaignName",
+          "campaignSlug",
+          "role",
           "status",
-          "isDm"
+          "characterName"
+        ],
+        "type": "object"
+      },
+      "DiscordChannel": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
         ],
         "type": "object"
       },
@@ -584,6 +955,43 @@
         ],
         "type": "object"
       },
+      "InviteInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "campaignName": {
+            "type": "string"
+          },
+          "campaignStatus": {
+            "$ref": "#/components/schemas/CampaignStatus"
+          },
+          "dmDisplayName": {
+            "type": "string"
+          },
+          "membership": {
+            "$ref": "#/components/schemas/MyCampaign",
+            "description": "null when the caller has not asked to join"
+          }
+        },
+        "required": [
+          "campaignName",
+          "dmDisplayName",
+          "campaignStatus",
+          "membership"
+        ],
+        "type": "object"
+      },
+      "InviteLink": {
+        "additionalProperties": false,
+        "properties": {
+          "inviteCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inviteCode"
+        ],
+        "type": "object"
+      },
       "LastChange": {
         "additionalProperties": false,
         "properties": {
@@ -616,13 +1024,55 @@
           "null"
         ]
       },
+      "LinkCode": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Shown as BENY-XXXXX-XXXXX; run /link code:\u003cit\u003e in the server",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "LinkedDiscordServer": {
+        "additionalProperties": false,
+        "properties": {
+          "guildId": {
+            "type": "string"
+          },
+          "guildName": {
+            "type": "string"
+          },
+          "linkedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "guildId",
+          "guildName",
+          "linkedAt"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
       "LoginOptions": {
         "additionalProperties": false,
         "properties": {
           "devSignIn": {
             "description": "Present only in devauth builds",
             "items": {
-              "$ref": "#/components/schemas/DevSignInMember"
+              "$ref": "#/components/schemas/DevSignInAccount"
             },
             "type": "array"
           },
@@ -632,30 +1082,6 @@
         },
         "required": [
           "discordEnabled"
-        ],
-        "type": "object"
-      },
-      "Me": {
-        "additionalProperties": false,
-        "properties": {
-          "isDm": {
-            "type": "boolean"
-          },
-          "member": {
-            "$ref": "#/components/schemas/Member"
-          },
-          "status": {
-            "$ref": "#/components/schemas/MemberStatus"
-          },
-          "viewAsPlayer": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "member",
-          "status",
-          "isDm",
-          "viewAsPlayer"
         ],
         "type": "object"
       },
@@ -723,6 +1149,17 @@
               "null"
             ]
           },
+          "removalKind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RemovalKind"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null unless status is REMOVED"
+          },
           "status": {
             "$ref": "#/components/schemas/MemberStatus"
           }
@@ -732,6 +1169,7 @@
           "discordUsername",
           "status",
           "isDm",
+          "removalKind",
           "createdAt",
           "approvedAt",
           "lastSeenAt"
@@ -774,6 +1212,66 @@
           "REMOVED"
         ],
         "type": "string"
+      },
+      "MyCampaign": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "$ref": "#/components/schemas/CampaignSummary"
+          },
+          "characterName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "memberId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/CampaignRole"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemberStatus"
+          }
+        },
+        "required": [
+          "campaign",
+          "memberId",
+          "role",
+          "status",
+          "characterName"
+        ],
+        "type": "object"
+      },
+      "MyCampaignRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/CampaignRequestView",
+            "description": "null when the caller has never asked"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "MyCampaigns": {
+        "additionalProperties": false,
+        "properties": {
+          "campaigns": {
+            "items": {
+              "$ref": "#/components/schemas/MyCampaign"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaigns"
+        ],
+        "type": "object"
       },
       "NewResourceInput": {
         "additionalProperties": false,
@@ -837,6 +1335,14 @@
           "entries"
         ],
         "type": "object"
+      },
+      "RemovalKind": {
+        "enum": [
+          "LEFT",
+          "DENIED",
+          "REMOVED"
+        ],
+        "type": "string"
       },
       "ResourceChangePreview": {
         "additionalProperties": false,
@@ -1060,6 +1566,10 @@
               "null"
             ]
           },
+          "discordServer": {
+            "$ref": "#/components/schemas/LinkedDiscordServer",
+            "description": "null when no Discord server is linked"
+          },
           "timezone": {
             "description": "IANA time zone, e.g. America/New_York",
             "type": "string"
@@ -1072,7 +1582,8 @@
           "discordAnnounceChannelId",
           "discordReminderChannelId",
           "discordDmChannelId",
-          "botInviteUrl"
+          "botInviteUrl",
+          "discordServer"
         ],
         "type": "object"
       },
@@ -1080,7 +1591,7 @@
         "additionalProperties": false,
         "properties": {
           "campaignName": {
-            "description": "1 to 80 characters after trimming",
+            "description": "1 to 80 characters after trimming; the site owner sees it",
             "type": "string"
           },
           "colonyName": {
@@ -1088,21 +1599,21 @@
             "type": "string"
           },
           "discordAnnounceChannelId": {
-            "description": "Discord channel ID: 17 to 20 digits",
+            "description": "A text channel of the linked Discord server",
             "type": [
               "string",
               "null"
             ]
           },
           "discordDmChannelId": {
-            "description": "Discord channel ID: 17 to 20 digits",
+            "description": "A text channel of the linked Discord server",
             "type": [
               "string",
               "null"
             ]
           },
           "discordReminderChannelId": {
-            "description": "Discord channel ID: 17 to 20 digits",
+            "description": "A text channel of the linked Discord server",
             "type": [
               "string",
               "null"
@@ -1419,9 +1930,463 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/colony": {
+    "/api/admin/campaign-requests": {
+      "get": {
+        "operationId": "listCampaignRequests",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCampaignRequestList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open requests to run a campaign",
+        "tags": [
+          "admin"
+        ],
+        "x-access": "owner"
+      }
+    },
+    "/api/admin/campaign-requests/{campaignRequestId}/approve": {
+      "post": {
+        "operationId": "approveCampaignRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignRequestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveCampaignRequestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCampaign"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Create the campaign with the requester as its DM; the address may be changed here, then never",
+        "tags": [
+          "admin"
+        ],
+        "x-access": "owner"
+      }
+    },
+    "/api/admin/campaign-requests/{campaignRequestId}/deny": {
+      "post": {
+        "operationId": "denyCampaignRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignRequestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignRequestView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Say no to a request; the requester may ask again",
+        "tags": [
+          "admin"
+        ],
+        "x-access": "owner"
+      }
+    },
+    "/api/admin/campaigns": {
+      "get": {
+        "operationId": "listCampaigns",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCampaignList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every campaign's directory data: name, address, DM, counts, Discord linked, status",
+        "tags": [
+          "admin"
+        ],
+        "x-access": "owner"
+      }
+    },
+    "/api/admin/campaigns/{campaignId}/delete": {
+      "post": {
+        "operationId": "deleteCampaign",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteCampaignInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a suspended campaign and everything in it, after typing its slug",
+        "tags": [
+          "admin"
+        ],
+        "x-access": "owner"
+      }
+    },
+    "/api/admin/campaigns/{campaignId}/suspend": {
+      "post": {
+        "operationId": "suspendCampaign",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCampaign"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Close the campaign to everyone, data intact",
+        "tags": [
+          "admin"
+        ],
+        "x-access": "owner"
+      }
+    },
+    "/api/admin/campaigns/{campaignId}/unsuspend": {
+      "post": {
+        "operationId": "unsuspendCampaign",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCampaign"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open a suspended campaign again",
+        "tags": [
+          "admin"
+        ],
+        "x-access": "owner"
+      }
+    },
+    "/api/campaign-requests": {
+      "post": {
+        "operationId": "requestCampaign",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignRequestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignRequestView"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Ask the site owner to run a campaign (one open request at a time)",
+        "tags": [
+          "account"
+        ],
+        "x-access": "account"
+      }
+    },
+    "/api/campaign-requests/mine": {
+      "get": {
+        "operationId": "getMyCampaignRequest",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyCampaignRequest"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The caller's newest request to run a campaign, or null",
+        "tags": [
+          "account"
+        ],
+        "x-access": "account"
+      }
+    },
+    "/api/campaign-requests/{campaignRequestId}/withdraw": {
+      "post": {
+        "operationId": "withdrawCampaignRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignRequestId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignRequestView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Withdraw the caller's own open request",
+        "tags": [
+          "account"
+        ],
+        "x-access": "account"
+      }
+    },
+    "/api/campaigns": {
+      "get": {
+        "operationId": "listMyCampaigns",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyCampaigns"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every campaign the caller has a membership in, whatever its status (the picker; slug to ID)",
+        "tags": [
+          "account"
+        ],
+        "x-access": "account"
+      }
+    },
+    "/api/campaigns/{campaignId}/colony": {
       "get": {
         "operationId": "getColonyBoard",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1451,9 +2416,22 @@
         "x-access": "member"
       }
     },
-    "/api/colony/adjust": {
+    "/api/campaigns/{campaignId}/colony/adjust": {
       "post": {
         "operationId": "adjustStock",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1493,9 +2471,22 @@
         "x-access": "dm"
       }
     },
-    "/api/colony/adjust-preview": {
+    "/api/campaigns/{campaignId}/colony/adjust-preview": {
       "post": {
         "operationId": "previewAdjustStock",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1535,9 +2526,22 @@
         "x-access": "dm"
       }
     },
-    "/api/colony/advance": {
+    "/api/campaigns/{campaignId}/colony/advance": {
       "post": {
         "operationId": "advanceDays",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1577,10 +2581,21 @@
         "x-access": "dm"
       }
     },
-    "/api/colony/advance-preview": {
+    "/api/campaigns/{campaignId}/colony/advance-preview": {
       "get": {
         "operationId": "previewAdvance",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "description": "1 or more",
             "explode": false,
@@ -1623,9 +2638,22 @@
         "x-access": "dm"
       }
     },
-    "/api/colony/correct-day": {
+    "/api/campaigns/{campaignId}/colony/correct-day": {
       "post": {
         "operationId": "correctDay",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1665,9 +2693,22 @@
         "x-access": "dm"
       }
     },
-    "/api/colony/shipments": {
+    "/api/campaigns/{campaignId}/colony/shipments": {
       "put": {
         "operationId": "setShipmentSchedule",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1707,9 +2748,22 @@
         "x-access": "dm"
       }
     },
-    "/api/colony/shipments/clear": {
+    "/api/campaigns/{campaignId}/colony/shipments/clear": {
       "post": {
         "operationId": "clearShipmentSchedule",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1749,9 +2803,22 @@
         "x-access": "dm"
       }
     },
-    "/api/colony/undo": {
+    "/api/campaigns/{campaignId}/colony/undo": {
       "post": {
         "operationId": "undoLastChange",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1791,19 +2858,35 @@
         "x-access": "dm"
       }
     },
-    "/api/login-options": {
-      "get": {
-        "operationId": "getLoginOptions",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LoginOptions"
-                }
+    "/api/campaigns/{campaignId}/delete": {
+      "post": {
+        "operationId": "deleteOwnCampaign",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteCampaignInput"
               }
-            },
-            "description": "OK"
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
           },
           "default": {
             "content": {
@@ -1816,22 +2899,38 @@
             "description": "Error"
           }
         },
-        "summary": "Sign-in methods for /login",
+        "summary": "Delete this campaign and everything in it, after typing its slug; accounts stay",
         "tags": [
-          "auth"
+          "campaign"
         ],
-        "x-access": "public"
+        "x-access": "dm"
       }
     },
-    "/api/me": {
+    "/api/campaigns/{campaignId}/discord/channels": {
       "get": {
-        "operationId": "getMe",
+        "operationId": "listDiscordChannels",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Me"
+                  "items": {
+                    "$ref": "#/components/schemas/DiscordChannel"
+                  },
+                  "type": "array"
                 }
               }
             },
@@ -1848,16 +2947,292 @@
             "description": "Error"
           }
         },
-        "summary": "The signed-in member, their status and whether they are the DM",
+        "summary": "The linked server's text channels, for the channel picker; empty when none is linked or Beny Bot is off",
+        "tags": [
+          "discord"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/discord/link-code": {
+      "post": {
+        "operationId": "createLinkCode",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkCode"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "A 15-minute, single-use code for /link in the campaign's Discord server; replaces any older one",
+        "tags": [
+          "discord"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/discord/unlink": {
+      "post": {
+        "operationId": "unlinkDiscordServer",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Unlink the campaign's Discord server and clear its channels",
+        "tags": [
+          "discord"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/invite": {
+      "get": {
+        "operationId": "getInviteLink",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteLink"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The campaign's invite code, for /join/\u003ccode\u003e (the only read that returns it)",
+        "tags": [
+          "campaign"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/invite/reset": {
+      "post": {
+        "operationId": "resetInviteLink",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteLink"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Replace the invite code; the old link stops working at once",
+        "tags": [
+          "campaign"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/leave": {
+      "post": {
+        "operationId": "leaveCampaign",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignMe"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Leave this campaign (players only, from waiting or active); only its DM can let you back in",
         "tags": [
           "me"
         ],
         "x-access": "pending"
       }
     },
-    "/api/me/profile": {
+    "/api/campaigns/{campaignId}/me": {
+      "get": {
+        "operationId": "getCampaignMe",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignMe"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The caller's membership in this campaign: status, whether they are its DM, and the campaign's status",
+        "tags": [
+          "me"
+        ],
+        "x-access": "pending"
+      }
+    },
+    "/api/campaigns/{campaignId}/me/profile": {
       "put": {
         "operationId": "updateProfile",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1873,7 +3248,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Me"
+                  "$ref": "#/components/schemas/CampaignMe"
                 }
               }
             },
@@ -1890,16 +3265,29 @@
             "description": "Error"
           }
         },
-        "summary": "Replace the caller's profile (character name)",
+        "summary": "Replace the caller's profile in this campaign (character name)",
         "tags": [
           "me"
         ],
         "x-access": "member"
       }
     },
-    "/api/me/view-as-player": {
+    "/api/campaigns/{campaignId}/me/view-as-player": {
       "post": {
         "operationId": "setViewAsPlayer",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1925,16 +3313,29 @@
             "description": "Error"
           }
         },
-        "summary": "Turn view as player on or off (DM only); then read /api/me again",
+        "summary": "Turn view as player on or off (this campaign's DM only); then read .../me again",
         "tags": [
           "me"
         ],
         "x-access": "member"
       }
     },
-    "/api/members": {
+    "/api/campaigns/{campaignId}/members": {
       "get": {
         "operationId": "listMembers",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1964,10 +3365,21 @@
         "x-access": "dm"
       }
     },
-    "/api/members/{memberId}/approve": {
+    "/api/campaigns/{campaignId}/members/{memberId}/approve": {
       "post": {
         "operationId": "approveMember",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "memberId",
@@ -2007,10 +3419,21 @@
         "x-access": "dm"
       }
     },
-    "/api/members/{memberId}/character-name": {
+    "/api/campaigns/{campaignId}/members/{memberId}/character-name": {
       "put": {
         "operationId": "setMemberCharacterName",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "memberId",
@@ -2060,10 +3483,21 @@
         "x-access": "dm"
       }
     },
-    "/api/members/{memberId}/deny": {
+    "/api/campaigns/{campaignId}/members/{memberId}/deny": {
       "post": {
         "operationId": "denyMember",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "memberId",
@@ -2103,10 +3537,21 @@
         "x-access": "dm"
       }
     },
-    "/api/members/{memberId}/readmit": {
+    "/api/campaigns/{campaignId}/members/{memberId}/readmit": {
       "post": {
         "operationId": "readmitMember",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "memberId",
@@ -2146,10 +3591,21 @@
         "x-access": "dm"
       }
     },
-    "/api/members/{memberId}/remove": {
+    "/api/campaigns/{campaignId}/members/{memberId}/remove": {
       "post": {
         "operationId": "removeMember",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "memberId",
@@ -2182,16 +3638,29 @@
             "description": "Error"
           }
         },
-        "summary": "Remove an active member and sign them out everywhere",
+        "summary": "Remove an active member from this campaign; their other campaigns are untouched",
         "tags": [
           "members"
         ],
         "x-access": "dm"
       }
     },
-    "/api/resources": {
+    "/api/campaigns/{campaignId}/resources": {
       "get": {
         "operationId": "listResources",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2222,6 +3691,19 @@
       },
       "post": {
         "operationId": "createResource",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2261,10 +3743,21 @@
         "x-access": "dm"
       }
     },
-    "/api/resources/{resourceKey}": {
+    "/api/campaigns/{campaignId}/resources/{resourceKey}": {
       "put": {
         "operationId": "updateResource",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "resourceKey",
@@ -2313,9 +3806,22 @@
         "x-access": "dm"
       }
     },
-    "/api/settings": {
+    "/api/campaigns/{campaignId}/settings": {
       "get": {
         "operationId": "getSettings",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2346,6 +3852,19 @@
       },
       "put": {
         "operationId": "updateSettings",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2385,10 +3904,21 @@
         "x-access": "dm"
       }
     },
-    "/api/timeline": {
+    "/api/campaigns/{campaignId}/timeline": {
       "get": {
         "operationId": "listTimeline",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "description": "First day shown, inclusive",
             "explode": false,
@@ -2444,6 +3974,19 @@
       },
       "post": {
         "operationId": "createTimelineEntry",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2483,9 +4026,22 @@
         "x-access": "dm"
       }
     },
-    "/api/timeline/recent": {
+    "/api/campaigns/{campaignId}/timeline/recent": {
       "get": {
         "operationId": "listRecentTimeline",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2515,10 +4071,21 @@
         "x-access": "member"
       }
     },
-    "/api/timeline/{timelineEntryId}": {
+    "/api/campaigns/{campaignId}/timeline/{timelineEntryId}": {
       "delete": {
         "operationId": "deleteTimelineEntry",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "timelineEntryId",
@@ -2553,6 +4120,17 @@
       "put": {
         "operationId": "updateTimelineEntry",
         "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
           {
             "in": "path",
             "name": "timelineEntryId",
@@ -2600,6 +4178,158 @@
           "timeline"
         ],
         "x-access": "dm"
+      }
+    },
+    "/api/invites/{inviteCode}": {
+      "get": {
+        "operationId": "getInvite",
+        "parameters": [
+          {
+            "description": "The code from an invite link /join/\u003ccode\u003e",
+            "in": "path",
+            "name": "inviteCode",
+            "required": true,
+            "schema": {
+              "description": "The code from an invite link /join/\u003ccode\u003e",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteInfo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Who runs the invite's campaign, its status, and the caller's membership there",
+        "tags": [
+          "account"
+        ],
+        "x-access": "account"
+      }
+    },
+    "/api/invites/{inviteCode}/join": {
+      "post": {
+        "operationId": "joinByInvite",
+        "parameters": [
+          {
+            "description": "The code from an invite link /join/\u003ccode\u003e",
+            "in": "path",
+            "name": "inviteCode",
+            "required": true,
+            "schema": {
+              "description": "The code from an invite link /join/\u003ccode\u003e",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyCampaign"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Ask to join the invite's campaign; an existing membership comes back unchanged",
+        "tags": [
+          "account"
+        ],
+        "x-access": "account"
+      }
+    },
+    "/api/login-options": {
+      "get": {
+        "operationId": "getLoginOptions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOptions"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Sign-in methods for /login",
+        "tags": [
+          "auth"
+        ],
+        "x-access": "public"
+      }
+    },
+    "/api/me": {
+      "get": {
+        "operationId": "getMe",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountMe"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The signed-in account, before any campaign",
+        "tags": [
+          "account"
+        ],
+        "x-access": "account"
       }
     }
   },

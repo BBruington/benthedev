@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { GiltRule } from "@/components/gilt-rule";
+import { useCampaign } from "@/hooks/use-campaign";
 import { canUseDmTools, type Me } from "@/lib/access";
 import { cn } from "@/lib/utils";
 import { type NavigationItem, navigationGroups, navigationItems } from "./navigation";
@@ -56,10 +57,12 @@ export function Sidebar({
 
 function SidebarLink({ item, badge }: { item: NavigationItem; badge: number }) {
 	const Icon = item.icon;
+	const { slug } = useCampaign();
 	return (
 		<Link
-			activeOptions={{ exact: item.to === "/" }}
+			activeOptions={{ exact: item.to === "/c/$campaignSlug" }}
 			className="group relative flex min-h-9 items-center gap-3 rounded-md px-3 text-[0.97rem] text-ink-muted outline-none transition-colors hover:bg-accent hover:text-foreground pointer-coarse:min-h-11 focus-visible:ring-[3px] focus-visible:ring-ring/45 data-[status=active]:bg-accent data-[status=active]:font-medium data-[status=active]:text-gilt-ink"
+			params={{ campaignSlug: slug }}
 			to={item.to}
 		>
 			<span

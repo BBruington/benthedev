@@ -13,23 +13,23 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO web_session (token_hash, member_id, expires_at)
+INSERT INTO web_session (token_hash, account_id, expires_at)
 VALUES ($1, $2, $3)
-RETURNING token_hash, member_id, view_as_player, created_at, expires_at, last_seen_at
+RETURNING token_hash, account_id, view_as_player, created_at, expires_at, last_seen_at
 `
 
 type CreateSessionParams struct {
 	TokenHash []byte
-	MemberID  uuid.UUID
+	AccountID uuid.UUID
 	ExpiresAt time.Time
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (WebSession, error) {
-	row := q.db.QueryRow(ctx, createSession, arg.TokenHash, arg.MemberID, arg.ExpiresAt)
+	row := q.db.QueryRow(ctx, createSession, arg.TokenHash, arg.AccountID, arg.ExpiresAt)
 	var i WebSession
 	err := row.Scan(
 		&i.TokenHash,
-		&i.MemberID,
+		&i.AccountID,
 		&i.ViewAsPlayer,
 		&i.CreatedAt,
 		&i.ExpiresAt,
@@ -38,21 +38,21 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (W
 	return i, err
 }
 
+const deleteAccountSessions = `-- name: DeleteAccountSessions :exec
+DELETE FROM web_session WHERE account_id = $1
+`
+
+func (q *Queries) DeleteAccountSessions(ctx context.Context, accountID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAccountSessions, accountID)
+	return err
+}
+
 const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
 DELETE FROM web_session WHERE expires_at <= now()
 `
 
 func (q *Queries) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteExpiredSessions)
-	return err
-}
-
-const deleteMemberSessions = `-- name: DeleteMemberSessions :exec
-DELETE FROM web_session WHERE member_id = $1
-`
-
-func (q *Queries) DeleteMemberSessions(ctx context.Context, memberID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, deleteMemberSessions, memberID)
 	return err
 }
 
@@ -65,38 +65,35 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 	return err
 }
 
-const getSessionWithMember = `-- name: GetSessionWithMember :one
-SELECT web_session.token_hash, web_session.member_id, web_session.view_as_player, web_session.created_at, web_session.expires_at, web_session.last_seen_at, member.id, member.discord_user_id, member.discord_username, member.display_name, member.avatar_url, member.character_name, member.status, member.created_at, member.approved_at, member.last_seen_at
+const getSessionWithAccount = `-- name: GetSessionWithAccount :one
+SELECT web_session.token_hash, web_session.account_id, web_session.view_as_player, web_session.created_at, web_session.expires_at, web_session.last_seen_at, account.id, account.discord_user_id, account.discord_username, account.display_name, account.avatar_url, account.created_at, account.last_seen_at
 FROM web_session
-JOIN member ON member.id = web_session.member_id
+JOIN account ON account.id = web_session.account_id
 WHERE web_session.token_hash = $1 AND web_session.expires_at > now()
 `
 
-type GetSessionWithMemberRow struct {
+type GetSessionWithAccountRow struct {
 	WebSession WebSession
-	Member     Member
+	Account    Account
 }
 
-func (q *Queries) GetSessionWithMember(ctx context.Context, tokenHash []byte) (GetSessionWithMemberRow, error) {
-	row := q.db.QueryRow(ctx, getSessionWithMember, tokenHash)
-	var i GetSessionWithMemberRow
+func (q *Queries) GetSessionWithAccount(ctx context.Context, tokenHash []byte) (GetSessionWithAccountRow, error) {
+	row := q.db.QueryRow(ctx, getSessionWithAccount, tokenHash)
+	var i GetSessionWithAccountRow
 	err := row.Scan(
 		&i.WebSession.TokenHash,
-		&i.WebSession.MemberID,
+		&i.WebSession.AccountID,
 		&i.WebSession.ViewAsPlayer,
 		&i.WebSession.CreatedAt,
 		&i.WebSession.ExpiresAt,
 		&i.WebSession.LastSeenAt,
-		&i.Member.ID,
-		&i.Member.DiscordUserID,
-		&i.Member.DiscordUsername,
-		&i.Member.DisplayName,
-		&i.Member.AvatarUrl,
-		&i.Member.CharacterName,
-		&i.Member.Status,
-		&i.Member.CreatedAt,
-		&i.Member.ApprovedAt,
-		&i.Member.LastSeenAt,
+		&i.Account.ID,
+		&i.Account.DiscordUserID,
+		&i.Account.DiscordUsername,
+		&i.Account.DisplayName,
+		&i.Account.AvatarUrl,
+		&i.Account.CreatedAt,
+		&i.Account.LastSeenAt,
 	)
 	return i, err
 }

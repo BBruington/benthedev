@@ -8,53 +8,56 @@ import (
 
 	"github.com/BBruington/colony-planner/db/dbtest"
 	"github.com/BBruington/colony-planner/internal/core"
-	"github.com/BBruington/colony-planner/internal/store"
 )
 
 func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	database := dbtest.New(t)
 	testContext := context.Background()
-	service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), DmDiscordID: core.SeedDmDiscordID})
-	options := Options{Pool: database.Pool, Core: service, DmDiscordID: core.SeedDmDiscordID}
-
+	service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), SiteOwnerDiscordID: core.SeedDmDiscordID})
+	options := Options{Pool: database.Pool, Core: service, OwnerDiscordID: core.SeedDmDiscordID}
 	if err := Run(testContext, options); err != nil {
-		t.Fatalf("seed a fresh database: %v", err)
+		t.Fatalf("seed: %v", err)
 	}
-
-	queries := store.New(database.Pool)
-	members, err := queries.ListMembers(testContext)
+	callerOf := func(discordUserID string) core.Caller {
+		t.Helper()
+		accountID, found, err := service.AccountIDForDiscordUser(testContext, discordUserID)
+		if err != nil || !found {
+			t.Fatalf("no seeded account %s: %v", discordUserID, err)
+		}
+		return core.Caller{AccountID: accountID, DiscordUserID: discordUserID, IsSiteOwner: service.IsSiteOwner(discordUserID)}
+	}
+	campaignBySlug := func(caller core.Caller) map[string]core.MyCampaign {
+		t.Helper()
+		campaigns, err := service.MyCampaigns(testContext, caller)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bySlug := map[string]core.MyCampaign{}
+		for _, campaign := range campaigns.Campaigns {
+			bySlug[campaign.Campaign.Slug] = campaign
+		}
+		return bySlug
+	}
+	owner := callerOf(core.SeedDmDiscordID)
+	sampleColony := campaignBySlug(owner)["sample-colony"]
+	if sampleColony.Role != core.CampaignRoleDm {
+		t.Fatalf("the owner's campaigns = %+v", campaignBySlug(owner))
+	}
+	dm, err := service.EnterCampaign(testContext, owner, sampleColony.Campaign.ID)
+	if err != nil || !dm.IsDM() {
+		t.Fatalf("the seeded owner is not Sample Colony's DM: %v", err)
+	}
+	groups, err := service.ListMembers(testContext, dm)
 	if err != nil {
-		t.Fatalf("list members: %v", err)
+		t.Fatal(err)
 	}
-	counts := map[store.MemberStatus]int{}
-	characterNames := map[string]bool{}
-	for _, member := range members {
-		counts[member.Status]++
-		if member.CharacterName != nil {
-			characterNames[*member.CharacterName] = true
-		}
-		if member.DiscordUserID[:5] != "seed:" {
-			t.Errorf("member %s has a Discord ID a real account could have: %s", member.DisplayName, member.DiscordUserID)
-		}
-	}
-	// The DM plus four players are active; two wait; one was removed (spec §9, M0).
-	if counts[store.MemberStatusACTIVE] != 5 || counts[store.MemberStatusPENDING] != 2 || counts[store.MemberStatusREMOVED] != 1 {
-		t.Fatalf("member counts = %v", counts)
-	}
-	if !characterNames["Thorin"] {
-		t.Fatal("Thorin is missing from the sample players")
-	}
-
-	dm, err := service.ViewerByDiscordID(testContext, core.SeedDmDiscordID)
-	if err != nil || !dm.IsDM {
-		t.Fatalf("the seeded DM is not the DM: %+v, %v", dm, err)
+	// The DM, four M1 players and Hollis (Pell) are active; two wait; one was removed.
+	if len(groups.Active) != 6 || len(groups.Pending) != 2 || len(groups.Removed) != 1 {
+		t.Fatalf("Sample Colony's members: %d active, %d pending, %d removed", len(groups.Active), len(groups.Pending), len(groups.Removed))
 	}
 	settings, err := service.GetSettings(testContext, dm)
-	if err != nil {
-		t.Fatalf("read settings: %v", err)
-	}
-	if settings.CampaignName != "Sample Colony" || settings.Timezone != "America/New_York" {
-		t.Fatalf("settings = %+v", settings)
+	if err != nil || settings.CampaignName != "Sample Colony" || settings.Timezone != "America/New_York" {
+		t.Fatalf("settings = %+v, %v", settings, err)
 	}
 
 	// M1: a colony some weeks in, played through core (spec §9).
@@ -94,16 +97,50 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	if len(arrivals) != 3 || !cargoLinked || !dmOnly {
 		t.Fatalf("history: %d arrivals, cargo linked %v, DM-only adjustment %v", len(arrivals), cargoLinked, dmOnly)
 	}
-	player, err := service.ViewerByDiscordID(testContext, "seed:ana")
+
+	// Ana plays in both campaigns under two names.
+	ana := callerOf("seed:ana")
+	anaCampaigns := campaignBySlug(ana)
+	if *anaCampaigns["sample-colony"].CharacterName != "Thorin" || *anaCampaigns["second-sample"].CharacterName != "Brisa" {
+		t.Fatalf("Ana's campaigns = %+v", anaCampaigns)
+	}
+	player, err := service.EnterCampaign(testContext, ana, sampleColony.Campaign.ID)
 	if err != nil {
-		t.Fatalf("find a player: %v", err)
+		t.Fatal(err)
 	}
 	playerTimeline, err := service.ListTimeline(testContext, player, core.TimelineRangeInput{FromDay: 0, ToDay: 30})
-	if err != nil {
-		t.Fatalf("read the player's timeline: %v", err)
+	if err != nil || len(playerTimeline.Entries) != len(dmTimeline.Entries)-1 {
+		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment (%v)", len(playerTimeline.Entries), len(dmTimeline.Entries), err)
 	}
-	if len(playerTimeline.Entries) != len(dmTimeline.Entries)-1 {
-		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment", len(playerTimeline.Entries), len(dmTimeline.Entries))
+
+	// Hollis DMs Second Sample and plays Pell in Sample Colony.
+	hollis := callerOf("seed:hollis")
+	hollisCampaigns := campaignBySlug(hollis)
+	if hollisCampaigns["second-sample"].Role != core.CampaignRoleDm || hollisCampaigns["sample-colony"].Role != core.CampaignRolePlayer ||
+		*hollisCampaigns["sample-colony"].CharacterName != "Pell" || hollisCampaigns["sample-colony"].Status != core.MemberStatusActive {
+		t.Fatalf("Hollis's campaigns = %+v", hollisCampaigns)
+	}
+	secondDm, err := service.EnterCampaign(testContext, hollis, hollisCampaigns["second-sample"].Campaign.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.GetColonyBoard(testContext, secondDm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondAmounts := map[string]int64{}
+	for _, resource := range second.Resources {
+		secondAmounts[resource.Key] = resource.Amount
+	}
+	if second.ColonyName != "Ridgehold" || second.Day != 9 || secondAmounts["food"] != 140 || secondAmounts["timber"] != 25 {
+		t.Fatalf("Second Sample = %+v, %v", second, secondAmounts)
+	}
+	if jun := campaignBySlug(callerOf("seed:jun"))["second-sample"]; jun.Status != core.MemberStatusPending {
+		t.Fatalf("Jun = %+v", jun)
+	}
+	requests, err := service.ListCampaignRequests(testContext, owner)
+	if err != nil || len(requests.Requests) != 1 || requests.Requests[0].Request.Slug != "sample-sky-isles" || requests.Requests[0].DisplayName != "Wren" {
+		t.Fatalf("open requests = %+v, %v", requests, err)
 	}
 
 	if err := Run(testContext, options); !errors.Is(err, ErrDatabaseInUse) {
@@ -111,22 +148,26 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	}
 }
 
-func TestSeedUsesTheConfiguredDm(t *testing.T) {
+func TestSeedUsesTheConfiguredOwner(t *testing.T) {
 	database := dbtest.New(t)
 	testContext := context.Background()
-	realDmID := "800000000000000008"
-	service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), DmDiscordID: realDmID})
-	if err := Run(testContext, Options{Pool: database.Pool, Core: service, DmDiscordID: realDmID}); err != nil {
+	realOwnerID := "800000000000000008"
+	service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), SiteOwnerDiscordID: realOwnerID})
+	if err := Run(testContext, Options{Pool: database.Pool, Core: service, OwnerDiscordID: realOwnerID}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	dm, err := service.ViewerByDiscordID(testContext, realDmID)
-	if err != nil || !dm.IsDM {
-		t.Fatalf("with DM_DISCORD_ID set, the seeded DM should carry it: %+v, %v", dm, err)
+	accountID, found, err := service.AccountIDForDiscordUser(testContext, realOwnerID)
+	if err != nil || !found {
+		t.Fatalf("with SITE_OWNER_DISCORD_ID set, the seeded owner should carry it: %v", err)
+	}
+	campaigns, err := service.MyCampaigns(testContext, core.Caller{AccountID: accountID, DiscordUserID: realOwnerID, IsSiteOwner: true})
+	if err != nil || len(campaigns.Campaigns) != 1 || campaigns.Campaigns[0].Role != core.CampaignRoleDm {
+		t.Fatalf("the owner's campaigns = %+v, %v", campaigns, err)
 	}
 }
 
 func TestSeedRefusesHexesBeforeTheMapExists(t *testing.T) {
-	if err := Run(context.Background(), Options{Hexes: 5000, DmDiscordID: core.SeedDmDiscordID}); err == nil {
+	if err := Run(context.Background(), Options{Hexes: 5000, OwnerDiscordID: core.SeedDmDiscordID}); err == nil {
 		t.Fatal("--hexes was accepted before M4")
 	}
 }

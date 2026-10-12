@@ -1,12 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
-import { meQuery } from "@/api/queries";
+import { campaignMeQuery, myCampaignsQuery } from "@/api/queries";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { CharacterNameForm } from "@/components/character-name-form";
+import { useCampaignId } from "@/hooks/use-campaign";
 import type { Me } from "@/lib/access";
 
-/** The signed-in member's own character name (PUT /api/me/profile replaces the whole profile). */
+/**
+ * The caller's own character name in this campaign (PUT .../me/profile replaces the whole
+ * profile); each campaign has its own.
+ */
 export function CharacterNameSheet({
 	me,
 	open,
@@ -41,9 +45,11 @@ function OwnCharacterNameForm({
 	onDone: () => void;
 }) {
 	const queryClient = useQueryClient();
-	const mutation = api.useMutation("put", "/api/me/profile", {
+	const campaignId = useCampaignId();
+	const mutation = api.useMutation("put", "/api/campaigns/{campaignId}/me/profile", {
 		onSuccess: (me) => {
-			queryClient.setQueryData(meQuery.queryKey, me);
+			queryClient.setQueryData(campaignMeQuery(campaignId).queryKey, me);
+			queryClient.invalidateQueries({ queryKey: myCampaignsQuery.queryKey });
 			if (me.member.characterName) {
 				toast.success(`You're playing ${me.member.characterName}.`);
 			} else {
@@ -63,7 +69,7 @@ function OwnCharacterNameForm({
 			isPending={mutation.isPending}
 			onCancel={onDone}
 			onSubmit={(characterName) => {
-				mutation.mutate({ body: { characterName } });
+				mutation.mutate({ body: { characterName }, params: { path: { campaignId } } });
 			}}
 			placeholder="For example, Isolde Varr"
 		/>

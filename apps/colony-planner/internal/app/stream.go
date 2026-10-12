@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/BBruington/colony-planner/internal/auth"
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
@@ -20,10 +21,11 @@ const (
 	streamRetryMilliseconds = 2000
 )
 
-// stream is GET /api/stream: Server-Sent Events carrying only `event: invalidate` messages whose data
-// is a core.InvalidateMessage, with `id: <bootId>-<seq>` (spec §8.8). It is a route-table route
-// because huma's SSE helper only supports integer IDs. It touches no database: the viewer comes from
-// the session cache, and heartbeats are comments.
+// stream is GET /api/campaigns/{campaignId}/stream (pending level): Server-Sent Events carrying only
+// `event: invalidate` messages whose data is a core.InvalidateMessage, with `id: <bootId>-<seq>`
+// counting only this campaign's messages (docs/design/multi-campaign.md §7.1). It is a route-table
+// route because huma's SSE helper only supports integer IDs. A connect or reconnect runs one read, the
+// membership the access gate resolves; the open stream runs none, and heartbeats are comments.
 func (handlers *handlers) stream() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		lastEventID := request.Header.Get("Last-Event-ID")
@@ -31,7 +33,11 @@ func (handlers *handlers) stream() http.Handler {
 			// A tab that closed its stream while hidden passes its last ID back here when it reopens.
 			lastEventID = request.URL.Query().Get("last")
 		}
-		subscription, catchUp := handlers.core.Subscribe(viewerFrom(request.Context()), lastEventID)
+		subscription, catchUp, err := handlers.core.Subscribe(viewerFrom(request.Context()), lastEventID)
+		if err != nil {
+			auth.WriteProblem(writer, http.StatusNotFound, core.ErrNoSuchCampaign.Message)
+			return
+		}
 		defer subscription.Close()
 
 		controller := http.NewResponseController(writer)

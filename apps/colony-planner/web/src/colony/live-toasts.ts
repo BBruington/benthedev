@@ -27,7 +27,7 @@ function isOwnColonyChangeInFlight(queryClient: QueryClient): boolean {
 		queryClient.isMutating({
 			predicate: (mutation) => {
 				const path = mutation.options.mutationKey?.[1];
-				return typeof path === "string" && path.startsWith("/api/colony");
+				return typeof path === "string" && path.startsWith("/api/campaigns/{campaignId}/colony");
 			},
 		}) > 0
 	);
@@ -58,11 +58,12 @@ function showToasts(entries: readonly TimelineEntry[]) {
 /**
  * Toasts each new PUBLIC timeline entry for everyone at the table (spec §6.3). It watches the recent
  * timeline, which the live stream refetches after every colony change, so a toast is exactly as
- * secret as its entry. Mounted once, in the signed-in layout.
+ * secret as its entry. Mounted once per campaign, in its shell, so it only ever hears the campaign
+ * on screen: switching campaigns remounts it, and the new campaign's history is not news.
  */
-export function useTimelineToasts() {
+export function useTimelineToasts(campaignId: string) {
 	const queryClient = useQueryClient();
-	const { data } = useQuery(recentTimelineQuery);
+	const { data } = useQuery(recentTimelineQuery(campaignId));
 	const seenEntryIds = useRef<Set<string> | null>(null);
 	const newestSeenAt = useRef<number | null>(null);
 

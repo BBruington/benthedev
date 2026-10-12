@@ -1,157 +1,275 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
+	"slices"
 	"testing"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/BBruington/colony-planner/internal/core"
-	"github.com/BBruington/colony-planner/internal/store"
 )
 
-// secrecyFixture is one feature's share of the secrecy sweep (secrecy_test.go). The sweep can only
-// catch a leak of a value that holds a canary, and it can only reach a handler's data path when every
-// path parameter names a real row, so each feature that adds a Dm field, a hidden row or a path
-// parameter adds or extends an entry here:
-//   - plant writes canary (or numericCanary) into every DM-only value the feature stores: each field
-//     of its Dm sub-struct and each row players must not see (a DM-visibility timeline entry, an undone
-//     PUBLIC entry, a hidden NPC). It returns a fixture ID for each path parameter name the feature's
-//     routes use, pointing at a row a player is allowed to read where one exists.
-//   - dmProof lists GET paths on which the DM must see a canary, so TestDmSeesTheCanaries proves the
-//     planting really happened and the sweep can fail.
+// campaignSide is how one campaign of the harness is planted. Campaign A's player-visible values carry
+// no token (its players see them); campaign B's carry canaryB, so a reader outside B is caught seeing
+// any of B. DM-only values carry canaryA in A and canaryBdm in B.
+type campaignSide struct {
+	campaign *campaignFixture
+	dm       account
+	// dmSecret marks DM-only values; playerVisible is appended to values every member may see.
+	dmSecret      string
+	playerVisible string
+	guildID       string
+	channelID     string
+	colonyName    string
+	// characterNames maps an account name to the character name it plays here.
+	characterNames map[string]string
+	// memberTarget is the account whose membership member-targeted routes act on.
+	memberTarget string
+	// extraResource is a resource only this campaign has ("" for none); resourceKey names it, or gold.
+	extraResource string
+}
+
+func (testHarness *harness) sides() []campaignSide {
+	return []campaignSide{
+		{
+			campaign:       testHarness.campaignA,
+			dm:             testHarness.dmA,
+			dmSecret:       canaryA,
+			guildID:        guildA,
+			channelID:      channelA,
+			colonyName:     "Port Alpha",
+			characterNames: map[string]string{"ana": "Thorin", "otherA": "Sela", "dmB": "Pell"},
+			memberTarget:   "otherA",
+		},
+		{
+			campaign:       testHarness.campaignB,
+			dm:             testHarness.dmB,
+			dmSecret:       canaryBdm,
+			playerVisible:  " " + canaryB,
+			guildID:        guildB,
+			channelID:      channelB,
+			colonyName:     "Ridgehold " + canaryB,
+			characterNames: map[string]string{"ana": "Brisa " + canaryB, "dmA": "Vale " + canaryB, "bOnly": "Tamsin " + canaryB},
+			memberTarget:   "bOnly",
+			extraResource:  "Brine",
+		},
+	}
+}
+
+// secrecyFixture is one feature's share of the sweep (secrecy_test.go). The sweep can only catch a
+// leak of a value that holds a token, and can only reach a handler's data path when every path
+// parameter names a real row, so each feature that adds a Dm field, a hidden row or a path parameter
+// adds or extends an entry here, planting into both campaigns:
+//   - plant writes side.dmSecret into every DM-only value the feature stores (each field of its Dm
+//     sub-struct, each row players must not see) and side.playerVisible into the values every member
+//     sees, and records a real row of the campaign for each path parameter its routes use.
+//   - dmProof lists GET path suffixes under /api/campaigns/{campaignId} on which the campaign's DM must
+//     see a DM-only value, so TestDmSeesTheCanaries proves the planting happened and the sweep can fail.
 type secrecyFixture struct {
 	feature string
-	plant   func(t *testing.T, testHarness *harness) map[string]string
+	plant   func(t *testing.T, testHarness *harness, side campaignSide)
 	dmProof []string
 }
 
 var secrecyFixtures = []secrecyFixture{
 	{
 		feature: "members",
-		// newHarness already gives every member a canary Discord ID and username (MemberDm).
-		plant: func(_ *testing.T, testHarness *harness) map[string]string {
-			// Another member's ID, so member-targeted operations aim at someone else's row.
-			return map[string]string{"memberId": testHarness.otherPlayer.ID.String()}
+		// Usernames are DM-only (MemberDm) and newHarness plants them; character names are seen by
+		// every member, so B's carry canaryB. MemberDm's other fields (status, isDm, removalKind, the
+		// times) can't hold a token, so each campaign gets a denied member whose username carries its DM
+		// token: the removalKind DENIED then travels only beside a planted value (A's is removedA).
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			if side.campaign == testHarness.campaignB {
+				deniedB := testHarness.signUp("deniedB", "200000000000000003", "jun."+canaryBdm, "Jun")
+				testHarness.join(side.campaign, side.dm, deniedB, "deny")
+			}
+			for accountName, characterName := range side.characterNames {
+				if _, err := testHarness.core.SetCharacterName(testHarness.context, dmViewer, side.campaign.members[accountName], core.CharacterNameInput{CharacterName: &characterName}); err != nil {
+					t.Fatalf("name %s's character in %s: %v", accountName, side.campaign.name, err)
+				}
+			}
+			side.campaign.pathIDs["memberId"] = side.campaign.members[side.memberTarget].String()
 		},
-		dmProof: []string{"/api/members"},
+		dmProof: []string{"/members"},
 	},
 	{
-		feature: "settings",
-		plant: func(t *testing.T, testHarness *harness) map[string]string {
+		feature: "settings and Discord",
+		// The linked server, its channels and every /link code are DM-only.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
-			channelID := numericCanary
-			if _, err := store.New(testHarness.database.Pool).UpdateSettings(context.Background(), store.UpdateSettingsParams{
-				CampaignName:             "Test Campaign",
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			code, err := testHarness.core.CreateLinkCode(testHarness.context, dmViewer)
+			if err != nil {
+				t.Fatalf("link code: %v", err)
+			}
+			side.campaign.linkCodes = append(side.campaign.linkCodes, code.Code)
+			testHarness.directory.mutex.Lock()
+			testHarness.directory.channels[side.guildID] = []core.DiscordChannel{{ID: side.channelID, Name: "dm-room-" + side.dmSecret}}
+			testHarness.directory.mutex.Unlock()
+			if _, err := testHarness.core.LinkGuild(testHarness.context, core.LinkGuildInput{
+				Code:          code.Code,
+				GuildID:       side.guildID,
+				GuildName:     "Server " + side.dmSecret,
+				DiscordUserID: side.dm.caller.DiscordUserID,
+			}); err != nil {
+				t.Fatalf("link %s's server: %v", side.campaign.name, err)
+			}
+			channelID := side.channelID
+			if _, err := testHarness.core.UpdateSettings(testHarness.context, dmViewer, core.SettingsInput{
+				CampaignName:             side.campaign.name,
+				ColonyName:               side.colonyName,
 				Timezone:                 "UTC",
 				DiscordAnnounceChannelID: &channelID,
 				DiscordReminderChannelID: &channelID,
 				DiscordDmChannelID:       &channelID,
 			}); err != nil {
-				t.Fatalf("plant settings canaries: %v", err)
+				t.Fatalf("plant %s's settings: %v", side.campaign.name, err)
 			}
-			return nil
+			// A live, unused code too: the sweep forbids every code ever issued.
+			live, err := testHarness.core.CreateLinkCode(testHarness.context, dmViewer)
+			if err != nil {
+				t.Fatalf("live link code: %v", err)
+			}
+			side.campaign.linkCodes = append(side.campaign.linkCodes, live.Code)
 		},
-		dmProof: []string{"/api/settings"},
+		dmProof: []string{"/settings", "/discord/channels"},
 	},
 	{
 		feature: "colony",
-		// The undo slot (ColonyBoardDm.LastChange) is the board's only DM-only value; players read
-		// exact stock (open question 5). A real DM-only adjustment also goes through core first, its
-		// reason a canary, so the sweep covers the text the write path renders.
-		plant: func(t *testing.T, testHarness *harness) map[string]string {
+		// A shipment arrival (for cargo bodies), a PUBLIC adjustment that is then undone and a DM-only
+		// adjustment, whose reasons are DM-only; B also gets a resource of its own.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
-			testContext := context.Background()
-			dmViewer := testHarness.viewerOf(testHarness.dm)
-			board, err := testHarness.core.GetColonyBoard(testContext, dmViewer)
-			if err != nil {
-				t.Fatalf("read the board: %v", err)
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			version := func() int64 {
+				board, err := testHarness.core.GetColonyBoard(testHarness.context, dmViewer)
+				if err != nil {
+					t.Fatalf("read %s's board: %v", side.campaign.name, err)
+				}
+				return board.Version
 			}
-			adjusted, err := testHarness.core.AdjustStock(testContext, dmViewer, core.AdjustInput{
-				ExpectedVersion: board.Version,
+			resourceKey := "gold"
+			if side.extraResource != "" {
+				created, err := testHarness.core.CreateResource(testHarness.context, dmViewer, core.NewResourceInput{Label: side.extraResource, Icon: core.ColonyIconDroplets})
+				if err != nil {
+					t.Fatalf("add %s: %v", side.extraResource, err)
+				}
+				if _, err := testHarness.core.UpdateResource(testHarness.context, dmViewer, created.Key, core.ResourceInput{
+					Label:     side.extraResource + side.playerVisible,
+					Icon:      core.ColonyIconDroplets,
+					SortOrder: created.SortOrder,
+				}); err != nil {
+					t.Fatalf("label %s: %v", side.extraResource, err)
+				}
+				resourceKey = created.Key
+			}
+			side.campaign.pathIDs["resourceKey"] = resourceKey
+			if _, err := testHarness.core.SetShipmentSchedule(testHarness.context, dmViewer, core.ShipmentScheduleInput{ExpectedVersion: version(), IntervalDays: 1}); err != nil {
+				t.Fatalf("schedule shipments: %v", err)
+			}
+			advanced, err := testHarness.core.Advance(testHarness.context, dmViewer, core.AdvanceInput{Days: 1, ExpectedVersion: version()})
+			if err != nil {
+				t.Fatalf("advance: %v", err)
+			}
+			arrival := slices.IndexFunc(advanced.Entries, func(entry core.TimelineEntry) bool {
+				return entry.Kind == core.TimelineKindShipmentArrived
+			})
+			if arrival < 0 {
+				t.Fatalf("advancing %s brought no shipment: %+v", side.campaign.name, advanced.Entries)
+			}
+			side.campaign.arrivalEntryID = advanced.Entries[arrival].ID
+			undone, err := testHarness.core.AdjustStock(testHarness.context, dmViewer, core.AdjustInput{
+				ExpectedVersion: version(),
+				Source:          core.AdjustSourceAdjustment,
+				Deltas:          map[string]int64{resourceKey: 3},
+				SetTo:           map[string]int64{},
+				Reason:          side.dmSecret + " undone",
+				Public:          true,
+			})
+			if err != nil {
+				t.Fatalf("plant a public adjustment: %v", err)
+			}
+			if _, err := testHarness.core.UndoLastChange(testHarness.context, dmViewer, core.UndoInput{GroupID: undone.GroupID}); err != nil {
+				t.Fatalf("undo it: %v", err)
+			}
+			if _, err := testHarness.core.AdjustStock(testHarness.context, dmViewer, core.AdjustInput{
+				ExpectedVersion: version(),
 				Source:          core.AdjustSourceAdjustment,
 				Deltas:          map[string]int64{"gold": 7},
 				SetTo:           map[string]int64{},
-				Reason:          canary + " paid the smuggler",
-			})
-			if err != nil {
+				Reason:          side.dmSecret + " paid the smuggler",
+			}); err != nil {
 				t.Fatalf("plant a DM-only adjustment: %v", err)
 			}
-			if adjusted.Entries[0].Dm.Visibility != core.TimelineVisibilityDm {
-				t.Fatalf("a stock adjustment defaulted to %s; want DM", adjusted.Entries[0].Dm.Visibility)
-			}
-			lastChange, err := json.Marshal(map[string]any{
-				"groupId":      uuid.New(),
-				"label":        canary + " 3 days pass",
-				"day":          3,
-				"versionAfter": adjusted.Board.Version + 1,
-				"changedAt":    time.Now().UTC(),
-				"before":       map[string]any{"day": 0},
-			})
-			if err != nil {
-				t.Fatalf("encode the undo slot: %v", err)
-			}
-			if _, err := store.New(testHarness.database.Pool).SaveColonyChange(testContext, store.SaveColonyChangeParams{
-				Day:        3,
-				LastChange: lastChange,
-			}); err != nil {
-				t.Fatalf("plant colony canaries: %v", err)
-			}
-			return map[string]string{"resourceKey": "gold"}
 		},
-		dmProof: []string{"/api/colony", "/api/timeline/recent"},
+		dmProof: []string{"/timeline/recent", "/timeline?fromDay=0&toDay=30"},
 	},
 	{
 		feature: "timeline",
-		// Hidden rows: a DM-visibility entry and an undone PUBLIC entry. They sit on day 1, inside the
-		// range the sweep asks for (required integer query parameters are filled with 1).
-		plant: func(t *testing.T, testHarness *harness) map[string]string {
+		// A PUBLIC custom entry (the fixture row for {timelineEntryId}) and a DM-visibility one.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
-			queries := store.New(testHarness.database.Pool)
-			testContext := context.Background()
-			createEntry := func(groupID *uuid.UUID, title string, visibility store.TimelineVisibility) store.TimelineEvent {
-				entry, err := queries.CreateTimelineEvent(testContext, store.CreateTimelineEventParams{
-					GroupID:    groupID,
-					Day:        1,
-					Kind:       string(core.TimelineKindStockAdjusted),
-					Title:      title,
-					Body:       title,
-					Visibility: visibility,
-					Deltas:     []byte(`{"resources":{"gold":5}}`),
-					Data:       []byte(`{}`),
-				})
-				if err != nil {
-					t.Fatalf("plant timeline entry %q: %v", title, err)
-				}
-				return entry
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			public, err := testHarness.core.CreateCustomEntry(testHarness.context, dmViewer, core.TimelineEntryInput{
+				Day:        1,
+				Title:      "Gold found in the river" + side.playerVisible,
+				Visibility: core.TimelineVisibilityPublic,
+			})
+			if err != nil {
+				t.Fatalf("plant a public entry: %v", err)
 			}
-			publicGroup := uuid.New()
-			publicEntry := createEntry(&publicGroup, "Gold found in the river", core.TimelineVisibilityPublic)
-			createEntry(nil, canary+" DM-only entry", core.TimelineVisibilityDm)
-			undoneGroup := uuid.New()
-			createEntry(&undoneGroup, canary+" undone entry", core.TimelineVisibilityPublic)
-			if _, err := queries.MarkTimelineGroupUndone(testContext, undoneGroup); err != nil {
-				t.Fatalf("mark the planted entry undone: %v", err)
+			side.campaign.pathIDs["timelineEntryId"] = public.ID.String()
+			if _, err := testHarness.core.CreateCustomEntry(testHarness.context, dmViewer, core.TimelineEntryInput{
+				Day:        1,
+				Title:      side.dmSecret + " DM-only entry",
+				Visibility: core.TimelineVisibilityDm,
+			}); err != nil {
+				t.Fatalf("plant a DM-only entry: %v", err)
 			}
-			return map[string]string{"timelineEntryId": publicEntry.ID.String()}
 		},
-		dmProof: []string{"/api/timeline?fromDay=0&toDay=6", "/api/timeline/recent"},
+		dmProof: []string{"/timeline?fromDay=0&toDay=30"},
+	},
+	{
+		feature: "invite link",
+		// The invite code is DM-only: the harness's forbidden lists hold it as a literal.
+		plant:   func(*testing.T, *harness, campaignSide) {},
+		dmProof: []string{"/invite"},
 	},
 }
 
-// plantCanaries runs every feature's fixture and returns the path parameter IDs they name.
-func plantCanaries(t *testing.T, testHarness *harness) map[string]string {
+// plantCanaries runs every feature's fixture in both campaigns.
+func plantCanaries(t *testing.T, testHarness *harness) {
 	t.Helper()
-	fixtureIDs := map[string]string{}
-	for _, fixture := range secrecyFixtures {
-		for name, id := range fixture.plant(t, testHarness) {
-			if existing, taken := fixtureIDs[name]; taken && existing != id {
-				t.Fatalf("secrecy fixture %s names path parameter %q again", fixture.feature, name)
-			}
-			fixtureIDs[name] = id
+	for _, side := range testHarness.sides() {
+		for _, fixture := range secrecyFixtures {
+			fixture.plant(t, testHarness, side)
 		}
+		side.campaign.pathIDs["campaignId"] = side.campaign.id.String()
+		side.campaign.pathIDs["campaignRequestId"] = side.campaign.requestID.String()
+		side.campaign.pathIDs["inviteCode"] = side.campaign.inviteCode
 	}
-	return fixtureIDs
+}
+
+// dmOnlyValues are the values only a campaign's DM may ever see.
+func (testHarness *harness) dmOnlyValues(campaign *campaignFixture) []string {
+	values := []string{campaign.inviteCode}
+	values = append(values, campaign.linkCodes...)
+	if campaign == testHarness.campaignA {
+		return append(values, canaryA, guildA, channelA)
+	}
+	return append(values, canaryBdm, guildB, channelB)
+}
+
+// refreshInviteCode re-reads a campaign's invite code after a sweep pass may have reset it, keeping the
+// old one forbidden too.
+func (testHarness *harness) refreshInviteCode(campaign *campaignFixture, dm account) {
+	testHarness.t.Helper()
+	invite, err := testHarness.core.Invite(testHarness.context, testHarness.enter(dm, campaign.id))
+	if err != nil {
+		testHarness.t.Fatalf("read the invite: %v", err)
+	}
+	if invite.InviteCode != campaign.inviteCode {
+		campaign.linkCodes = append(campaign.linkCodes, campaign.inviteCode)
+		campaign.inviteCode = invite.InviteCode
+	}
 }

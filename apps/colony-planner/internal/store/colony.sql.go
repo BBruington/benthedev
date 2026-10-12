@@ -7,17 +7,18 @@ package store
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const getColony = `-- name: GetColony :one
-SELECT id, name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at FROM colony WHERE id = 1
+SELECT name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at, campaign_id FROM colony WHERE campaign_id = $1
 `
 
-func (q *Queries) GetColony(ctx context.Context) (Colony, error) {
-	row := q.db.QueryRow(ctx, getColony)
+func (q *Queries) GetColony(ctx context.Context, campaignID uuid.UUID) (Colony, error) {
+	row := q.db.QueryRow(ctx, getColony, campaignID)
 	var i Colony
 	err := row.Scan(
-		&i.ID,
 		&i.Name,
 		&i.Day,
 		&i.Version,
@@ -25,21 +26,21 @@ func (q *Queries) GetColony(ctx context.Context) (Colony, error) {
 		&i.NextShipmentDay,
 		&i.LastChange,
 		&i.UpdatedAt,
+		&i.CampaignID,
 	)
 	return i, err
 }
 
 const getColonyForUpdate = `-- name: GetColonyForUpdate :one
-SELECT id, name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at FROM colony WHERE id = 1 FOR UPDATE
+SELECT name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at, campaign_id FROM colony WHERE campaign_id = $1 FOR UPDATE
 `
 
-// Every colony mutation starts here: the colony row is always locked first, so there is one lock
-// order (spec §5.1).
-func (q *Queries) GetColonyForUpdate(ctx context.Context) (Colony, error) {
-	row := q.db.QueryRow(ctx, getColonyForUpdate)
+// Every colony mutation starts here: the campaign's colony row is always locked first, so there is
+// one lock order (spec §5.1), and campaigns never wait on each other.
+func (q *Queries) GetColonyForUpdate(ctx context.Context, campaignID uuid.UUID) (Colony, error) {
+	row := q.db.QueryRow(ctx, getColonyForUpdate, campaignID)
 	var i Colony
 	err := row.Scan(
-		&i.ID,
 		&i.Name,
 		&i.Day,
 		&i.Version,
@@ -47,6 +48,7 @@ func (q *Queries) GetColonyForUpdate(ctx context.Context) (Colony, error) {
 		&i.NextShipmentDay,
 		&i.LastChange,
 		&i.UpdatedAt,
+		&i.CampaignID,
 	)
 	return i, err
 }
@@ -59,8 +61,8 @@ SET day = $1,
     last_change = $4,
     version = version + 1,
     updated_at = now()
-WHERE id = 1
-RETURNING id, name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at
+WHERE campaign_id = $5
+RETURNING name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at, campaign_id
 `
 
 type SaveColonyChangeParams struct {
@@ -68,6 +70,7 @@ type SaveColonyChangeParams struct {
 	ShipmentIntervalDays *int32
 	NextShipmentDay      *int32
 	LastChange           []byte
+	CampaignID           uuid.UUID
 }
 
 // Saves a mutation's clock, bumps the version and records the undo slot (NULL clears it, as undo
@@ -78,10 +81,10 @@ func (q *Queries) SaveColonyChange(ctx context.Context, arg SaveColonyChangePara
 		arg.ShipmentIntervalDays,
 		arg.NextShipmentDay,
 		arg.LastChange,
+		arg.CampaignID,
 	)
 	var i Colony
 	err := row.Scan(
-		&i.ID,
 		&i.Name,
 		&i.Day,
 		&i.Version,
@@ -89,20 +92,25 @@ func (q *Queries) SaveColonyChange(ctx context.Context, arg SaveColonyChangePara
 		&i.NextShipmentDay,
 		&i.LastChange,
 		&i.UpdatedAt,
+		&i.CampaignID,
 	)
 	return i, err
 }
 
 const setColonyName = `-- name: SetColonyName :one
-UPDATE colony SET name = $1, updated_at = now() WHERE id = 1 RETURNING id, name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at
+UPDATE colony SET name = $1, updated_at = now() WHERE campaign_id = $2 RETURNING name, day, version, shipment_interval_days, next_shipment_day, last_change, updated_at, campaign_id
 `
 
+type SetColonyNameParams struct {
+	Name       string
+	CampaignID uuid.UUID
+}
+
 // The colony's name is a setting, not a colony mutation: it leaves the version and the undo slot alone.
-func (q *Queries) SetColonyName(ctx context.Context, name string) (Colony, error) {
-	row := q.db.QueryRow(ctx, setColonyName, name)
+func (q *Queries) SetColonyName(ctx context.Context, arg SetColonyNameParams) (Colony, error) {
+	row := q.db.QueryRow(ctx, setColonyName, arg.Name, arg.CampaignID)
 	var i Colony
 	err := row.Scan(
-		&i.ID,
 		&i.Name,
 		&i.Day,
 		&i.Version,
@@ -110,6 +118,7 @@ func (q *Queries) SetColonyName(ctx context.Context, name string) (Colony, error
 		&i.NextShipmentDay,
 		&i.LastChange,
 		&i.UpdatedAt,
+		&i.CampaignID,
 	)
 	return i, err
 }

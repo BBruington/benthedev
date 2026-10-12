@@ -11,10 +11,12 @@ import (
 // same-origin page, so outside production only the hosts this server is known by get an answer.
 func TestUnknownHostsAreRefused(t *testing.T) {
 	testHarness := newHarness(t)
-	dmToken := testHarness.signIn(testHarness.dm.ID)
+	dmToken := testHarness.signIn(testHarness.dmA)
+	membersPath := campaignPathOf(testHarness.campaignA, "/members")
+	settingsPath := campaignPathOf(testHarness.campaignA, "/settings")
 
 	for _, host := range []string{"rebind.attacker.example:8080", "rebind.attacker.example", "localhost.attacker.example:5173"} {
-		for _, path := range []string{"/healthz", "/api/me", "/api/members", "/auth/dev?as=dm", "/login"} {
+		for _, path := range []string{"/healthz", "/api/me", membersPath, "/auth/dev?as=dm", "/login"} {
 			response := testHarness.do(http.MethodGet, path, requestOptions{token: dmToken, host: host, headers: map[string]string{"Sec-Fetch-Site": "same-origin"}})
 			if response.Code != http.StatusMisdirectedRequest {
 				t.Errorf("GET %s with Host %q = %d, want 421", path, host, response.Code)
@@ -23,20 +25,20 @@ func TestUnknownHostsAreRefused(t *testing.T) {
 				t.Errorf("GET %s with Host %q set cookies: %v", path, host, cookies)
 			}
 		}
-		settings := testHarness.do(http.MethodPut, "/api/settings", requestOptions{
+		settings := testHarness.do(http.MethodPut, settingsPath, requestOptions{
 			token: dmToken, host: host,
 			headers: map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "http://" + host},
-			body:    `{"campaignName":"Owned","colonyName":"Port Eldari","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`,
+			body:    `{"campaignName":"Owned","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`,
 		})
 		testHarness.expectStatus(settings, http.StatusMisdirectedRequest)
 	}
 
 	// localhost in any case, IP literals (dev:phone's Wi-Fi address through Vite) and PUBLIC_URL's host.
 	for _, host := range []string{"localhost:5173", "LOCALHOST:5173", "localhost", "127.0.0.1:8080", "[::1]:8080", "192.168.1.23:5173"} {
-		testHarness.expectStatus(testHarness.do(http.MethodGet, "/api/members", requestOptions{token: dmToken, host: host}), http.StatusOK)
+		testHarness.expectStatus(testHarness.do(http.MethodGet, membersPath, requestOptions{token: dmToken, host: host}), http.StatusOK)
 	}
 	if auth.DevAuthEnabled {
-		signIn := testHarness.do(http.MethodGet, "/auth/dev?as=player", requestOptions{host: "192.168.1.23:5173"})
+		signIn := testHarness.do(http.MethodGet, "/auth/dev?as=owner", requestOptions{host: "192.168.1.23:5173"})
 		testHarness.expectStatus(signIn, http.StatusSeeOther)
 	}
 }

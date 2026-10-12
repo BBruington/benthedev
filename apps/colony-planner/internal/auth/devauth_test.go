@@ -4,13 +4,11 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/BBruington/colony-planner/internal/core"
-	"github.com/BBruington/colony-planner/internal/store"
 )
 
 func TestDevAuthRefusesProduction(t *testing.T) {
@@ -20,8 +18,11 @@ func TestDevAuthRefusesProduction(t *testing.T) {
 	if _, err := New(Options{AppEnvironment: "development", PublicURL: "http://localhost:5173"}); err != nil {
 		t.Fatalf("a devauth build refused development: %v", err)
 	}
-	if EffectiveDmDiscordID("") != core.SeedDmDiscordID {
-		t.Fatal("with DM_DISCORD_ID unset, a devauth build should treat the seeded DM as the DM")
+	if EffectiveSiteOwnerDiscordID("") != core.SeedDmDiscordID {
+		t.Fatal("with SITE_OWNER_DISCORD_ID unset, a devauth build should treat the seeded DM as the site owner")
+	}
+	if EffectiveSiteOwnerDiscordID("100000000000000001") != "100000000000000001" {
+		t.Fatal("a set SITE_OWNER_DISCORD_ID must win")
 	}
 }
 
@@ -34,62 +35,81 @@ func (harness *authHarness) devSignIn(query string, previous *http.Cookie) *http
 	return harness.serve(harness.auth.DevSignIn(), request)
 }
 
-func (harness *authHarness) devSignInAs(query string) core.Viewer {
+func (harness *authHarness) devSignInAs(query string) core.Caller {
 	harness.t.Helper()
 	response := harness.devSignIn(query, nil)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/" {
 		harness.t.Fatalf("dev sign-in %s answered %d → %q; body: %s", query, response.Code, response.Header().Get("Location"), response.Body.String())
 	}
-	viewer, signedIn := harness.viewerFor(responseCookie(response, "colony_session"))
+	caller, signedIn := harness.callerFor(responseCookie(response, "colony_session"))
 	if !signedIn {
 		harness.t.Fatalf("dev sign-in %s did not sign in", query)
 	}
-	return viewer
+	return caller
 }
 
 func TestDevSignIn(t *testing.T) {
-	harness := newAuthHarness(t, Options{})
+	harness := newAuthHarness(t, Options{SiteOwnerDiscordID: core.SeedDmDiscordID})
 
-	// A fresh database has no DM; signing in as the DM creates them.
-	dm := harness.devSignInAs("as=dm")
-	if !dm.IsDM || dm.Status != store.MemberStatusACTIVE {
-		t.Fatalf("as=dm gave %+v", dm)
+	// A fresh database has no one; as=owner creates the site owner, and as=dm finds no Sample Colony.
+	owner := harness.devSignInAs("as=owner")
+	if !owner.IsSiteOwner || owner.DiscordUserID != core.SeedDmDiscordID {
+		t.Fatalf("as=owner gave %+v", owner)
 	}
-	if again := harness.devSignInAs("as=dm"); again.MemberID != dm.MemberID {
-		t.Fatal("as=dm created a second DM")
+	if again := harness.devSignInAs("as=owner"); again.AccountID != owner.AccountID {
+		t.Fatal("as=owner created a second owner")
 	}
-	if response := harness.devSignIn("as=player", nil); response.Code != http.StatusNotFound {
-		t.Fatalf("as=player with no players = %d, want 404", response.Code)
-	}
-
-	player := harness.createMember("seed:ana", "Ana", store.MemberStatusACTIVE)
-	pending := harness.createMember("seed:emil", "Emil", store.MemberStatusPENDING)
-	removed := harness.createMember("seed:gus", "Gus", store.MemberStatusREMOVED)
-	for _, testCase := range []struct {
-		query  string
-		member store.Member
-		status store.MemberStatus
-	}{
-		{"as=player", player, store.MemberStatusACTIVE},
-		{"as=pending", pending, store.MemberStatusPENDING},
-		{"as=" + removed.ID.String(), removed, store.MemberStatusREMOVED},
-	} {
-		viewer := harness.devSignInAs(testCase.query)
-		if viewer.MemberID != testCase.member.ID || viewer.Status != testCase.status || viewer.IsDM {
-			t.Errorf("%s gave %+v", testCase.query, viewer)
+	for _, query := range []string{"as=dm", "as=player", "as=pending"} {
+		if response := harness.devSignIn(query, nil); response.Code != http.StatusNotFound {
+			t.Fatalf("%s without Sample Colony = %d, want 404", query, response.Code)
 		}
 	}
 
+	// Sample Colony, DM'd by the owner (whose own request is approved on submit), with a player and a
+	// waiting joiner; and another campaign the player DMs, so as=dm must pick Sample Colony's DM.
+	_, inviteCode := harness.createCampaign(owner, "Sample Colony", "sample-colony")
+	player := harness.createAccount("seed:ana", "Ana")
+	pending := harness.createAccount("seed:emil", "Emil")
+	testContext := context.Background()
+	ownerViewer := func() core.Viewer {
+		campaigns := harness.memberships(owner)
+		viewer, err := harness.core.EnterCampaign(testContext, owner, campaigns[0].Campaign.ID)
+		if err != nil {
+			t.Fatalf("enter: %v", err)
+		}
+		return viewer
+	}
+	joined, err := harness.core.JoinByInvite(testContext, player, inviteCode)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if _, err := harness.core.ApproveMember(testContext, ownerViewer(), joined.MemberID); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if _, err := harness.core.JoinByInvite(testContext, pending, inviteCode); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	harness.createCampaign(player, "Ana's Table", "anas-table")
+
+	for query, want := range map[string]core.Caller{"as=dm": owner, "as=player": player, "as=pending": pending, "as=" + pending.AccountID.String(): pending} {
+		if caller := harness.devSignInAs(query); caller.AccountID != want.AccountID {
+			t.Errorf("%s signed in as %s, want %s", query, caller.AccountID, want.AccountID)
+		}
+	}
+
+	// as=new is a first Discord sign-in: an account in no campaign, and no ping.
 	brandNew := harness.devSignInAs("as=new&name=Brielle%20Vane")
-	if brandNew.Status != store.MemberStatusPENDING {
-		t.Fatalf("as=new gave %+v; want a pending member", brandNew)
+	if len(harness.memberships(brandNew)) != 0 || brandNew.IsSiteOwner {
+		t.Fatalf("as=new gave %+v with memberships %+v", brandNew, harness.memberships(brandNew))
 	}
-	member, err := store.New(harness.database.Pool).GetMember(context.Background(), brandNew.MemberID)
-	if err != nil || member.DisplayName != "Brielle Vane" {
-		t.Fatalf("as=new member = %+v, %v", member, err)
+	me, err := harness.core.AccountMe(testContext, brandNew)
+	if err != nil || me.DisplayName != "Brielle Vane" {
+		t.Fatalf("as=new account = %+v, %v", me, err)
 	}
-	if harness.notifier.count() != 1 {
-		t.Fatalf("a brand-new dev sign-in sent %d pings, want 1 (the same path as Discord)", harness.notifier.count())
+	pings := harness.notifier.count()
+	harness.devSignInAs("as=new&name=Another")
+	if harness.notifier.count() != pings {
+		t.Fatal("a brand-new sign-in pinged someone; only asking to join does")
 	}
 
 	for query, status := range map[string]int{
@@ -105,37 +125,22 @@ func TestDevSignIn(t *testing.T) {
 
 func TestDevSignInReplacesTheCurrentSession(t *testing.T) {
 	harness := newAuthHarness(t, Options{})
-	harness.createMember("seed:ana", "Ana", store.MemberStatusACTIVE)
-	harness.createMember("seed:emil", "Emil", store.MemberStatusPENDING)
-
-	first := responseCookie(harness.devSignIn("as=player", nil), "colony_session")
-	switched := harness.devSignIn("as=pending", first)
+	first := responseCookie(harness.devSignIn("as=owner", nil), "colony_session")
+	switched := harness.devSignIn("as=new&name=Someone", first)
 	if switched.Code != http.StatusSeeOther {
-		t.Fatalf("switching members = %d", switched.Code)
+		t.Fatalf("switching accounts = %d", switched.Code)
 	}
-	if _, signedIn := harness.viewerFor(first); signedIn {
+	if _, signedIn := harness.callerFor(first); signedIn {
 		t.Fatal("the previous session still works after signing in as someone else")
 	}
 }
 
-func TestDevSignInRespectsThePendingCap(t *testing.T) {
-	harness := newAuthHarness(t, Options{})
-	for index := range core.PendingMemberLimit {
-		harness.createMember(fmt.Sprintf("seed:waiting-%d", index), fmt.Sprintf("Waiting %d", index), store.MemberStatusPENDING)
-	}
-	response := harness.devSignIn("as=new&name=Late", nil)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/login?error=full" {
-		t.Fatalf("as=new past the cap = %d → %q", response.Code, response.Header().Get("Location"))
-	}
-}
-
 // Dev sign-in is a GET that changes state, which CrossOriginProtection doesn't cover; another site's
-// link or script must not sign this browser in as someone else (or add members and ping Beny Bot).
+// link or script must not sign this browser in as someone else (or add accounts).
 func TestDevSignInRefusesOtherSites(t *testing.T) {
 	harness := newAuthHarness(t, Options{})
-	harness.createMember("seed:ana", "Ana", store.MemberStatusACTIVE)
-	current := responseCookie(harness.devSignIn("as=player", nil), "colony_session")
-	membersBefore := harness.countMembers()
+	current := responseCookie(harness.devSignIn("as=owner", nil), "colony_session")
+	accountsBefore := harness.countAccounts()
 
 	signIn := func(query string, headers map[string]string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(http.MethodGet, "/auth/dev?"+query, nil)
@@ -160,10 +165,10 @@ func TestDevSignInRefusesOtherSites(t *testing.T) {
 			t.Errorf("%s: dev sign-in set a session cookie", name)
 		}
 	}
-	if harness.countMembers() != membersBefore || harness.notifier.count() != 0 {
-		t.Fatalf("refused sign-ins added members (%d → %d) or pinged Beny Bot (%d)", membersBefore, harness.countMembers(), harness.notifier.count())
+	if harness.countAccounts() != accountsBefore {
+		t.Fatalf("refused sign-ins added accounts (%d → %d)", accountsBefore, harness.countAccounts())
 	}
-	if _, signedIn := harness.viewerFor(current); !signedIn {
+	if _, signedIn := harness.callerFor(current); !signedIn {
 		t.Fatal("a refused sign-in ended the browser's session")
 	}
 
@@ -173,7 +178,7 @@ func TestDevSignInRefusesOtherSites(t *testing.T) {
 		"curl":                 {},
 		"a same-origin fetch":  {"Sec-Fetch-Site": "same-origin", "Origin": "http://example.com"},
 	} {
-		if response := signIn("as=player", headers); response.Code != http.StatusSeeOther {
+		if response := signIn("as=owner", headers); response.Code != http.StatusSeeOther {
 			t.Errorf("%s: dev sign-in = %d, want 303", name, response.Code)
 		}
 	}

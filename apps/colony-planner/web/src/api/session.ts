@@ -6,7 +6,7 @@ import { ProblemError, problemResponse } from "./problem";
 export const discordSignInPath = "/auth/discord/login";
 
 /**
- * Dev sign-in, devauth builds only. as is dm, player, pending or a member id; "new" with a name signs
+ * Dev sign-in, devauth builds only. as is owner, dm, player, pending or an account id; "new" with a name signs
  * in a brand-new person the way a first Discord sign-in would.
  */
 export function devSignInPath(as: string, name?: string): string {

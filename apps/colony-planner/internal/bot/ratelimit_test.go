@@ -79,19 +79,35 @@ func TestSlidingWindowLimiter(t *testing.T) {
 	clock := newFakeClock()
 	limiter := newSlidingWindowLimiter(2, time.Hour, clock.now)
 	for attempt := range 2 {
-		if !limiter.allow() {
+		if !limiter.allow("campaign-a") {
 			t.Fatalf("event %d was refused", attempt+1)
 		}
 	}
-	if limiter.allow() {
+	if limiter.allow("campaign-a") {
 		t.Fatal("a third event in the hour was allowed")
 	}
 	clock.advance(time.Hour - time.Nanosecond)
-	if limiter.allow() {
+	if limiter.allow("campaign-a") {
 		t.Fatal("an event just inside the hour was allowed")
 	}
 	clock.advance(time.Nanosecond)
-	if !limiter.allow() {
+	if !limiter.allow("campaign-a") {
 		t.Fatal("an event an hour later was refused")
+	}
+}
+
+func TestSlidingWindowLimiterKeepsKeysApartAndForgetsOldOnes(t *testing.T) {
+	clock := newFakeClock()
+	limiter := newSlidingWindowLimiter(1, time.Hour, clock.now)
+	if !limiter.allow("campaign-a") || limiter.allow("campaign-a") {
+		t.Fatal("campaign-a's allowance is wrong")
+	}
+	if !limiter.allow("campaign-b") {
+		t.Fatal("campaign-a's events used up campaign-b's allowance")
+	}
+	clock.advance(time.Hour)
+	limiter.allow("campaign-c")
+	if _, remembered := limiter.sent["campaign-a"]; remembered {
+		t.Error("a key whose hour has passed is still remembered")
 	}
 }

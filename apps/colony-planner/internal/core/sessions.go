@@ -16,8 +16,8 @@ import (
 )
 
 // Core owns every read and write of web_session; internal/auth only carries the token in a cookie and
-// caches lookups (spec §8.6). Removal and sign-out delete sessions here too, inside the same
-// transaction as the status change.
+// caches lookups (spec §8.6). Sessions belong to the account, so one sign-in serves every campaign;
+// removal from a campaign never touches them.
 
 const (
 	// SessionLifetime is how long a web session lasts unused; using it slides the expiry forward.
@@ -34,11 +34,11 @@ type WebSession struct {
 	ExpiresAt time.Time
 }
 
-// SessionRecord is what a session lookup finds: the session and the member it belongs to.
+// SessionRecord is what a session lookup finds: the session and the account it belongs to. There is
+// no status: status is per campaign, read by EnterCampaign.
 type SessionRecord struct {
-	MemberID      uuid.UUID
+	AccountID     uuid.UUID
 	DiscordUserID string
-	Status        MemberStatus
 	ViewAsPlayer  bool
 	ExpiresAt     time.Time
 }
@@ -63,8 +63,8 @@ func HashSessionToken(token string) ([]byte, bool) {
 	return tokenHash[:], true
 }
 
-// CreateSession stores a new web session for the member and returns its token.
-func (service *Service) CreateSession(requestContext context.Context, memberID uuid.UUID) (WebSession, error) {
+// CreateSession stores a new web session for the account and returns its token.
+func (service *Service) CreateSession(requestContext context.Context, accountID uuid.UUID) (WebSession, error) {
 	token, tokenHash, err := newSessionToken()
 	if err != nil {
 		return WebSession{}, err
@@ -72,7 +72,7 @@ func (service *Service) CreateSession(requestContext context.Context, memberID u
 	expiresAt := time.Now().UTC().Add(SessionLifetime)
 	if _, err := service.queries.CreateSession(requestContext, store.CreateSessionParams{
 		TokenHash: tokenHash,
-		MemberID:  memberID,
+		AccountID: accountID,
 		ExpiresAt: expiresAt,
 	}); err != nil {
 		return WebSession{}, err
@@ -91,7 +91,7 @@ func (service *Service) LookupSession(requestContext context.Context, tokenHash 
 	if service.queries == nil {
 		return SessionRecord{}, false, false, nil
 	}
-	row, err := service.queries.GetSessionWithMember(requestContext, tokenHash)
+	row, err := service.queries.GetSessionWithAccount(requestContext, tokenHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SessionRecord{}, false, false, nil
 	}
@@ -99,28 +99,27 @@ func (service *Service) LookupSession(requestContext context.Context, tokenHash 
 		return SessionRecord{}, false, false, err
 	}
 	record = SessionRecord{
-		MemberID:      row.Member.ID,
-		DiscordUserID: row.Member.DiscordUserID,
-		Status:        row.Member.Status,
+		AccountID:     row.Account.ID,
+		DiscordUserID: row.Account.DiscordUserID,
 		ViewAsPlayer:  row.WebSession.ViewAsPlayer,
 		ExpiresAt:     row.WebSession.ExpiresAt,
 	}
 	if time.Since(row.WebSession.LastSeenAt) >= sessionTouchInterval {
-		record.ExpiresAt, extended = service.extendSession(requestContext, tokenHash, row.Member.ID, row.WebSession.ExpiresAt)
+		record.ExpiresAt, extended = service.extendSession(requestContext, tokenHash, row.Account.ID, row.WebSession.ExpiresAt)
 	}
 	return record, true, extended, nil
 }
 
-// extendSession slides the session's expiry and records when the member was last seen. It returns the
-// expiry in force afterwards and whether it moved.
-func (service *Service) extendSession(requestContext context.Context, tokenHash []byte, memberID uuid.UUID, currentExpiry time.Time) (time.Time, bool) {
+// extendSession slides the session's expiry and records when the account was last seen. It returns
+// the expiry in force afterwards and whether it moved.
+func (service *Service) extendSession(requestContext context.Context, tokenHash []byte, accountID uuid.UUID, currentExpiry time.Time) (time.Time, bool) {
 	expiresAt := time.Now().UTC().Add(SessionLifetime)
 	if err := service.queries.TouchSession(requestContext, store.TouchSessionParams{ExpiresAt: expiresAt, TokenHash: tokenHash}); err != nil {
 		service.logger.WarnContext(requestContext, "could not extend a session", slog.Any("error", err))
 		return currentExpiry, false
 	}
-	if err := service.queries.TouchMemberLastSeen(requestContext, memberID); err != nil {
-		service.logger.WarnContext(requestContext, "could not record when a member was last seen", slog.Any("error", err))
+	if err := service.queries.TouchAccountLastSeen(requestContext, accountID); err != nil {
+		service.logger.WarnContext(requestContext, "could not record when an account was last seen", slog.Any("error", err))
 	}
 	return expiresAt, true
 }

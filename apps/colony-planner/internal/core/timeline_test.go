@@ -19,7 +19,7 @@ func TestTimelineEntriesAreStampedInCommitOrder(t *testing.T) {
 	}
 	defer func() { _ = transaction.Rollback(test.context) }()
 	locked := store.New(transaction)
-	if _, err := locked.GetColonyForUpdate(test.context); err != nil {
+	if _, err := locked.GetColonyForUpdate(test.context, test.campaignID); err != nil {
 		t.Fatalf("lock the colony: %v", err)
 	}
 	var transactionStart time.Time
@@ -28,6 +28,7 @@ func TestTimelineEntriesAreStampedInCommitOrder(t *testing.T) {
 	}
 	time.Sleep(20 * time.Millisecond)
 	lockedEntry, err := locked.CreateTimelineEvent(test.context, store.CreateTimelineEventParams{
+		CampaignID: test.campaignID,
 		Day:        0,
 		Kind:       string(core.TimelineKindCustom),
 		Title:      "Written under the lock",

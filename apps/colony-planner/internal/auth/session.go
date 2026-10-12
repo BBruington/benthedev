@@ -11,15 +11,15 @@ import (
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
-// startSession signs the browser in as the member, replacing any session the request carried.
-func (service *Service) startSession(writer http.ResponseWriter, request *http.Request, memberID uuid.UUID) error {
+// startSession signs the browser in as the account, replacing any session the request carried.
+func (service *Service) startSession(writer http.ResponseWriter, request *http.Request, accountID uuid.UUID) error {
 	requestContext := request.Context()
-	if previous, signedIn := ViewerFromContext(requestContext); signedIn {
+	if previous, signedIn := CallerFromContext(requestContext); signedIn {
 		if err := service.options.Core.SignOut(requestContext, previous); err != nil {
 			service.options.Logger.WarnContext(requestContext, "could not end the previous session", slog.Any("error", err))
 		}
 	}
-	session, err := service.options.Core.CreateSession(requestContext, memberID)
+	session, err := service.options.Core.CreateSession(requestContext, accountID)
 	if err != nil {
 		return err
 	}
@@ -52,8 +52,8 @@ func (service *Service) clearSessionCookie(writer http.ResponseWriter) {
 	})
 }
 
-// Middleware resolves the session cookie to a Viewer and stores it in the request context. Requests
-// without a valid session carry no Viewer; the access layer in internal/app then answers 401. A
+// Middleware resolves the session cookie to a Caller and stores it in the request context. Requests
+// without a valid session carry no Caller; the access layer in internal/app then answers 401. A
 // cookie that names no session is cleared so the browser stops sending it.
 func (service *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -68,7 +68,7 @@ func (service *Service) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(writer, request)
 			return
 		}
-		viewer, found, err := service.resolveSession(request.Context(), writer, cookie.Value, tokenHash)
+		caller, found, err := service.resolveSession(request.Context(), writer, cookie.Value, tokenHash)
 		if err != nil {
 			// Failing closed without clearing the cookie: a database blip must not sign anyone out.
 			service.options.Logger.ErrorContext(request.Context(), "session lookup failed", slog.Any("error", err))
@@ -80,46 +80,46 @@ func (service *Service) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(writer, request)
 			return
 		}
-		next.ServeHTTP(writer, request.WithContext(WithViewer(request.Context(), viewer)))
+		next.ServeHTTP(writer, request.WithContext(WithCaller(request.Context(), caller)))
 	})
 }
 
-func (service *Service) resolveSession(requestContext context.Context, writer http.ResponseWriter, token string, tokenHash []byte) (core.Viewer, bool, error) {
+func (service *Service) resolveSession(requestContext context.Context, writer http.ResponseWriter, token string, tokenHash []byte) (core.Caller, bool, error) {
 	now := time.Now()
 	entry, cached := service.cache.lookup(tokenHash, now)
 	if !cached {
 		generation := service.cache.currentGeneration()
 		record, found, extended, err := service.options.Core.LookupSession(requestContext, tokenHash)
 		if err != nil || !found {
-			return core.Viewer{}, false, err
+			return core.Caller{}, false, err
 		}
 		if extended {
 			service.setSessionCookie(writer, token, record.ExpiresAt)
 		}
 		entry = cachedSession{
-			memberID:      record.MemberID,
+			accountID:     record.AccountID,
 			discordUserID: record.DiscordUserID,
-			status:        record.Status,
 			viewAsPlayer:  record.ViewAsPlayer,
 			expiresAt:     record.ExpiresAt,
 			cachedAt:      now,
 		}
 		service.cache.store(tokenHash, entry, generation)
 	}
-	return service.options.Core.NewViewer(core.ViewerIdentity{
-		MemberID:         entry.memberID,
+	// The site owner is derived on every request, never cached or stored.
+	return core.Caller{
+		AccountID:        entry.accountID,
 		DiscordUserID:    entry.discordUserID,
-		Status:           entry.status,
-		ViewAsPlayer:     entry.viewAsPlayer,
+		IsSiteOwner:      service.options.Core.IsSiteOwner(entry.discordUserID),
 		SessionTokenHash: tokenHash,
-	}), true, nil
+		ViewAsPlayer:     entry.viewAsPlayer,
+	}, true, nil
 }
 
-// Logout ends the caller's current session (POST /auth/logout, pending level).
+// Logout ends the caller's current session (POST /auth/logout, account level).
 func (service *Service) Logout() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		viewer, _ := ViewerFromContext(request.Context())
-		if err := service.options.Core.SignOut(request.Context(), viewer); err != nil {
+		caller, _ := CallerFromContext(request.Context())
+		if err := service.options.Core.SignOut(request.Context(), caller); err != nil {
 			service.options.Logger.ErrorContext(request.Context(), "sign out failed", slog.Any("error", err))
 			WriteProblem(writer, http.StatusInternalServerError, "Something went wrong.")
 			return
@@ -129,11 +129,11 @@ func (service *Service) Logout() http.Handler {
 	})
 }
 
-// LogoutEverywhere ends every session of the caller (POST /auth/logout-everywhere, member level).
+// LogoutEverywhere ends every session of the caller (POST /auth/logout-everywhere, account level).
 func (service *Service) LogoutEverywhere() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		viewer, _ := ViewerFromContext(request.Context())
-		if err := service.options.Core.SignOutEverywhere(request.Context(), viewer); err != nil {
+		caller, _ := CallerFromContext(request.Context())
+		if err := service.options.Core.SignOutEverywhere(request.Context(), caller); err != nil {
 			service.options.Logger.ErrorContext(request.Context(), "sign out everywhere failed", slog.Any("error", err))
 			WriteProblem(writer, http.StatusInternalServerError, "Something went wrong.")
 			return

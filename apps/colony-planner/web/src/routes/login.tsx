@@ -23,21 +23,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import { loadMe, tableName } from "@/lib/access";
+import { loadAccount } from "@/lib/access";
+import { devSignInDescription } from "@/lib/dev-sign-in";
 
 type LoginSearch = { error?: string };
 
-type DevSignInMember = Schemas["DevSignInMember"];
+type DevSignInAccount = Schemas["DevSignInAccount"];
 
 export const Route = createFileRoute("/login")({
 	beforeLoad: async ({ context }) => {
 		// Always ask the server: a cached answer could be from a session that has since ended.
-		const me = await loadMe(context.queryClient, "fresh-once").catch(() => null);
-		if (me?.status === "ACTIVE") {
+		const account = await loadAccount(context.queryClient, "fresh-once").catch(() => null);
+		if (account) {
 			throw redirect({ replace: true, to: "/" });
-		}
-		if (me) {
-			throw redirect({ replace: true, to: "/pending" });
 		}
 	},
 	component: LoginPage,
@@ -51,9 +49,6 @@ export const Route = createFileRoute("/login")({
 
 // The values the Discord callback sends back in ?error= when sign-in can't finish.
 function signInErrorMessage(code: string): string {
-	if (code === "full") {
-		return "The DM isn't taking new players right now. Try again another day.";
-	}
 	if (code === "discord") {
 		return "Discord didn't finish signing you in. Please try again.";
 	}
@@ -102,9 +97,12 @@ function LoginPage() {
 						Discord shares only your username and avatar with this site. Nothing is ever posted as
 						you.
 					</p>
+					<p className="mt-3 text-center font-flavor text-muted-foreground italic">
+						Run your own colony campaign? Sign in and ask.
+					</p>
 				</section>
 			</main>
-			{devMembers ? <DevSignInPanel members={devMembers} /> : null}
+			{devMembers ? <DevSignInPanel accounts={devMembers} /> : null}
 		</EldariBackdrop>
 	);
 }
@@ -155,29 +153,32 @@ function SignInActions({
 	);
 }
 
-const statusOrder: Record<Schemas["MemberStatus"], number> = { ACTIVE: 0, PENDING: 1, REMOVED: 2 };
-
-function sortForDevSignIn(members: DevSignInMember[]): DevSignInMember[] {
-	return [...members].sort((first, second) => {
-		if (first.isDm !== second.isDm) {
-			return first.isDm ? -1 : 1;
+function sortForDevSignIn(accounts: DevSignInAccount[]): DevSignInAccount[] {
+	return [...accounts].sort((first, second) => {
+		if (first.isSiteOwner !== second.isSiteOwner) {
+			return first.isSiteOwner ? -1 : 1;
 		}
-		return (
-			statusOrder[first.status] - statusOrder[second.status] ||
-			tableName(first).localeCompare(tableName(second))
-		);
+		const firstRunsOne = first.memberships.some((membership) => membership.role === "DM");
+		const secondRunsOne = second.memberships.some((membership) => membership.role === "DM");
+		if (firstRunsOne !== secondRunsOne) {
+			return firstRunsOne ? -1 : 1;
+		}
+		return first.displayName.localeCompare(second.displayName);
 	});
 }
 
-/** Local development only: the server lists every member only in devauth builds (spec §8.5). */
-function DevSignInPanel({ members }: { members: DevSignInMember[] }) {
-	const [newPlayerName, setNewPlayerName] = useState("");
-	const sortedMembers = sortForDevSignIn(members);
-	const hasDm = members.some((member) => member.isDm);
+/**
+ * Local development only: the server lists every account only in devauth builds (spec §8.5), each
+ * once with its roles (docs/design/multi-campaign.md §7.3).
+ */
+function DevSignInPanel({ accounts }: { accounts: DevSignInAccount[] }) {
+	const [newPersonName, setNewPersonName] = useState("");
+	const sortedAccounts = sortForDevSignIn(accounts);
+	const hasOwner = accounts.some((account) => account.isSiteOwner);
 
-	function handleNewPlayer(event: FormEvent<HTMLFormElement>) {
+	function handleNewPerson(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
-		const name = newPlayerName.trim();
+		const name = newPersonName.trim();
 		if (name) {
 			window.location.assign(devSignInPath("new", name));
 		}
@@ -204,33 +205,30 @@ function DevSignInPanel({ members }: { members: DevSignInMember[] }) {
 				Sign in as anyone, no Discord needed. A private window is a second person.
 			</p>
 
-			{hasDm ? null : (
+			{hasOwner ? null : (
 				<Button asChild className="mt-4 w-full" variant="outline">
-					<a href={devSignInPath("dm")}>
+					<a href={devSignInPath("owner")}>
 						<CrownIcon />
-						Sign in as the DM
+						Sign in as the site owner
 					</a>
 				</Button>
 			)}
 
-			{sortedMembers.length > 0 ? (
-				<ul className="mt-4 max-h-80 overflow-y-auto rounded-xl border border-border bg-card/70">
-					{sortedMembers.map((member) => (
-						<li className="border-border border-b last:border-b-0" key={member.memberId}>
+			{sortedAccounts.length > 0 ? (
+				<ul className="mt-4 max-h-96 overflow-y-auto rounded-xl border border-border bg-card/70">
+					{sortedAccounts.map((account) => (
+						<li className="border-border border-b last:border-b-0" key={account.accountId}>
 							<a
 								className="flex min-h-14 items-center gap-3 px-3.5 py-2 outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
-								href={devSignInPath(member.memberId)}
+								href={devSignInPath(account.accountId)}
 							>
-								<MemberAvatar avatarUrl={null} name={tableName(member)} size="sm" />
+								<MemberAvatar avatarUrl={null} name={account.displayName} size="sm" />
 								<span className="min-w-0 flex-1">
-									<span className="block truncate font-medium">{tableName(member)}</span>
-									{member.characterName ? (
-										<span className="block truncate text-muted-foreground text-sm">
-											{member.displayName}
-										</span>
-									) : null}
+									<span className="block truncate font-medium">{account.displayName}</span>
+									<span className="block text-muted-foreground text-sm">
+										{devSignInDescription(account)}
+									</span>
 								</span>
-								<DevMemberBadge member={member} />
 								<LogInIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
 							</a>
 						</li>
@@ -238,43 +236,30 @@ function DevSignInPanel({ members }: { members: DevSignInMember[] }) {
 				</ul>
 			) : (
 				<p className="mt-4 rounded-xl border border-border border-dashed px-4 py-5 text-center text-muted-foreground text-sm">
-					No members yet. Run <code className="font-mono text-foreground">mise run seed</code> for
-					the sample campaign.
+					No accounts yet. Run <code className="font-mono text-foreground">mise run seed</code> for
+					the two sample campaigns.
 				</p>
 			)}
 
-			<form className="mt-5 grid gap-2" onSubmit={handleNewPlayer}>
-				<Label htmlFor="dev-new-player-name">A new player asking to join</Label>
+			<form className="mt-5 grid gap-2" onSubmit={handleNewPerson}>
+				<Label htmlFor="dev-new-person-name">A new person, signing in for the first time</Label>
 				<div className="flex gap-2">
 					<Input
 						autoComplete="off"
-						id="dev-new-player-name"
+						id="dev-new-person-name"
 						maxLength={60}
 						onChange={(event) => {
-							setNewPlayerName(event.target.value);
+							setNewPersonName(event.target.value);
 						}}
 						placeholder="Their Discord name"
-						value={newPlayerName}
+						value={newPersonName}
 					/>
-					<Button disabled={newPlayerName.trim() === ""} type="submit" variant="secondary">
+					<Button disabled={newPersonName.trim() === ""} type="submit" variant="secondary">
 						<UserPlusIcon />
-						Ask
+						Sign in
 					</Button>
 				</div>
 			</form>
 		</aside>
 	);
-}
-
-function DevMemberBadge({ member }: { member: DevSignInMember }) {
-	if (member.isDm) {
-		return <Badge variant="gilt">DM</Badge>;
-	}
-	if (member.status === "PENDING") {
-		return <Badge variant="verdigris">Waiting</Badge>;
-	}
-	if (member.status === "REMOVED") {
-		return <Badge variant="ember">Removed</Badge>;
-	}
-	return <Badge variant="moss">Player</Badge>;
 }

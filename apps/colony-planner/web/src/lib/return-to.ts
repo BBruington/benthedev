@@ -1,7 +1,8 @@
 import { readStored, writeStored } from "./storage";
 
 // Sign-in always lands on "/", so a deep link opened while signed out (a Beny Bot ping linking to
-// /players, say) is remembered here for the length of the tab and resumed after sign-in.
+// /c/{slug}/players, or an invite link) is remembered here for the length of the tab and resumed
+// after sign-in.
 const returnToStorageKey = "colony-planner:return-to";
 
 export function rememberReturnTo(path: string) {
@@ -24,5 +25,5 @@ function isResumablePath(path: string): boolean {
 	if (!path.startsWith("/") || path.startsWith("//")) {
 		return false;
 	}
-	return path !== "/" && !path.startsWith("/login") && !path.startsWith("/pending");
+	return path !== "/" && !path.startsWith("/login");
 }

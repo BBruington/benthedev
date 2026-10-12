@@ -30,8 +30,8 @@ func serve(commandContext context.Context) error {
 	if err := auth.CheckPublicURL(loaded.publicURL, loaded.appEnvironment); err != nil {
 		return err
 	}
-	if loaded.appEnvironment == "production" && loaded.dmDiscordID == "" {
-		return errors.New("DM_DISCORD_ID is not set: without it nobody is the DM")
+	if loaded.appEnvironment == "production" && loaded.siteOwnerDiscordID == "" {
+		return errors.New("SITE_OWNER_DISCORD_ID is not set: without it nobody can approve campaigns")
 	}
 	logger := newLogger(loaded.appEnvironment)
 	slog.SetDefault(logger)
@@ -45,15 +45,16 @@ func serve(commandContext context.Context) error {
 		return err
 	}
 
-	dmDiscordID := auth.EffectiveDmDiscordID(loaded.dmDiscordID)
-	// Without DISCORD_BOT_TOKEN, bot.New returns a Beny Bot that is off: its pings do nothing and Run only
-	// waits. A token without DISCORD_GUILD_ID is refused here rather than ignored.
+	siteOwnerDiscordID := auth.EffectiveSiteOwnerDiscordID(loaded.siteOwnerDiscordID)
+	// Without DISCORD_BOT_TOKEN, bot.New returns a Beny Bot that is off: its pings do nothing, Run only
+	// waits and its Directory is nil. One shared Beny Bot serves every linked server; DISCORD_GUILD_ID is
+	// read only to clear M1's guild-scoped commands once.
 	benyBot, err := bot.New(bot.Options{
-		Token:       loaded.discordBotToken,
-		GuildID:     loaded.discordGuildID,
-		DmDiscordID: dmDiscordID,
-		PublicURL:   loaded.publicURL,
-		Logger:      logger.With(slog.String("component", "beny_bot")),
+		Token:              loaded.discordBotToken,
+		LegacyGuildID:      loaded.legacyDiscordGuildID,
+		SiteOwnerDiscordID: siteOwnerDiscordID,
+		PublicURL:          loaded.publicURL,
+		Logger:             logger.With(slog.String("component", "beny_bot")),
 	})
 	if err != nil {
 		return err
@@ -62,12 +63,13 @@ func serve(commandContext context.Context) error {
 	// Core evicts from the cache that auth reads, so one cache is shared by both.
 	sessionCache := auth.NewSessionCache()
 	service := core.New(core.Options{
-		Pool:         pool,
-		Notifier:     benyBot,
-		Logger:       logger,
-		DmDiscordID:  dmDiscordID,
-		Sessions:     sessionCache,
-		BotInviteURL: bot.InviteURL(loaded.discordClientID),
+		Pool:               pool,
+		Notifier:           benyBot,
+		Logger:             logger,
+		SiteOwnerDiscordID: siteOwnerDiscordID,
+		Sessions:           sessionCache,
+		Directory:          benyBot.Directory(),
+		BotInviteURL:       bot.InviteURL(loaded.discordClientID),
 	})
 	authService, err := auth.New(auth.Options{
 		Core:                service,
@@ -77,7 +79,7 @@ func serve(commandContext context.Context) error {
 		AppEnvironment:      loaded.appEnvironment,
 		DiscordClientID:     loaded.discordClientID,
 		DiscordClientSecret: loaded.discordClientSecret,
-		DmDiscordID:         dmDiscordID,
+		SiteOwnerDiscordID:  siteOwnerDiscordID,
 	})
 	if err != nil {
 		return err

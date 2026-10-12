@@ -104,7 +104,7 @@ export function AdjustSheet({
 	const inputKey = JSON.stringify(input);
 	const previewIsCurrent = JSON.stringify(previewInput) === inputKey;
 	const preview = useQuery({
-		...adjustPreviewQuery(previewInput ?? emptyInput),
+		...adjustPreviewQuery(changes.inCampaign.params.path.campaignId, previewInput ?? emptyInput),
 		enabled: open && previewInput !== null,
 	});
 	const serverErrors = fieldErrors(mutation.error ?? preview.error);
@@ -129,7 +129,7 @@ export function AdjustSheet({
 			return;
 		}
 		mutation.mutate(
-			{ body: { ...input, expectedVersion: preview.data.version } },
+			{ body: { ...input, expectedVersion: preview.data.version }, ...changes.inCampaign },
 			{
 				onSuccess: () => {
 					onOpenChange(false);

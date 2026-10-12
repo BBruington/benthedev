@@ -19,8 +19,8 @@ func TestProductionBuildHasNoDevSignIn(t *testing.T) {
 	if DevAuthEnabled {
 		t.Fatal("DevAuthEnabled is true without the devauth tag")
 	}
-	if EffectiveDmDiscordID("") != "" {
-		t.Fatal("a production build made up a DM")
+	if EffectiveSiteOwnerDiscordID("") != "" {
+		t.Fatal("a production build made up a site owner")
 	}
 }
 

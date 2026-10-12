@@ -12,8 +12,9 @@ import (
 	"github.com/BBruington/colony-planner/internal/store"
 )
 
-// Member is what any signed-in member may see about another member. Everything else is DM-only and
-// lives in Dm, which the redaction Transformer strips for everyone but the DM.
+// Member is what any active member of a campaign may see about another member there. Everything else
+// is DM-only and lives in Dm, which the redaction Transformer strips for everyone but the DM. ID is
+// the membership (campaign_member) id, which is what /players acts on.
 type Member struct {
 	ID            uuid.UUID `json:"id" format:"uuid"`
 	DisplayName   string    `json:"displayName"`
@@ -27,26 +28,42 @@ type MemberDm struct {
 	DiscordUsername string       `json:"discordUsername"`
 	Status          MemberStatus `json:"status"`
 	IsDM            bool         `json:"isDm"`
-	CreatedAt       time.Time    `json:"createdAt"`
-	ApprovedAt      *time.Time   `json:"approvedAt"`
-	LastSeenAt      *time.Time   `json:"lastSeenAt"`
+	// RemovalKind is how a REMOVED member got there, the label /players shows; null for anyone else.
+	RemovalKind *RemovalKind `json:"removalKind" nullable:"true" doc:"null unless status is REMOVED"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	ApprovedAt  *time.Time   `json:"approvedAt"`
+	LastSeenAt  *time.Time   `json:"lastSeenAt"`
 }
 
-// Me is the caller's own view of themselves. Status, IsDM and ViewAsPlayer are about the caller, so
-// they sit outside any `dm` object and survive redaction (the View as player banner needs them).
-type Me struct {
-	Member       Member       `json:"member"`
-	Status       MemberStatus `json:"status"`
-	IsDM         bool         `json:"isDm"`
-	ViewAsPlayer bool         `json:"viewAsPlayer"`
+// CampaignMe is the caller's own view of themselves in one campaign (the pending-level GET .../me).
+// Status, IsDM and ViewAsPlayer are about the caller, so they sit outside any `dm` object and survive
+// redaction (the View as player banner needs them). Campaign carries the status, so a paused
+// campaign's members see the right screen.
+type CampaignMe struct {
+	Campaign CampaignSummary `json:"campaign"`
+	// DmDisplayName is directory data, as on the invite page: the waiting page names who lets you in.
+	DmDisplayName string       `json:"dmDisplayName"`
+	Member        Member       `json:"member"`
+	Status        MemberStatus `json:"status"`
+	IsDM          bool         `json:"isDm"`
+	ViewAsPlayer  bool         `json:"viewAsPlayer"`
+}
+
+// CampaignSummary is directory data about a campaign: what its members and the site owner may see.
+type CampaignSummary struct {
+	ID     uuid.UUID      `json:"id" format:"uuid"`
+	Slug   string         `json:"slug"`
+	Name   string         `json:"name"`
+	Status CampaignStatus `json:"status"`
 }
 
 type ViewAsPlayerInput struct {
 	Enabled bool `json:"enabled"`
 }
 
-// ProfileInput replaces the caller's whole profile (PUT semantics). A null characterName clears it.
-// Lengths and formats are checked in core, not in schema tags, so the person reads core's messages.
+// ProfileInput replaces the caller's whole profile in this campaign (PUT semantics). A null
+// characterName clears it. Lengths and formats are checked in core, not in schema tags, so the person
+// reads core's messages.
 type ProfileInput struct {
 	CharacterName *string `json:"characterName" doc:"At most 60 characters after trimming; blank or null clears it"`
 }
@@ -55,7 +72,7 @@ type CharacterNameInput struct {
 	CharacterName *string `json:"characterName" doc:"At most 60 characters after trimming; blank or null clears it"`
 }
 
-// MemberGroups is the DM's /players page: who is waiting, who plays, who was removed or denied.
+// MemberGroups is the DM's /players page: who is waiting, who plays, who was removed, denied or left.
 type MemberGroups struct {
 	Pending []Member `json:"pending"`
 	Active  []Member `json:"active"`
@@ -65,31 +82,27 @@ type MemberGroups struct {
 const characterNameMaxLength = 60
 
 // toMember fills Dm unconditionally; the Transformer decides who keeps it.
-func (service *Service) toMember(row store.Member) Member {
-	isDM := service.isDM(row.DiscordUserID)
+func toMember(membership store.CampaignMember, account store.Account) Member {
 	return Member{
-		ID:            row.ID,
-		DisplayName:   row.DisplayName,
-		AvatarURL:     row.AvatarUrl,
-		CharacterName: row.CharacterName,
+		ID:            membership.ID,
+		DisplayName:   account.DisplayName,
+		AvatarURL:     account.AvatarUrl,
+		CharacterName: membership.CharacterName,
 		Dm: &MemberDm{
-			DiscordUserID:   row.DiscordUserID,
-			DiscordUsername: row.DiscordUsername,
-			Status:          service.effectiveStatus(row),
-			IsDM:            isDM,
-			CreatedAt:       row.CreatedAt.UTC(),
-			ApprovedAt:      utcPointer(row.ApprovedAt),
-			LastSeenAt:      utcPointer(row.LastSeenAt),
+			DiscordUserID:   account.DiscordUserID,
+			DiscordUsername: account.DiscordUsername,
+			Status:          membership.Status,
+			IsDM:            membership.Role == store.CampaignRoleDM,
+			RemovalKind:     removalKindOf(membership),
+			CreatedAt:       membership.CreatedAt.UTC(),
+			ApprovedAt:      utcPointer(membership.ApprovedAt),
+			LastSeenAt:      utcPointer(account.LastSeenAt),
 		},
 	}
 }
 
-// effectiveStatus is the stored status, except that the DM is always ACTIVE.
-func (service *Service) effectiveStatus(row store.Member) store.MemberStatus {
-	if service.isDM(row.DiscordUserID) {
-		return store.MemberStatusACTIVE
-	}
-	return row.Status
+func toCampaignSummary(campaign store.Campaign) CampaignSummary {
+	return CampaignSummary{ID: campaign.ID, Slug: campaign.Slug, Name: campaign.Name, Status: campaign.Status}
 }
 
 func utcPointer(instant *time.Time) *time.Time {
@@ -107,39 +120,47 @@ func memberNotFound(err error) error {
 	return err
 }
 
-func (service *Service) Me(requestContext context.Context, viewer Viewer) (Me, error) {
-	row, err := service.queries.GetMember(requestContext, viewer.MemberID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Me{}, service.sessionEnded()
+// CampaignMe answers any membership, whatever its status and the campaign's: the waiting page, the
+// "You don't have access" page and the paused page all start here.
+func (service *Service) CampaignMe(requestContext context.Context, viewer Viewer) (CampaignMe, error) {
+	if err := requireMembership(viewer); err != nil {
+		return CampaignMe{}, err
 	}
+	row, err := service.queries.GetCampaignMember(requestContext, store.GetCampaignMemberParams{CampaignID: viewer.campaignID, ID: viewer.memberID})
 	if err != nil {
-		return Me{}, err
+		return CampaignMe{}, campaignGone(err)
 	}
-	return service.toMe(row, viewer), nil
+	campaign, err := service.queries.GetCampaignWithDm(requestContext, viewer.campaignID)
+	if err != nil {
+		return CampaignMe{}, campaignGone(err)
+	}
+	return CampaignMe{
+		Campaign:      toCampaignSummary(campaign.Campaign),
+		DmDisplayName: campaign.DmDisplayName,
+		Member:        toMember(row.CampaignMember, row.Account),
+		Status:        row.CampaignMember.Status,
+		IsDM:          row.CampaignMember.Role == store.CampaignRoleDM,
+		ViewAsPlayer:  viewer.viewAsPlayer,
+	}, nil
 }
 
-func (service *Service) toMe(row store.Member, viewer Viewer) Me {
-	return Me{
-		Member:       service.toMember(row),
-		Status:       viewer.Status,
-		IsDM:         viewer.IsDM,
-		ViewAsPlayer: viewer.ViewAsPlayer,
-	}
-}
-
-// SetViewAsPlayer flips view as player on the caller's current web session. Only the DM may call it,
-// and it must keep working while view as player is on, so the check is IsDM rather than an access level.
-// It answers nothing: the request ran under the old projection, so the client reads /api/me afresh.
+// SetViewAsPlayer flips view as player on the caller's current web session. Only a DM may call it, and
+// it must keep working while view as player is on, so the check is IsDM rather than requireDm. The
+// toggle is per session: it applies in every campaign where the caller is DM. It answers nothing: the
+// request ran under the old projection, so the client reads .../me afresh.
 func (service *Service) SetViewAsPlayer(requestContext context.Context, viewer Viewer, input ViewAsPlayerInput) error {
-	if !viewer.IsDM {
+	if err := requireCampaign(viewer); err != nil {
+		return err
+	}
+	if !viewer.IsDM() {
 		return Forbidden("Only the DM can view as player.")
 	}
-	if len(viewer.SessionTokenHash) == 0 {
+	if len(viewer.sessionTokenHash) == 0 {
 		return Invalid("View as player belongs to a signed-in browser session.")
 	}
 	updated, err := service.queries.SetSessionViewAsPlayer(requestContext, store.SetSessionViewAsPlayerParams{
 		ViewAsPlayer: input.Enabled,
-		TokenHash:    viewer.SessionTokenHash,
+		TokenHash:    viewer.sessionTokenHash,
 	})
 	if err != nil {
 		return err
@@ -147,33 +168,31 @@ func (service *Service) SetViewAsPlayer(requestContext context.Context, viewer V
 	if updated == 0 {
 		return service.sessionEnded()
 	}
-	service.sessions.EvictSession(viewer.SessionTokenHash)
+	service.sessions.EvictSession(viewer.sessionTokenHash)
 	// Every projection this session sees just changed, so its open tabs refetch everything.
-	service.broker.publishToSession(viewer.SessionTokenHash, AllTopics()...)
+	service.broker.publishToSession(viewer.sessionTokenHash, AllTopics()...)
 	return nil
 }
 
-func (service *Service) UpdateProfile(requestContext context.Context, viewer Viewer, input ProfileInput) (Me, error) {
+// UpdateProfile sets the caller's own character name in this campaign.
+func (service *Service) UpdateProfile(requestContext context.Context, viewer Viewer, input ProfileInput) (CampaignMe, error) {
 	if err := requireActive(viewer); err != nil {
-		return Me{}, err
+		return CampaignMe{}, err
 	}
 	characterName, err := normalizeCharacterName(input.CharacterName)
 	if err != nil {
-		return Me{}, err
+		return CampaignMe{}, err
 	}
-	row, err := service.queries.SetMemberCharacterName(requestContext, store.SetMemberCharacterNameParams{
+	if _, err := service.queries.SetCampaignMemberCharacterName(requestContext, store.SetCampaignMemberCharacterNameParams{
 		CharacterName: characterName,
-		ID:            viewer.MemberID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Me{}, service.sessionEnded()
+		CampaignID:    viewer.campaignID,
+		ID:            viewer.memberID,
+	}); err != nil {
+		return CampaignMe{}, campaignGone(err)
 	}
-	if err != nil {
-		return Me{}, err
-	}
-	service.broker.publishToMember(viewer.MemberID, TopicMe)
-	service.broker.Publish(TopicMembers)
-	return service.toMe(row, viewer), nil
+	service.broker.publishToMember(viewer.campaignID, viewer.memberID, TopicMe)
+	service.broker.Publish(viewer.campaignID, TopicMembers)
+	return service.CampaignMe(requestContext, viewer)
 }
 
 func normalizeCharacterName(characterName *string) (*string, error) {
@@ -194,14 +213,14 @@ func (service *Service) ListMembers(requestContext context.Context, viewer Viewe
 	if err := requireDm(viewer); err != nil {
 		return MemberGroups{}, err
 	}
-	rows, err := service.queries.ListMembers(requestContext)
+	rows, err := service.queries.ListCampaignMembers(requestContext, viewer.campaignID)
 	if err != nil {
 		return MemberGroups{}, err
 	}
 	groups := MemberGroups{Pending: []Member{}, Active: []Member{}, Removed: []Member{}}
 	for _, row := range rows {
-		member := service.toMember(row)
-		switch service.effectiveStatus(row) {
+		member := toMember(row.CampaignMember, row.Account)
+		switch row.CampaignMember.Status {
 		case store.MemberStatusPENDING:
 			groups.Pending = append(groups.Pending, member)
 		case store.MemberStatusACTIVE:
@@ -213,14 +232,13 @@ func (service *Service) ListMembers(requestContext context.Context, viewer Viewe
 	return groups, nil
 }
 
-// statusChange is one of the DM's decisions on /players.
+// statusChange is one of the DM's decisions on /players, or a player leaving.
 type statusChange struct {
 	to          store.MemberStatus
 	allowedFrom []store.MemberStatus
 	// conflicts explains, per current status, why the change doesn't apply.
 	conflicts map[store.MemberStatus]string
-	// endSessions signs the member out everywhere and closes their streams.
-	endSessions bool
+	leftOnOwn bool
 }
 
 var (
@@ -228,10 +246,10 @@ var (
 		to:          store.MemberStatusACTIVE,
 		allowedFrom: []store.MemberStatus{store.MemberStatusPENDING},
 		conflicts: map[store.MemberStatus]string{
-			store.MemberStatusREMOVED: "They were removed or denied. Re-admit them instead.",
+			store.MemberStatusREMOVED: "They were removed, denied or left. Re-admit them instead.",
 		},
 	}
-	// Denying keeps the person's session, so their /pending page turns into "You don't have access".
+	// Denying keeps the person's membership, so their waiting page turns into "You don't have access".
 	denyChange = statusChange{
 		to:          store.MemberStatusREMOVED,
 		allowedFrom: []store.MemberStatus{store.MemberStatusPENDING},
@@ -239,10 +257,10 @@ var (
 			store.MemberStatusACTIVE: "They are already in. Remove them instead.",
 		},
 	}
+	// Removal is per campaign: the person's session and their other campaigns are untouched.
 	removeChange = statusChange{
 		to:          store.MemberStatusREMOVED,
-		allowedFrom: []store.MemberStatus{store.MemberStatusACTIVE, store.MemberStatusPENDING, store.MemberStatusREMOVED},
-		endSessions: true,
+		allowedFrom: []store.MemberStatus{store.MemberStatusACTIVE, store.MemberStatusPENDING},
 	}
 	readmitChange = statusChange{
 		to:          store.MemberStatusACTIVE,
@@ -251,61 +269,98 @@ var (
 			store.MemberStatusPENDING: "They are still waiting. Approve them instead.",
 		},
 	}
+	// Leaving is removal the member chose (decision C5): from PENDING (withdrawing the request) or
+	// ACTIVE, never from REMOVED, so it can't be a way back in.
+	leaveChange = statusChange{
+		to:          store.MemberStatusREMOVED,
+		allowedFrom: []store.MemberStatus{store.MemberStatusACTIVE, store.MemberStatusPENDING},
+		conflicts: map[store.MemberStatus]string{
+			store.MemberStatusREMOVED: "You're not in this campaign.",
+		},
+		leftOnOwn: true,
+	}
 )
 
 func (service *Service) ApproveMember(requestContext context.Context, viewer Viewer, memberID uuid.UUID) (Member, error) {
-	return service.changeMemberStatus(requestContext, viewer, memberID, approveChange)
-}
-
-func (service *Service) DenyMember(requestContext context.Context, viewer Viewer, memberID uuid.UUID) (Member, error) {
-	return service.changeMemberStatus(requestContext, viewer, memberID, denyChange)
-}
-
-// RemoveMember signs the member out everywhere at once: their sessions are deleted, evicted from the
-// cache, and their live streams closed. Signing in again yields only a pending-level session.
-func (service *Service) RemoveMember(requestContext context.Context, viewer Viewer, memberID uuid.UUID) (Member, error) {
-	return service.changeMemberStatus(requestContext, viewer, memberID, removeChange)
-}
-
-func (service *Service) ReadmitMember(requestContext context.Context, viewer Viewer, memberID uuid.UUID) (Member, error) {
-	return service.changeMemberStatus(requestContext, viewer, memberID, readmitChange)
-}
-
-func (service *Service) changeMemberStatus(requestContext context.Context, viewer Viewer, memberID uuid.UUID, change statusChange) (Member, error) {
 	if err := requireDm(viewer); err != nil {
 		return Member{}, err
 	}
-	var result store.Member
+	return service.changeMemberStatus(requestContext, viewer.campaignID, memberID, approveChange)
+}
+
+func (service *Service) DenyMember(requestContext context.Context, viewer Viewer, memberID uuid.UUID) (Member, error) {
+	if err := requireDm(viewer); err != nil {
+		return Member{}, err
+	}
+	return service.changeMemberStatus(requestContext, viewer.campaignID, memberID, denyChange)
+}
+
+// RemoveMember sets the membership to REMOVED and rescopes its streams in this campaign to `me`. The
+// person stays signed in: their other campaigns keep working.
+func (service *Service) RemoveMember(requestContext context.Context, viewer Viewer, memberID uuid.UUID) (Member, error) {
+	if err := requireDm(viewer); err != nil {
+		return Member{}, err
+	}
+	return service.changeMemberStatus(requestContext, viewer.campaignID, memberID, removeChange)
+}
+
+func (service *Service) ReadmitMember(requestContext context.Context, viewer Viewer, memberID uuid.UUID) (Member, error) {
+	if err := requireDm(viewer); err != nil {
+		return Member{}, err
+	}
+	return service.changeMemberStatus(requestContext, viewer.campaignID, memberID, readmitChange)
+}
+
+// LeaveCampaign removes the caller's own membership, and only theirs (decision C5). It works from
+// PENDING or ACTIVE, even in a suspended campaign; the DM can't leave (they delete the campaign).
+// Afterwards the membership is REMOVED like any removal: the invite link can't bring them back and
+// pings nobody, and only the DM re-admits them.
+func (service *Service) LeaveCampaign(requestContext context.Context, viewer Viewer) (CampaignMe, error) {
+	if err := requireMembership(viewer); err != nil {
+		return CampaignMe{}, err
+	}
+	if viewer.IsDM() {
+		return CampaignMe{}, Forbidden("The DM can't leave. Delete the campaign in Settings instead.")
+	}
+	if _, err := service.changeMemberStatus(requestContext, viewer.campaignID, viewer.memberID, leaveChange); err != nil {
+		return CampaignMe{}, err
+	}
+	return service.CampaignMe(requestContext, viewer)
+}
+
+func (service *Service) changeMemberStatus(requestContext context.Context, campaignID uuid.UUID, memberID uuid.UUID, change statusChange) (Member, error) {
+	var result store.CampaignMember
+	var account store.Account
 	changed := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
-		current, err := queries.GetMemberForUpdate(requestContext, memberID)
+		current, err := queries.GetCampaignMemberForUpdate(requestContext, store.GetCampaignMemberForUpdateParams{CampaignID: campaignID, ID: memberID})
 		if err != nil {
 			return memberNotFound(err)
 		}
-		if service.isDM(current.DiscordUserID) {
+		account = current.Account
+		result = current.CampaignMember
+		if current.CampaignMember.Role == store.CampaignRoleDM {
 			return Forbidden("The DM is always in.")
 		}
-		result = current
-		if current.Status == change.to && !change.endSessions {
+		// Repeating a DM decision changes nothing; leaving again is refused, so it can't hide a removal.
+		if current.CampaignMember.Status == change.to && !change.leftOnOwn {
 			return nil
 		}
-		if !slices.Contains(change.allowedFrom, current.Status) {
-			message, explained := change.conflicts[current.Status]
+		if !slices.Contains(change.allowedFrom, current.CampaignMember.Status) {
+			message, explained := change.conflicts[current.CampaignMember.Status]
 			if !explained {
 				message = "That doesn't apply to this member."
 			}
 			return Conflict(message)
 		}
-		if current.Status != change.to {
-			result, err = queries.SetMemberStatus(requestContext, store.SetMemberStatusParams{Status: change.to, ID: memberID})
-			if err != nil {
-				return err
-			}
-		}
-		if change.endSessions {
-			if err := queries.DeleteMemberSessions(requestContext, memberID); err != nil {
-				return err
-			}
+		result, err = queries.SetCampaignMemberStatus(requestContext, store.SetCampaignMemberStatusParams{
+			Status:     change.to,
+			LeftOnOwn:  change.leftOnOwn,
+			CampaignID: campaignID,
+			ID:         memberID,
+		})
+		if err != nil {
+			return err
 		}
 		changed = true
 		return nil
@@ -314,15 +369,11 @@ func (service *Service) changeMemberStatus(requestContext context.Context, viewe
 		return Member{}, err
 	}
 	if changed {
-		service.sessions.EvictMember(memberID)
 		service.broker.memberStatusChanged(memberID, change.to == store.MemberStatusACTIVE)
-		if change.endSessions {
-			service.broker.CloseMember(memberID)
-		}
-		service.broker.publishToMember(memberID, TopicMe)
-		service.broker.Publish(TopicMembers)
+		service.broker.publishToMember(campaignID, memberID, TopicMe)
+		service.broker.Publish(campaignID, TopicMembers)
 	}
-	return service.toMember(result), nil
+	return toMember(result, account), nil
 }
 
 func (service *Service) SetCharacterName(requestContext context.Context, viewer Viewer, memberID uuid.UUID, input CharacterNameInput) (Member, error) {
@@ -333,14 +384,18 @@ func (service *Service) SetCharacterName(requestContext context.Context, viewer 
 	if err != nil {
 		return Member{}, err
 	}
-	row, err := service.queries.SetMemberCharacterName(requestContext, store.SetMemberCharacterNameParams{
+	if _, err := service.queries.SetCampaignMemberCharacterName(requestContext, store.SetCampaignMemberCharacterNameParams{
 		CharacterName: characterName,
+		CampaignID:    viewer.campaignID,
 		ID:            memberID,
-	})
+	}); err != nil {
+		return Member{}, memberNotFound(err)
+	}
+	row, err := service.queries.GetCampaignMember(requestContext, store.GetCampaignMemberParams{CampaignID: viewer.campaignID, ID: memberID})
 	if err != nil {
 		return Member{}, memberNotFound(err)
 	}
-	service.broker.publishToMember(memberID, TopicMe)
-	service.broker.Publish(TopicMembers)
-	return service.toMember(row), nil
+	service.broker.publishToMember(viewer.campaignID, memberID, TopicMe)
+	service.broker.Publish(viewer.campaignID, TopicMembers)
+	return toMember(row.CampaignMember, row.Account), nil
 }

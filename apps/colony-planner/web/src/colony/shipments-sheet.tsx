@@ -69,6 +69,7 @@ export function ShipmentsSheet({
 					intervalDays: interval,
 					nextDay: typeof nextDay === "number" ? nextDay : null,
 				},
+				...changes.inCampaign,
 			},
 			{
 				onSuccess: () => {
@@ -80,7 +81,7 @@ export function ShipmentsSheet({
 
 	function handleClear() {
 		clear.mutate(
-			{ body: { expectedVersion: board.version } },
+			{ body: { expectedVersion: board.version }, ...changes.inCampaign },
 			{
 				onSuccess: () => {
 					onOpenChange(false);

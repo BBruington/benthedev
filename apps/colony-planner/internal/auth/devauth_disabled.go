@@ -12,7 +12,7 @@ func checkDevAuthAllowed(string) error {
 	return nil
 }
 
-func EffectiveDmDiscordID(configured string) string {
+func EffectiveSiteOwnerDiscordID(configured string) string {
 	return configured
 }
 

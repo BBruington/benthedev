@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
 import { useState } from "react";
 import { BottomSheet } from "@/components/bottom-sheet";
+import { useCampaign } from "@/hooks/use-campaign";
 import { canUseDmTools, type Me } from "@/lib/access";
 import { cn } from "@/lib/utils";
 import { moreGroups, type NavigationItem, navigationItems, phoneTabs } from "./navigation";
@@ -109,8 +110,14 @@ function TabIndicator() {
 
 function TabLink({ item }: { item: NavigationItem }) {
 	const Icon = item.icon;
+	const { slug } = useCampaign();
 	return (
-		<Link activeOptions={{ exact: item.to === "/" }} className={tabClasses} to={item.to}>
+		<Link
+			activeOptions={{ exact: item.to === "/c/$campaignSlug" }}
+			className={tabClasses}
+			params={{ campaignSlug: slug }}
+			to={item.to}
+		>
 			<TabIndicator />
 			<Icon aria-hidden="true" className="size-6" />
 			{item.label}
@@ -128,10 +135,12 @@ function MoreLink({
 	onNavigate: () => void;
 }) {
 	const Icon = item.icon;
+	const { slug } = useCampaign();
 	return (
 		<Link
 			className="flex min-h-14 items-center gap-3 px-4 outline-none transition-colors hover:bg-accent focus-visible:bg-accent data-[status=active]:text-gilt-ink"
 			onClick={onNavigate}
+			params={{ campaignSlug: slug }}
 			to={item.to}
 		>
 			<span

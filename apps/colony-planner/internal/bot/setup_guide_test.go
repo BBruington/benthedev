@@ -38,7 +38,7 @@ func TestInviteURLMatchesTheSetupGuide(t *testing.T) {
 	if !strings.Contains(string(guide), documented) {
 		t.Fatalf("docs/discord-dev-setup.md doesn't show the invite link %q", documented)
 	}
-	if expected := "https://discord.com/oauth2/authorize?client_id=123456789012345678&scope=bot+applications.commands&permissions=8590019584"; InviteURL("123456789012345678") != expected {
+	if expected := "https://discord.com/oauth2/authorize?client_id=123456789012345678&scope=bot+applications.commands&permissions=8589954048"; InviteURL("123456789012345678") != expected {
 		t.Fatalf("InviteURL = %q, want %q", InviteURL("123456789012345678"), expected)
 	}
 }

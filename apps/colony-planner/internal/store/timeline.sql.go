@@ -12,12 +12,13 @@ import (
 )
 
 const createTimelineEvent = `-- name: CreateTimelineEvent :one
-INSERT INTO timeline_event (group_id, day, kind, title, body, visibility, deltas, data, created_by, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, clock_timestamp())
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at
+INSERT INTO timeline_event (campaign_id, group_id, day, kind, title, body, visibility, deltas, data, created_by, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, clock_timestamp())
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id
 `
 
 type CreateTimelineEventParams struct {
+	CampaignID uuid.UUID
 	GroupID    *uuid.UUID
 	Day        int32
 	Kind       string
@@ -34,6 +35,7 @@ type CreateTimelineEventParams struct {
 // tell news from older entries that slid into the recent list (web/src/lib/colony.ts).
 func (q *Queries) CreateTimelineEvent(ctx context.Context, arg CreateTimelineEventParams) (TimelineEvent, error) {
 	row := q.db.QueryRow(ctx, createTimelineEvent,
+		arg.CampaignID,
 		arg.GroupID,
 		arg.Day,
 		arg.Kind,
@@ -60,17 +62,23 @@ func (q *Queries) CreateTimelineEvent(ctx context.Context, arg CreateTimelineEve
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.EditedAt,
+		&i.CampaignID,
 	)
 	return i, err
 }
 
 const deleteCustomTimelineEvent = `-- name: DeleteCustomTimelineEvent :execrows
-DELETE FROM timeline_event WHERE id = $1 AND kind = 'CUSTOM'
+DELETE FROM timeline_event WHERE campaign_id = $1 AND id = $2 AND kind = 'CUSTOM'
 `
 
+type DeleteCustomTimelineEventParams struct {
+	CampaignID uuid.UUID
+	ID         uuid.UUID
+}
+
 // Auto-logged entries are never deleted; only CUSTOM ones (spec §5.8).
-func (q *Queries) DeleteCustomTimelineEvent(ctx context.Context, id uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteCustomTimelineEvent, id)
+func (q *Queries) DeleteCustomTimelineEvent(ctx context.Context, arg DeleteCustomTimelineEventParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCustomTimelineEvent, arg.CampaignID, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -78,12 +86,18 @@ func (q *Queries) DeleteCustomTimelineEvent(ctx context.Context, id uuid.UUID) (
 }
 
 const getTimelineEvent = `-- name: GetTimelineEvent :one
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at FROM timeline_event WHERE id = $1
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id FROM timeline_event WHERE campaign_id = $1 AND id = $2
 `
 
-// DM reads only (edits, record cargo): no projection.
-func (q *Queries) GetTimelineEvent(ctx context.Context, id uuid.UUID) (TimelineEvent, error) {
-	row := q.db.QueryRow(ctx, getTimelineEvent, id)
+type GetTimelineEventParams struct {
+	CampaignID uuid.UUID
+	ID         uuid.UUID
+}
+
+// DM reads only (edits, record cargo): no projection. An ID from a request body or from jsonb is
+// loaded here with the viewer's campaign, so another campaign's entry is simply not found.
+func (q *Queries) GetTimelineEvent(ctx context.Context, arg GetTimelineEventParams) (TimelineEvent, error) {
+	row := q.db.QueryRow(ctx, getTimelineEvent, arg.CampaignID, arg.ID)
 	var i TimelineEvent
 	err := row.Scan(
 		&i.ID,
@@ -100,25 +114,28 @@ func (q *Queries) GetTimelineEvent(ctx context.Context, id uuid.UUID) (TimelineE
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.EditedAt,
+		&i.CampaignID,
 	)
 	return i, err
 }
 
 const listRecentTimelineEvents = `-- name: ListRecentTimelineEvents :many
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at FROM timeline_event
-WHERE $1::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL)
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id FROM timeline_event
+WHERE campaign_id = $1
+  AND ($2::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL))
 ORDER BY sequence DESC
-LIMIT $2
+LIMIT $3
 `
 
 type ListRecentTimelineEventsParams struct {
+	CampaignID   uuid.UUID
 	DmProjection bool
 	EntryLimit   int32
 }
 
 // The newest entries in the order they were written, for the board and the live toasts.
 func (q *Queries) ListRecentTimelineEvents(ctx context.Context, arg ListRecentTimelineEventsParams) ([]TimelineEvent, error) {
-	rows, err := q.db.Query(ctx, listRecentTimelineEvents, arg.DmProjection, arg.EntryLimit)
+	rows, err := q.db.Query(ctx, listRecentTimelineEvents, arg.CampaignID, arg.DmProjection, arg.EntryLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +158,7 @@ func (q *Queries) ListRecentTimelineEvents(ctx context.Context, arg ListRecentTi
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.EditedAt,
+			&i.CampaignID,
 		); err != nil {
 			return nil, err
 		}
@@ -154,13 +172,15 @@ func (q *Queries) ListRecentTimelineEvents(ctx context.Context, arg ListRecentTi
 
 const listTimelineEvents = `-- name: ListTimelineEvents :many
 
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at FROM timeline_event
-WHERE day BETWEEN $1 AND $2
-  AND ($3::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL))
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id FROM timeline_event
+WHERE campaign_id = $1
+  AND day BETWEEN $2 AND $3
+  AND ($4::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL))
 ORDER BY day, created_at, sequence
 `
 
 type ListTimelineEventsParams struct {
+	CampaignID   uuid.UUID
 	FromDay      int32
 	ToDay        int32
 	DmProjection bool
@@ -169,7 +189,12 @@ type ListTimelineEventsParams struct {
 // Player projection: PUBLIC entries that have not been undone. core passes viewer.SeesDmFields() as
 // dm_projection (never IsDM), so the DM viewing as player gets the player projection (spec §2.2).
 func (q *Queries) ListTimelineEvents(ctx context.Context, arg ListTimelineEventsParams) ([]TimelineEvent, error) {
-	rows, err := q.db.Query(ctx, listTimelineEvents, arg.FromDay, arg.ToDay, arg.DmProjection)
+	rows, err := q.db.Query(ctx, listTimelineEvents,
+		arg.CampaignID,
+		arg.FromDay,
+		arg.ToDay,
+		arg.DmProjection,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +217,7 @@ func (q *Queries) ListTimelineEvents(ctx context.Context, arg ListTimelineEvents
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.EditedAt,
+			&i.CampaignID,
 		); err != nil {
 			return nil, err
 		}
@@ -206,13 +232,18 @@ func (q *Queries) ListTimelineEvents(ctx context.Context, arg ListTimelineEvents
 const markTimelineGroupUndone = `-- name: MarkTimelineGroupUndone :many
 UPDATE timeline_event
 SET undone_at = now()
-WHERE group_id = $1::uuid AND undone_at IS NULL
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at
+WHERE campaign_id = $1 AND group_id = $2::uuid AND undone_at IS NULL
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id
 `
 
-// Undo keeps the entries and marks them (spec §5.1).
-func (q *Queries) MarkTimelineGroupUndone(ctx context.Context, groupID uuid.UUID) ([]TimelineEvent, error) {
-	rows, err := q.db.Query(ctx, markTimelineGroupUndone, groupID)
+type MarkTimelineGroupUndoneParams struct {
+	CampaignID uuid.UUID
+	GroupID    uuid.UUID
+}
+
+// Undo keeps the entries and marks them (spec §5.1). The group comes from colony.last_change.
+func (q *Queries) MarkTimelineGroupUndone(ctx context.Context, arg MarkTimelineGroupUndoneParams) ([]TimelineEvent, error) {
+	rows, err := q.db.Query(ctx, markTimelineGroupUndone, arg.CampaignID, arg.GroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +266,7 @@ func (q *Queries) MarkTimelineGroupUndone(ctx context.Context, groupID uuid.UUID
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.EditedAt,
+			&i.CampaignID,
 		); err != nil {
 			return nil, err
 		}
@@ -248,19 +280,21 @@ func (q *Queries) MarkTimelineGroupUndone(ctx context.Context, groupID uuid.UUID
 
 const nextTimelineDay = `-- name: NextTimelineDay :one
 SELECT day FROM timeline_event
-WHERE day > $1
-  AND ($2::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL))
+WHERE campaign_id = $1
+  AND day > $2
+  AND ($3::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL))
 ORDER BY day
 LIMIT 1
 `
 
 type NextTimelineDayParams struct {
+	CampaignID   uuid.UUID
 	AfterDay     int32
 	DmProjection bool
 }
 
 func (q *Queries) NextTimelineDay(ctx context.Context, arg NextTimelineDayParams) (int32, error) {
-	row := q.db.QueryRow(ctx, nextTimelineDay, arg.AfterDay, arg.DmProjection)
+	row := q.db.QueryRow(ctx, nextTimelineDay, arg.CampaignID, arg.AfterDay, arg.DmProjection)
 	var day int32
 	err := row.Scan(&day)
 	return day, err
@@ -268,20 +302,22 @@ func (q *Queries) NextTimelineDay(ctx context.Context, arg NextTimelineDayParams
 
 const previousTimelineDay = `-- name: PreviousTimelineDay :one
 SELECT day FROM timeline_event
-WHERE day < $1
-  AND ($2::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL))
+WHERE campaign_id = $1
+  AND day < $2
+  AND ($3::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL))
 ORDER BY day DESC
 LIMIT 1
 `
 
 type PreviousTimelineDayParams struct {
+	CampaignID   uuid.UUID
 	BeforeDay    int32
 	DmProjection bool
 }
 
 // The nearest day before a page that has an entry this viewer may see, so paging skips empty weeks.
 func (q *Queries) PreviousTimelineDay(ctx context.Context, arg PreviousTimelineDayParams) (int32, error) {
-	row := q.db.QueryRow(ctx, previousTimelineDay, arg.BeforeDay, arg.DmProjection)
+	row := q.db.QueryRow(ctx, previousTimelineDay, arg.CampaignID, arg.BeforeDay, arg.DmProjection)
 	var day int32
 	err := row.Scan(&day)
 	return day, err
@@ -294,8 +330,8 @@ SET day = $1,
     body = $3,
     visibility = $4,
     edited_at = now()
-WHERE id = $5
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at
+WHERE campaign_id = $5 AND id = $6
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id
 `
 
 type UpdateTimelineEventParams struct {
@@ -303,6 +339,7 @@ type UpdateTimelineEventParams struct {
 	Title      string
 	Body       string
 	Visibility TimelineVisibility
+	CampaignID uuid.UUID
 	ID         uuid.UUID
 }
 
@@ -314,6 +351,7 @@ func (q *Queries) UpdateTimelineEvent(ctx context.Context, arg UpdateTimelineEve
 		arg.Title,
 		arg.Body,
 		arg.Visibility,
+		arg.CampaignID,
 		arg.ID,
 	)
 	var i TimelineEvent
@@ -332,6 +370,7 @@ func (q *Queries) UpdateTimelineEvent(ctx context.Context, arg UpdateTimelineEve
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.EditedAt,
+		&i.CampaignID,
 	)
 	return i, err
 }

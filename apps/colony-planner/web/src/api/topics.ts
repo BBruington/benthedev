@@ -3,9 +3,13 @@ import type { Schemas } from "./client";
 import {
 	adjustPreviewQueryKeyPrefix,
 	advancePreviewQueryKeyPrefix,
+	campaignMeQuery,
 	colonyBoardQuery,
+	discordChannelsQuery,
+	inviteLinkQuery,
 	membersQuery,
 	meQuery,
+	myCampaignsQuery,
 	recentTimelineQuery,
 	resourcesQuery,
 	settingsQuery,
@@ -15,34 +19,54 @@ import {
 export type Topic = Schemas["Topic"];
 
 /**
- * Which cached reads each live-update topic makes stale. The Record type makes a topic added on the
- * server fail typechecking here until it is mapped.
+ * Which cached reads each live-update topic makes stale, for one campaign: a campaign's stream speaks
+ * only for that campaign, so every key holds its ID. The Record type makes a topic added on the server
+ * fail typechecking here until it is mapped.
  */
-export const topicQueryKeys: Record<Topic, readonly QueryKey[]> = {
-	// A preview is only valid for the version it saw, so any colony change makes it stale.
-	colony: [colonyBoardQuery.queryKey, advancePreviewQueryKeyPrefix, adjustPreviewQueryKeyPrefix],
-	me: [meQuery.queryKey],
-	members: [membersQuery.queryKey],
-	resources: [resourcesQuery.queryKey],
-	settings: [settingsQuery.queryKey],
-	timeline: [timelineQueryKeyPrefix, recentTimelineQuery.queryKey],
-};
+export function topicQueryKeys(campaignId: string): Record<Topic, readonly QueryKey[]> {
+	return {
+		// A preview is only valid for the version it saw, so any colony change makes it stale.
+		colony: [
+			colonyBoardQuery(campaignId).queryKey,
+			advancePreviewQueryKeyPrefix(campaignId),
+			adjustPreviewQueryKeyPrefix(campaignId),
+		],
+		// The caller's own membership or session changed: their status here, the picker's card, and
+		// view as player (a session toggle that the account read carries too).
+		me: [campaignMeQuery(campaignId).queryKey, myCampaignsQuery.queryKey, meQuery.queryKey],
+		members: [membersQuery(campaignId).queryKey],
+		resources: [resourcesQuery(campaignId).queryKey],
+		// The Discord card and its channel list live under settings; so does the campaign name.
+		settings: [
+			settingsQuery(campaignId).queryKey,
+			inviteLinkQuery(campaignId).queryKey,
+			discordChannelsQuery(campaignId).queryKey,
+			campaignMeQuery(campaignId).queryKey,
+			myCampaignsQuery.queryKey,
+		],
+		timeline: [timelineQueryKeyPrefix(campaignId), recentTimelineQuery(campaignId).queryKey],
+	};
+}
 
-function isKnownTopic(topic: string): topic is Topic {
-	return Object.hasOwn(topicQueryKeys, topic);
+function isKnownTopic(topic: string, known: Record<Topic, readonly QueryKey[]>): topic is Topic {
+	return Object.hasOwn(known, topic);
 }
 
 /**
- * The key prefixes to invalidate for a message's topics. A topic this build doesn't know (a newer
- * server) can only be handled safely by refetching everything.
+ * The key prefixes to invalidate for a message's topics in one campaign. A topic this build doesn't
+ * know (a newer server) can only be handled safely by refetching everything.
  */
-export function queryKeysForTopics(topics: readonly string[]): readonly QueryKey[] | "everything" {
+export function queryKeysForTopics(
+	campaignId: string,
+	topics: readonly string[],
+): readonly QueryKey[] | "everything" {
+	const known = topicQueryKeys(campaignId);
 	const keys: QueryKey[] = [];
 	for (const topic of topics) {
-		if (!isKnownTopic(topic)) {
+		if (!isKnownTopic(topic, known)) {
 			return "everything";
 		}
-		keys.push(...topicQueryKeys[topic]);
+		keys.push(...known[topic]);
 	}
 	return keys;
 }

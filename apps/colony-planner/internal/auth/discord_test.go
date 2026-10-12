@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/BBruington/colony-planner/internal/core"
-	"github.com/BBruington/colony-planner/internal/store"
 )
 
 const (
@@ -146,7 +145,9 @@ func expectRedirect(t *testing.T, response *httptest.ResponseRecorder, location 
 	}
 }
 
-func TestDiscordSignInCreatesAPendingMemberAndPingsOnce(t *testing.T) {
+// A first Discord sign-in only creates the account (docs/design/multi-campaign.md §5.3): it joins no
+// campaign and pings nobody. Joining is by invite link.
+func TestDiscordSignInCreatesAnAccountAndPingsNobody(t *testing.T) {
 	harness, discord := newDiscordHarness(t, "http://localhost:5173")
 	discord.addUser("first-code", "300000000000000003", "brielle", "Brielle", "abc123")
 
@@ -166,84 +167,86 @@ func TestDiscordSignInCreatesAPendingMemberAndPingsOnce(t *testing.T) {
 		t.Errorf("session cookie Max-Age = %d, want about 30 days", sessionCookie.MaxAge)
 	}
 
-	viewer, signedIn := harness.viewerFor(sessionCookie)
-	if !signedIn || viewer.Status != store.MemberStatusPENDING || viewer.IsDM {
-		t.Fatalf("viewer = %+v, signed in %v; want a pending non-DM", viewer, signedIn)
+	caller, signedIn := harness.callerFor(sessionCookie)
+	if !signedIn || caller.IsSiteOwner || caller.DiscordUserID != "300000000000000003" {
+		t.Fatalf("caller = %+v, signed in %v; want a non-owner account", caller, signedIn)
 	}
-	member, err := store.New(harness.database.Pool).GetMember(context.Background(), viewer.MemberID)
+	me, err := harness.core.AccountMe(context.Background(), caller)
 	if err != nil {
-		t.Fatalf("load member: %v", err)
+		t.Fatalf("load account: %v", err)
 	}
-	if member.DisplayName != "Brielle" || member.DiscordUsername != "brielle" || member.AvatarUrl == nil ||
-		*member.AvatarUrl != "https://cdn.discordapp.com/avatars/300000000000000003/abc123.png?size=128" {
-		t.Fatalf("member from Discord = %+v", member)
+	if me.DisplayName != "Brielle" || me.DiscordUsername != "brielle" || me.AvatarURL == nil ||
+		*me.AvatarURL != "https://cdn.discordapp.com/avatars/300000000000000003/abc123.png?size=128" {
+		t.Fatalf("account from Discord = %+v", me)
 	}
-	if harness.notifier.count() != 1 {
-		t.Fatalf("pings = %d, want 1", harness.notifier.count())
+	if len(harness.memberships(caller)) != 0 || harness.notifier.count() != 0 {
+		t.Fatalf("a first sign-in joined %v or pinged %d times; it only creates the account", harness.memberships(caller), harness.notifier.count())
 	}
 
-	// Signing in again keeps the status, refreshes the name, and pings nobody.
+	// Signing in again refreshes the name and makes no second account.
 	discord.addUser("second-code", "300000000000000003", "brielle", nil, nil)
-	expectRedirect(t, harness.signInWithDiscord("second-code"), "/")
-	if harness.notifier.count() != 1 {
-		t.Fatalf("signing in again pinged the DM: %d pings", harness.notifier.count())
+	again := harness.signInWithDiscord("second-code")
+	expectRedirect(t, again, "/")
+	returning, _ := harness.callerFor(responseCookie(again, "colony_session"))
+	me, _ = harness.core.AccountMe(context.Background(), returning)
+	if returning.AccountID != caller.AccountID || me.DisplayName != "brielle" || me.AvatarURL != nil {
+		t.Fatalf("returning account = %+v", me)
 	}
-	member, _ = store.New(harness.database.Pool).GetMember(context.Background(), viewer.MemberID)
-	if member.Status != store.MemberStatusPENDING || member.DisplayName != "brielle" || member.AvatarUrl != nil {
-		t.Fatalf("returning member = %+v", member)
-	}
-	if harness.countMembers() != 1 {
-		t.Fatalf("signing in again created another member")
+	if harness.countAccounts() != 1 {
+		t.Fatalf("signing in again created another account")
 	}
 }
 
-func TestDiscordSignInMakesTheDmActive(t *testing.T) {
+func TestDiscordSignInRecognizesTheSiteOwner(t *testing.T) {
 	harness, discord := newDiscordHarness(t, "http://localhost:5173")
-	discord.addUser("dm-code", testDmDiscordID, "thedm", "The DM", nil)
+	discord.addUser("owner-code", testOwnerDiscordID, "owner", "The Owner", nil)
 
-	response := harness.signInWithDiscord("dm-code")
+	response := harness.signInWithDiscord("owner-code")
 	expectRedirect(t, response, "/")
-	viewer, signedIn := harness.viewerFor(responseCookie(response, "colony_session"))
-	if !signedIn || !viewer.IsDM || viewer.Status != store.MemberStatusACTIVE {
-		t.Fatalf("the DM's viewer = %+v", viewer)
+	caller, signedIn := harness.callerFor(responseCookie(response, "colony_session"))
+	if !signedIn || !caller.IsSiteOwner {
+		t.Fatalf("the owner's caller = %+v", caller)
 	}
-	if harness.notifier.count() != 0 {
-		t.Fatal("the DM signing in pinged the DM channel")
+	if len(harness.memberships(caller)) != 0 {
+		t.Fatal("being the site owner made a membership")
 	}
 }
 
+// A membership's status is per campaign and signing in never changes it: a removed member signs in to
+// their account and is still REMOVED there, with no ping.
 func TestDiscordSignInKeepsRemovedMembersOut(t *testing.T) {
 	harness, discord := newDiscordHarness(t, "http://localhost:5173")
-	removed := harness.createMember("300000000000000004", "Gus", store.MemberStatusREMOVED)
+	dm := harness.createAccount("300000000000000001", "Dee")
+	campaignID, inviteCode := harness.createCampaign(dm, "Campaign", "campaign")
+	removed := harness.createAccount("300000000000000004", "Gus")
+	testContext := context.Background()
+	joined, err := harness.core.JoinByInvite(testContext, removed, inviteCode)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	dmViewer, err := harness.core.EnterCampaign(testContext, dm, campaignID)
+	if err != nil {
+		t.Fatalf("enter: %v", err)
+	}
+	if _, err := harness.core.DenyMember(testContext, dmViewer, joined.MemberID); err != nil {
+		t.Fatalf("deny: %v", err)
+	}
+	pings := harness.notifier.count()
 	discord.addUser("removed-code", removed.DiscordUserID, "gus", "Gus", nil)
 
 	response := harness.signInWithDiscord("removed-code")
 	expectRedirect(t, response, "/")
-	viewer, signedIn := harness.viewerFor(responseCookie(response, "colony_session"))
-	if !signedIn || viewer.MemberID != removed.ID || viewer.Status != store.MemberStatusREMOVED {
-		t.Fatalf("a removed member's viewer = %+v; want their own REMOVED member", viewer)
+	caller, signedIn := harness.callerFor(responseCookie(response, "colony_session"))
+	if !signedIn || caller.AccountID != removed.AccountID {
+		t.Fatalf("a removed member's caller = %+v; want their own account", caller)
 	}
-	if harness.notifier.count() != 0 {
+	memberships := harness.memberships(caller)
+	if len(memberships) != 1 || memberships[0].Status != core.MemberStatusRemoved {
+		t.Fatalf("after signing in again = %+v; want still REMOVED", memberships)
+	}
+	if harness.notifier.count() != pings {
 		t.Fatal("a removed member signing in again pinged the DM")
 	}
-}
-
-func TestDiscordSignInStopsAtThePendingCap(t *testing.T) {
-	harness, discord := newDiscordHarness(t, "http://localhost:5173")
-	for index := range core.PendingMemberLimit {
-		harness.createMember(fmt.Sprintf("40000000000000%04d", index), fmt.Sprintf("Waiting %d", index), store.MemberStatusPENDING)
-	}
-	discord.addUser("late-code", "300000000000000005", "late", "Late", nil)
-	discord.addUser("dm-code", testDmDiscordID, "thedm", "The DM", nil)
-
-	expectRedirect(t, harness.signInWithDiscord("late-code"), "/login?error=full")
-	if harness.countMembers() != int64(core.PendingMemberLimit) {
-		t.Fatal("a sign-in past the pending cap created a member")
-	}
-	if harness.notifier.count() != 0 {
-		t.Fatal("a refused sign-in pinged the DM")
-	}
-	expectRedirect(t, harness.signInWithDiscord("dm-code"), "/")
 }
 
 func TestDiscordCallbackRefusals(t *testing.T) {
@@ -270,8 +273,8 @@ func TestDiscordCallbackRefusals(t *testing.T) {
 			}
 		})
 	}
-	if harness.countMembers() != 0 {
-		t.Fatal("a refused callback created a member")
+	if harness.countAccounts() != 0 {
+		t.Fatal("a refused callback created an account")
 	}
 }
 
@@ -293,9 +296,9 @@ func TestDiscordSignInOverHTTPSUsesHostPrefixedSecureCookies(t *testing.T) {
 		t.Fatalf("state cookie over https: %+v", stateCookie)
 	}
 
-	member := harness.createMember("300000000000000007", "Ana", store.MemberStatusACTIVE)
+	account := harness.createAccount("300000000000000007", "Ana")
 	recorder := httptest.NewRecorder()
-	session, err := harness.core.CreateSession(context.Background(), member.ID)
+	session, err := harness.core.CreateSession(context.Background(), account.AccountID)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

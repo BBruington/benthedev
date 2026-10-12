@@ -1,7 +1,6 @@
 package core_test
 
 import (
-	"context"
 	"slices"
 	"strings"
 	"sync"
@@ -9,48 +8,28 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/BBruington/colony-planner/db/dbtest"
 	"github.com/BBruington/colony-planner/internal/core"
 	"github.com/BBruington/colony-planner/internal/store"
 )
 
-// colonyTest is a fresh colony with the DM and one active player. The rules themselves are tested
+// colonyTest is a fresh campaign with its DM and one active player. The rules themselves are tested
 // in internal/game (spec §5.12); these tests cover the write path around them: the version check,
 // the timeline, undo and the projections.
 type colonyTest struct {
-	t        *testing.T
-	context  context.Context
-	service  *core.Service
-	database *dbtest.Database
-	dm       core.Viewer
-	player   core.Viewer
+	*fixture
+	campaignID uuid.UUID
+	dmCaller   core.Caller
+	dm         core.Viewer
+	player     core.Viewer
 }
 
 func newColonyTest(t *testing.T) *colonyTest {
 	t.Helper()
-	service, database, _, _ := newService(t)
-	testContext := context.Background()
-	dmID, err := service.SignIn(testContext, core.DiscordIdentity{UserID: testDmDiscordID, Username: "dm"})
-	if err != nil {
-		t.Fatalf("sign in the DM: %v", err)
-	}
-	player, err := store.New(database.Pool).CreateMember(testContext, store.CreateMemberParams{
-		DiscordUserID:   "seed:ana",
-		DiscordUsername: "ana",
-		DisplayName:     "Ana",
-		Status:          store.MemberStatusACTIVE,
-	})
-	if err != nil {
-		t.Fatalf("create a player: %v", err)
-	}
-	return &colonyTest{
-		t:        t,
-		context:  testContext,
-		service:  service,
-		database: database,
-		dm:       service.NewViewer(core.ViewerIdentity{MemberID: dmID, DiscordUserID: testDmDiscordID}),
-		player:   service.NewViewer(core.ViewerIdentity{MemberID: player.ID, DiscordUserID: player.DiscordUserID, Status: player.Status}),
-	}
+	test := newFixture(t)
+	dmCaller := test.caller("600000000000000006", "dm")
+	campaignID, dm := test.campaign(dmCaller, "Sample", "sample")
+	_, player := test.player(dm, "seed:ana", "ana", true)
+	return &colonyTest{fixture: test, campaignID: campaignID, dmCaller: dmCaller, dm: dm, player: player}
 }
 
 func (test *colonyTest) board() core.ColonyBoard {
@@ -77,7 +56,7 @@ func (test *colonyTest) amount(key string) int64 {
 func (test *colonyTest) setHeadcounts(counts map[string]int32) {
 	test.t.Helper()
 	for key, count := range counts {
-		if err := store.New(test.database.Pool).SetRoleUnnamedCount(test.context, store.SetRoleUnnamedCountParams{Key: key, UnnamedCount: count}); err != nil {
+		if err := store.New(test.database.Pool).SetRoleUnnamedCount(test.context, store.SetRoleUnnamedCountParams{CampaignID: test.campaignID, Key: key, UnnamedCount: count}); err != nil {
 			test.t.Fatalf("set %s headcount: %v", key, err)
 		}
 	}
@@ -477,8 +456,9 @@ func TestTimelineProjection(t *testing.T) {
 	undone := test.advance(1)
 	test.must(test.service.UndoLastChange(test.context, test.dm, core.UndoInput{GroupID: undone.GroupID}))
 
-	dmAsPlayer := test.dm
-	dmAsPlayer.ViewAsPlayer = true
+	viewingAsPlayer := test.dmCaller
+	viewingAsPlayer.ViewAsPlayer = true
+	dmAsPlayer := test.enter(viewingAsPlayer, test.campaignID)
 	for name, viewer := range map[string]core.Viewer{"player": test.player, "DM viewing as player": dmAsPlayer} {
 		entries := test.timeline(viewer, 0, 6)
 		recent, err := test.service.RecentTimeline(test.context, viewer)

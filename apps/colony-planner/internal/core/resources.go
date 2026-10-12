@@ -58,7 +58,7 @@ func (service *Service) ListResources(requestContext context.Context, viewer Vie
 	if err := requireDm(viewer); err != nil {
 		return ResourceList{}, err
 	}
-	rows, err := service.queries.ListResources(requestContext)
+	rows, err := service.queries.ListResources(requestContext, viewer.campaignID)
 	if err != nil {
 		return ResourceList{}, err
 	}
@@ -88,35 +88,36 @@ func (service *Service) CreateResource(requestContext context.Context, viewer Vi
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Not a colony mutation, but the colony row is still locked first: one lock order (spec §5.1),
 		// and two adds of the same label can't race for one key.
-		if _, err := queries.GetColonyForUpdate(requestContext); err != nil {
-			return err
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
 		}
-		existing, err := queries.ListResources(requestContext)
+		existing, err := queries.ListResources(requestContext, viewer.campaignID)
 		if err != nil {
 			return err
 		}
 		if fieldError := labelTaken(label, "", existing); fieldError != nil {
 			return Invalid("The resource needs fixing.", *fieldError)
 		}
-		sortOrder, err := queries.NextResourceSortOrder(requestContext)
+		sortOrder, err := queries.NextResourceSortOrder(requestContext, viewer.campaignID)
 		if err != nil {
 			return err
 		}
 		row, err = queries.CreateResource(requestContext, store.CreateResourceParams{
-			Key:       resourceKeyFor(label, existing),
-			Label:     label,
-			Icon:      input.Icon,
-			Amount:    int32(startingAmount(input.MinAmount, input.MaxAmount)),
-			MinAmount: int32(input.MinAmount),
-			MaxAmount: int32PointerOf(input.MaxAmount),
-			SortOrder: sortOrder,
+			CampaignID: viewer.campaignID,
+			Key:        resourceKeyFor(label, existing),
+			Label:      label,
+			Icon:       input.Icon,
+			Amount:     int32(startingAmount(input.MinAmount, input.MaxAmount)),
+			MinAmount:  int32(input.MinAmount),
+			MaxAmount:  int32PointerOf(input.MaxAmount),
+			SortOrder:  sortOrder,
 		})
 		return err
 	})
 	if err != nil {
 		return ResourceSettings{}, err
 	}
-	service.broker.Publish(TopicResources, TopicColony)
+	service.broker.Publish(viewer.campaignID, TopicResources, TopicColony)
 	return toResourceSettings(row), nil
 }
 
@@ -135,10 +136,11 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 	var row store.Resource
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first so no colony mutation changes the amount between the bounds check and the save.
-		if _, err := queries.GetColonyForUpdate(requestContext); err != nil {
-			return err
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
 		}
-		existing, err := queries.ListResources(requestContext)
+		// The key comes from the path: only this campaign's resources are looked at.
+		existing, err := queries.ListResources(requestContext, viewer.campaignID)
 		if err != nil {
 			return err
 		}
@@ -167,20 +169,21 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 			return Invalid("The resource needs fixing.", fieldErrors...)
 		}
 		row, err = queries.UpdateResource(requestContext, store.UpdateResourceParams{
-			Key:       resourceKey,
-			Label:     label,
-			Icon:      input.Icon,
-			MinAmount: int32(input.MinAmount),
-			MaxAmount: int32PointerOf(input.MaxAmount),
-			SortOrder: int32(input.SortOrder),
-			Archived:  input.Archived,
+			CampaignID: viewer.campaignID,
+			Key:        resourceKey,
+			Label:      label,
+			Icon:       input.Icon,
+			MinAmount:  int32(input.MinAmount),
+			MaxAmount:  int32PointerOf(input.MaxAmount),
+			SortOrder:  int32(input.SortOrder),
+			Archived:   input.Archived,
 		})
 		return err
 	})
 	if err != nil {
 		return ResourceSettings{}, err
 	}
-	service.broker.Publish(TopicResources, TopicColony)
+	service.broker.Publish(viewer.campaignID, TopicResources, TopicColony)
 	return toResourceSettings(row), nil
 }
 

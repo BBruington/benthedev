@@ -7,26 +7,30 @@ package store
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const createResource = `-- name: CreateResource :one
-INSERT INTO resource (key, label, icon, amount, min_amount, max_amount, sort_order)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived
+INSERT INTO resource (campaign_id, key, label, icon, amount, min_amount, max_amount, sort_order)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id
 `
 
 type CreateResourceParams struct {
-	Key       string
-	Label     string
-	Icon      ColonyIcon
-	Amount    int32
-	MinAmount int32
-	MaxAmount *int32
-	SortOrder int32
+	CampaignID uuid.UUID
+	Key        string
+	Label      string
+	Icon       ColonyIcon
+	Amount     int32
+	MinAmount  int32
+	MaxAmount  *int32
+	SortOrder  int32
 }
 
 func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) (Resource, error) {
 	row := q.db.QueryRow(ctx, createResource,
+		arg.CampaignID,
 		arg.Key,
 		arg.Label,
 		arg.Icon,
@@ -46,60 +50,19 @@ func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) 
 		&i.SortOrder,
 		&i.IsSystem,
 		&i.Archived,
-	)
-	return i, err
-}
-
-const getResource = `-- name: GetResource :one
-SELECT key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived FROM resource WHERE key = $1
-`
-
-func (q *Queries) GetResource(ctx context.Context, key string) (Resource, error) {
-	row := q.db.QueryRow(ctx, getResource, key)
-	var i Resource
-	err := row.Scan(
-		&i.Key,
-		&i.Label,
-		&i.Icon,
-		&i.Amount,
-		&i.MinAmount,
-		&i.MaxAmount,
-		&i.SortOrder,
-		&i.IsSystem,
-		&i.Archived,
-	)
-	return i, err
-}
-
-const getResourceForUpdate = `-- name: GetResourceForUpdate :one
-SELECT key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived FROM resource WHERE key = $1 FOR UPDATE
-`
-
-func (q *Queries) GetResourceForUpdate(ctx context.Context, key string) (Resource, error) {
-	row := q.db.QueryRow(ctx, getResourceForUpdate, key)
-	var i Resource
-	err := row.Scan(
-		&i.Key,
-		&i.Label,
-		&i.Icon,
-		&i.Amount,
-		&i.MinAmount,
-		&i.MaxAmount,
-		&i.SortOrder,
-		&i.IsSystem,
-		&i.Archived,
+		&i.CampaignID,
 	)
 	return i, err
 }
 
 const listResources = `-- name: ListResources :many
-SELECT key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived FROM resource ORDER BY sort_order, key
+SELECT key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id FROM resource WHERE campaign_id = $1 ORDER BY sort_order, key
 `
 
 // Every resource, archived ones included, in board order. The board shows the unarchived ones;
 // rules load them all so history stays correct.
-func (q *Queries) ListResources(ctx context.Context) ([]Resource, error) {
-	rows, err := q.db.Query(ctx, listResources)
+func (q *Queries) ListResources(ctx context.Context, campaignID uuid.UUID) ([]Resource, error) {
+	rows, err := q.db.Query(ctx, listResources, campaignID)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +80,7 @@ func (q *Queries) ListResources(ctx context.Context) ([]Resource, error) {
 			&i.SortOrder,
 			&i.IsSystem,
 			&i.Archived,
+			&i.CampaignID,
 		); err != nil {
 			return nil, err
 		}
@@ -129,28 +93,29 @@ func (q *Queries) ListResources(ctx context.Context) ([]Resource, error) {
 }
 
 const nextResourceSortOrder = `-- name: NextResourceSortOrder :one
-SELECT (COALESCE(max(sort_order), 0) + 10)::integer FROM resource
+SELECT (COALESCE(max(sort_order), 0) + 10)::integer FROM resource WHERE campaign_id = $1
 `
 
-func (q *Queries) NextResourceSortOrder(ctx context.Context) (int32, error) {
-	row := q.db.QueryRow(ctx, nextResourceSortOrder)
+func (q *Queries) NextResourceSortOrder(ctx context.Context, campaignID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, nextResourceSortOrder, campaignID)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
 }
 
 const setResourceAmount = `-- name: SetResourceAmount :exec
-UPDATE resource SET amount = $1 WHERE key = $2
+UPDATE resource SET amount = $1 WHERE campaign_id = $2 AND key = $3
 `
 
 type SetResourceAmountParams struct {
-	Amount int32
-	Key    string
+	Amount     int32
+	CampaignID uuid.UUID
+	Key        string
 }
 
 // A colony mutation saves each changed amount; the CHECK keeps it within the bounds.
 func (q *Queries) SetResourceAmount(ctx context.Context, arg SetResourceAmountParams) error {
-	_, err := q.db.Exec(ctx, setResourceAmount, arg.Amount, arg.Key)
+	_, err := q.db.Exec(ctx, setResourceAmount, arg.Amount, arg.CampaignID, arg.Key)
 	return err
 }
 
@@ -162,18 +127,19 @@ SET label = $1,
     max_amount = $4,
     sort_order = $5,
     archived = $6
-WHERE key = $7
-RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived
+WHERE campaign_id = $7 AND key = $8
+RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id
 `
 
 type UpdateResourceParams struct {
-	Label     string
-	Icon      ColonyIcon
-	MinAmount int32
-	MaxAmount *int32
-	SortOrder int32
-	Archived  bool
-	Key       string
+	Label      string
+	Icon       ColonyIcon
+	MinAmount  int32
+	MaxAmount  *int32
+	SortOrder  int32
+	Archived   bool
+	CampaignID uuid.UUID
+	Key        string
 }
 
 // Replaces a resource's settings (PUT semantics). The amount changes only through colony mutations.
@@ -185,6 +151,7 @@ func (q *Queries) UpdateResource(ctx context.Context, arg UpdateResourceParams) 
 		arg.MaxAmount,
 		arg.SortOrder,
 		arg.Archived,
+		arg.CampaignID,
 		arg.Key,
 	)
 	var i Resource
@@ -198,6 +165,7 @@ func (q *Queries) UpdateResource(ctx context.Context, arg UpdateResourceParams) 
 		&i.SortOrder,
 		&i.IsSystem,
 		&i.Archived,
+		&i.CampaignID,
 	)
 	return i, err
 }

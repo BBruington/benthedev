@@ -2,16 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { switchProjection } from "./projection";
 
+const inCampaign = { params: { path: { campaignId: "campaign-a" } } };
 const meKey = ["get", "/api/me"];
-const recentKey = ["get", "/api/timeline/recent"];
+const campaignMeKey = ["get", "/api/campaigns/{campaignId}/me", inCampaign];
+const recentKey = ["get", "/api/campaigns/{campaignId}/timeline/recent", inCampaign];
 const offScreenPageKey = [
 	"get",
-	"/api/timeline",
-	{ params: { query: { fromDay: 15, toDay: 21 } } },
+	"/api/campaigns/{campaignId}/timeline",
+	{ params: { path: { campaignId: "campaign-a" }, query: { fromDay: 15, toDay: 21 } } },
 ];
-const membersKey = ["get", "/api/members"];
+const membersKey = ["get", "/api/campaigns/{campaignId}/members", inCampaign];
 
-// A cache as the DM left it: /api/me and the recent timeline on screen, and an older timeline page
+// A cache as the DM left it: both me reads and the recent timeline on screen, and an older timeline page
 // and a DM-only read cached.
 async function dmCache(fetched: string[]) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -21,6 +23,7 @@ async function dmCache(fetched: string[]) {
 	};
 	const observers = [
 		new QueryObserver(queryClient, { queryFn: reader("me"), queryKey: meKey }),
+		new QueryObserver(queryClient, { queryFn: reader("campaign me"), queryKey: campaignMeKey }),
 		new QueryObserver(queryClient, { queryFn: reader("recent"), queryKey: recentKey }),
 	];
 	for (const observer of observers) {
@@ -42,7 +45,8 @@ describe("switchProjection", () => {
 		const fetched: string[] = [];
 		const queryClient = await dmCache(fetched);
 		await switchProjection(queryClient, true);
-		expect(fetched).toEqual(["recent", "me"]);
+		expect(fetched[0]).toBe("recent");
+		expect(fetched.slice(1).sort()).toEqual(["campaign me", "me"]);
 		// A page cached in the DM view is dropped, so it can't open on the DM's entries.
 		expect(queryClient.getQueryData<string>(offScreenPageKey)).toBeUndefined();
 		// DM-only reads would answer 403 now; they wait for the DM view.
@@ -53,7 +57,8 @@ describe("switchProjection", () => {
 		const fetched: string[] = [];
 		const queryClient = await dmCache(fetched);
 		await switchProjection(queryClient, false);
-		expect(fetched).toEqual(["me", "recent"]);
+		expect(fetched.slice(0, 2).sort()).toEqual(["campaign me", "me"]);
+		expect(fetched[2]).toBe("recent");
 		expect(queryClient.getQueryData<string>(offScreenPageKey)).toBeUndefined();
 		expect(queryClient.getQueryData<string>(membersKey)).toBeUndefined();
 	});

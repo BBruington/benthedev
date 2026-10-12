@@ -29,7 +29,7 @@ const (
 	TopicResources Topic = "resources"
 )
 
-// InvalidateMessage is the data of every `event: invalidate` message on GET /api/stream.
+// InvalidateMessage is the data of every `event: invalidate` message on a campaign stream.
 type InvalidateMessage struct {
 	Topics []Topic `json:"topics"`
 }
@@ -54,10 +54,12 @@ const subscriptionBufferSize = 32
 // was away for more messages than this gets one invalidate for everything.
 const recentMessageLimit = 256
 
-// recipients is who a published message reached: every active stream, one member's streams or one
-// session's streams. It is kept with the message so a resume can tell what the reconnecting stream
-// would have heard.
+// recipients is who a published message reached, always within one campaign: every active stream
+// of the campaign, every stream of the campaign (a suspension), one membership's streams or one
+// session's streams there. It is kept with the message so a resume can tell what the reconnecting
+// stream would have heard.
 type recipients struct {
+	everyStream   bool
 	activeStreams bool
 	memberID      uuid.UUID
 	sessionKey    string
@@ -65,6 +67,8 @@ type recipients struct {
 
 func (scope recipients) include(subscription *Subscription) bool {
 	switch {
+	case scope.everyStream:
+		return true
 	case scope.activeStreams:
 		return subscription.active
 	case scope.sessionKey != "":
@@ -80,36 +84,52 @@ type publishedMessage struct {
 	recipients recipients
 }
 
+// campaignLog is one campaign's message history. Sequence numbers count only that campaign's
+// messages, so a player learns nothing of other campaigns' activity, and a busy campaign never pushes
+// another's messages out of its ring.
+type campaignLog struct {
+	sequence uint64
+	// recent holds the last recentMessageLimit published messages, oldest first, for resumes.
+	recent []publishedMessage
+}
+
 // Broker fans invalidations out to open streams. It lives in-process (single replica, spec §8.8) and
-// touches no database: reconnects and heartbeats cost nothing.
+// touches no database: reconnects and heartbeats cost nothing. Every stream belongs to one campaign,
+// and there is no unscoped broadcast.
 type Broker struct {
 	mutex         sync.Mutex
 	bootID        string
-	sequence      uint64
+	logs          map[uuid.UUID]*campaignLog
 	subscriptions map[*Subscription]struct{}
-	// recent holds the last recentMessageLimit published messages, oldest first, for resumes.
-	recent []publishedMessage
-	// memberActive is the newest status this process gave each member. A stream that subscribes with a
-	// Viewer read just before an approval or removal still gets the scope the member has now.
-	memberActive map[uuid.UUID]bool
+	// memberActive is the newest status this process gave each membership, and campaignActive the
+	// newest status of each campaign. A stream that subscribes with a Viewer read just before an
+	// approval, removal or suspension still gets the scope it has now.
+	memberActive   map[uuid.UUID]bool
+	campaignActive map[uuid.UUID]bool
 }
 
 func NewBroker() *Broker {
 	bootBytes := make([]byte, 6)
 	_, _ = rand.Read(bootBytes)
 	return &Broker{
-		bootID:        hex.EncodeToString(bootBytes),
-		subscriptions: map[*Subscription]struct{}{},
-		memberActive:  map[uuid.UUID]bool{},
+		bootID:         hex.EncodeToString(bootBytes),
+		logs:           map[uuid.UUID]*campaignLog{},
+		subscriptions:  map[*Subscription]struct{}{},
+		memberActive:   map[uuid.UUID]bool{},
+		campaignActive: map[uuid.UUID]bool{},
 	}
 }
 
-// Subscription is one open stream. Pending and removed members' streams are not active: they receive
-// only their own `me` topic.
+// Subscription is one open stream in one campaign. Pending and removed members' streams, and every
+// stream of a suspended campaign, are not active: they receive only their own `me` topic.
 type Subscription struct {
 	broker     *Broker
+	campaignID uuid.UUID
 	memberID   uuid.UUID
+	accountID  uuid.UUID
 	sessionKey string
+	memberOK   bool
+	campaignOK bool
 	active     bool
 	messages   chan StreamMessage
 	closed     chan struct{}
@@ -120,7 +140,8 @@ func (subscription *Subscription) Messages() <-chan StreamMessage {
 	return subscription.messages
 }
 
-// Closed is closed when the broker ends the stream: the member was removed, signed out, or fell behind.
+// Closed is closed when the broker ends the stream: the member signed out, the campaign was deleted,
+// or the stream fell behind.
 func (subscription *Subscription) Closed() <-chan struct{} {
 	return subscription.closed
 }
@@ -142,57 +163,80 @@ func (subscription *Subscription) visibleTopics(topics []Topic) []Topic {
 	return nil
 }
 
-func (broker *Broker) currentIDLocked() string {
-	return broker.bootID + "-" + strconv.FormatUint(broker.sequence, 10)
+func (subscription *Subscription) rescope() {
+	subscription.active = subscription.memberOK && subscription.campaignOK
 }
 
-// Subscribe registers a stream. With the newest message ID as lastEventID nothing happened, so
-// nothing is sent. With an older ID from this boot that the recent messages still reach back to, it
-// returns one invalidate for the topics this stream would have heard since then, or nothing when none
-// of those messages were for it (a view-as-player switch in the DM's browser, a message to another
-// member). Otherwise (no ID, another boot, too far behind) it returns one invalidate for everything
-// the stream may see.
-func (broker *Broker) Subscribe(viewer Viewer, lastEventID string) (*Subscription, *StreamMessage) {
+func (broker *Broker) logLocked(campaignID uuid.UUID) *campaignLog {
+	log, found := broker.logs[campaignID]
+	if !found {
+		log = &campaignLog{}
+		broker.logs[campaignID] = log
+	}
+	return log
+}
+
+func (broker *Broker) currentIDLocked(log *campaignLog) string {
+	return broker.bootID + "-" + strconv.FormatUint(log.sequence, 10)
+}
+
+// Subscribe registers a stream in the Viewer's campaign. With the campaign's newest message ID as
+// lastEventID nothing happened, so nothing is sent. With an older ID from this boot that the campaign's
+// recent messages still reach back to, it returns one invalidate for the topics this stream would have
+// heard since then, or nothing when none of those messages were for it. Otherwise (no ID, another boot,
+// too far behind) it returns one invalidate for everything the stream may see. The zero Viewer gets
+// nothing: there is no stream outside a campaign.
+func (broker *Broker) Subscribe(viewer Viewer, lastEventID string) (*Subscription, *StreamMessage, error) {
+	if err := requireMembership(viewer); err != nil {
+		return nil, nil, err
+	}
 	broker.mutex.Lock()
 	defer broker.mutex.Unlock()
-	active := viewer.IsActive()
-	if recorded, known := broker.memberActive[viewer.MemberID]; known && !viewer.IsDM {
-		active = recorded
-	}
 	subscription := &Subscription{
 		broker:     broker,
-		memberID:   viewer.MemberID,
-		sessionKey: string(viewer.SessionTokenHash),
-		active:     active,
+		campaignID: viewer.campaignID,
+		memberID:   viewer.memberID,
+		accountID:  viewer.accountID,
+		sessionKey: string(viewer.sessionTokenHash),
+		memberOK:   viewer.IsActive(),
+		campaignOK: viewer.CampaignActive(),
 		messages:   make(chan StreamMessage, subscriptionBufferSize),
 		closed:     make(chan struct{}),
 	}
+	if recorded, known := broker.memberActive[viewer.memberID]; known && !viewer.IsDM() {
+		subscription.memberOK = recorded
+	}
+	if recorded, known := broker.campaignActive[viewer.campaignID]; known {
+		subscription.campaignOK = recorded
+	}
+	subscription.rescope()
 	broker.subscriptions[subscription] = struct{}{}
 
-	currentID := broker.currentIDLocked()
+	log := broker.logLocked(viewer.campaignID)
+	currentID := broker.currentIDLocked(log)
 	if lastEventID == currentID {
-		return subscription, nil
+		return subscription, nil, nil
 	}
-	missed := subscription.visibleTopics(broker.missedTopicsLocked(subscription, lastEventID))
+	missed := subscription.visibleTopics(broker.missedTopicsLocked(log, subscription, lastEventID))
 	if len(missed) == 0 {
-		return subscription, nil
+		return subscription, nil, nil
 	}
-	return subscription, &StreamMessage{ID: currentID, Data: InvalidateMessage{Topics: missed}}
+	return subscription, &StreamMessage{ID: currentID, Data: InvalidateMessage{Topics: missed}}, nil
 }
 
 // missedTopicsLocked is the union of the topics published to this subscription's recipients after
-// lastEventID, or every topic when the recent messages can't answer that.
-func (broker *Broker) missedTopicsLocked(subscription *Subscription, lastEventID string) []Topic {
+// lastEventID, or every topic when the campaign's recent messages can't answer that.
+func (broker *Broker) missedTopicsLocked(log *campaignLog, subscription *Subscription, lastEventID string) []Topic {
 	bootID, sequenceText, found := strings.Cut(lastEventID, "-")
 	lastSequence, err := strconv.ParseUint(sequenceText, 10, 64)
-	if !found || err != nil || bootID != broker.bootID || lastSequence > broker.sequence {
+	if !found || err != nil || bootID != broker.bootID || lastSequence > log.sequence {
 		return AllTopics()
 	}
-	if len(broker.recent) == 0 || broker.recent[0].sequence > lastSequence+1 {
+	if len(log.recent) == 0 || log.recent[0].sequence > lastSequence+1 {
 		return AllTopics()
 	}
 	missed := map[Topic]bool{}
-	for _, message := range broker.recent {
+	for _, message := range log.recent {
 		if message.sequence > lastSequence && message.recipients.include(subscription) {
 			for _, topic := range message.topics {
 				missed[topic] = true
@@ -208,34 +252,52 @@ func (broker *Broker) missedTopicsLocked(subscription *Subscription, lastEventID
 	return topics
 }
 
-// Publish tells every active stream to refetch these topics. Pending and removed streams never hear
-// a broadcast.
-func (broker *Broker) Publish(topics ...Topic) {
-	broker.publish(topics, recipients{activeStreams: true})
+// Publish tells every active stream of one campaign to refetch these topics. Pending and removed
+// streams never hear a broadcast, and no other campaign hears anything.
+func (broker *Broker) Publish(campaignID uuid.UUID, topics ...Topic) {
+	broker.publish(campaignID, topics, recipients{activeStreams: true})
 }
 
-func (broker *Broker) publishToMember(memberID uuid.UUID, topics ...Topic) {
-	broker.publish(topics, recipients{memberID: memberID})
+func (broker *Broker) publishToMember(campaignID uuid.UUID, memberID uuid.UUID, topics ...Topic) {
+	broker.publish(campaignID, topics, recipients{memberID: memberID})
 }
 
+func (broker *Broker) publishToEveryStream(campaignID uuid.UUID, topics ...Topic) {
+	broker.publish(campaignID, topics, recipients{everyStream: true})
+}
+
+// publishToSession reaches one web session's streams in every campaign where it has one; the message
+// goes into each of those campaigns' logs.
 func (broker *Broker) publishToSession(tokenHash []byte, topics ...Topic) {
-	broker.publish(topics, recipients{sessionKey: string(tokenHash)})
+	sessionKey := string(tokenHash)
+	broker.mutex.Lock()
+	campaigns := map[uuid.UUID]bool{}
+	for subscription := range broker.subscriptions {
+		if subscription.sessionKey == sessionKey {
+			campaigns[subscription.campaignID] = true
+		}
+	}
+	broker.mutex.Unlock()
+	for campaignID := range campaigns {
+		broker.publish(campaignID, topics, recipients{sessionKey: sessionKey})
+	}
 }
 
-func (broker *Broker) publish(topics []Topic, scope recipients) {
-	if len(topics) == 0 {
+func (broker *Broker) publish(campaignID uuid.UUID, topics []Topic, scope recipients) {
+	if len(topics) == 0 || campaignID == uuid.Nil {
 		return
 	}
 	broker.mutex.Lock()
 	defer broker.mutex.Unlock()
-	broker.sequence++
-	messageID := broker.currentIDLocked()
-	if len(broker.recent) == recentMessageLimit {
-		broker.recent = slices.Delete(broker.recent, 0, 1)
+	log := broker.logLocked(campaignID)
+	log.sequence++
+	messageID := broker.currentIDLocked(log)
+	if len(log.recent) == recentMessageLimit {
+		log.recent = slices.Delete(log.recent, 0, 1)
 	}
-	broker.recent = append(broker.recent, publishedMessage{sequence: broker.sequence, topics: slices.Clone(topics), recipients: scope})
+	log.recent = append(log.recent, publishedMessage{sequence: log.sequence, topics: slices.Clone(topics), recipients: scope})
 	for subscription := range broker.subscriptions {
-		if !scope.include(subscription) {
+		if subscription.campaignID != campaignID || !scope.include(subscription) {
 			continue
 		}
 		visible := subscription.visibleTopics(topics)
@@ -250,21 +312,50 @@ func (broker *Broker) publish(topics []Topic, scope recipients) {
 	}
 }
 
-// memberStatusChanged rescopes a member's open streams after approve, deny, remove or re-admit.
+// memberStatusChanged rescopes a membership's open streams after approve, deny, remove, re-admit or
+// leave.
 func (broker *Broker) memberStatusChanged(memberID uuid.UUID, active bool) {
 	broker.mutex.Lock()
 	defer broker.mutex.Unlock()
 	broker.memberActive[memberID] = active
 	for subscription := range broker.subscriptions {
 		if subscription.memberID == memberID {
-			subscription.active = active
+			subscription.memberOK = active
+			subscription.rescope()
 		}
 	}
 }
 
-// CloseMember ends every stream of a member: removal and sign out everywhere.
-func (broker *Broker) CloseMember(memberID uuid.UUID) {
-	broker.closeWhere(func(subscription *Subscription) bool { return subscription.memberID == memberID })
+// campaignStatusChanged rescopes every stream of a campaign after suspend or unsuspend.
+func (broker *Broker) campaignStatusChanged(campaignID uuid.UUID, active bool) {
+	broker.mutex.Lock()
+	defer broker.mutex.Unlock()
+	broker.campaignActive[campaignID] = active
+	for subscription := range broker.subscriptions {
+		if subscription.campaignID == campaignID {
+			subscription.campaignOK = active
+			subscription.rescope()
+		}
+	}
+}
+
+// CloseCampaign ends every stream of a deleted campaign and drops its log; open tabs reconnect, get
+// 404 and show "No such campaign".
+func (broker *Broker) CloseCampaign(campaignID uuid.UUID) {
+	broker.mutex.Lock()
+	defer broker.mutex.Unlock()
+	for subscription := range broker.subscriptions {
+		if subscription.campaignID == campaignID {
+			broker.closeLocked(subscription)
+		}
+	}
+	delete(broker.logs, campaignID)
+	delete(broker.campaignActive, campaignID)
+}
+
+// CloseAccount ends every stream of an account in every campaign: sign out everywhere.
+func (broker *Broker) CloseAccount(accountID uuid.UUID) {
+	broker.closeWhere(func(subscription *Subscription) bool { return subscription.accountID == accountID })
 }
 
 // CloseSession ends the streams of one web session: sign out.
@@ -288,15 +379,16 @@ func (broker *Broker) closeLocked(subscription *Subscription) {
 	subscription.closeOnce.Do(func() { close(subscription.closed) })
 }
 
-// OpenStreams counts open streams; tests use it to prove a removal closed them.
+// OpenStreams counts open streams; tests use it to prove a deletion closed them.
 func (broker *Broker) OpenStreams() int {
 	broker.mutex.Lock()
 	defer broker.mutex.Unlock()
 	return len(broker.subscriptions)
 }
 
-// Subscribe opens a live-update stream for GET /api/stream; see Broker.Subscribe.
-func (service *Service) Subscribe(viewer Viewer, lastEventID string) (*Subscription, *StreamMessage) {
+// Subscribe opens a live-update stream for GET /api/campaigns/{campaignId}/stream; see
+// Broker.Subscribe. Any membership may subscribe (pending level); its scope follows its status.
+func (service *Service) Subscribe(viewer Viewer, lastEventID string) (*Subscription, *StreamMessage, error) {
 	return service.broker.Subscribe(viewer, lastEventID)
 }
 

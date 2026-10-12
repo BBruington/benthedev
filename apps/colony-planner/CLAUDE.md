@@ -1,8 +1,11 @@
 # Colony Planner
 
-A private website for one D&D campaign (one DM, about six players) plus Beny Bot, its Discord bot. One Go
-binary serves a huma JSON API, the embedded React SPA, live updates over SSE and the bot, on Postgres.
-The design is `docs/SPEC.md`: read the sections your task touches before changing behavior.
+A private website for colony campaigns (several DMs, each with about six players; the author's campaign is
+the first) plus Beny Bot, its one shared Discord bot. One Go binary serves a huma JSON API, the embedded
+React SPA, live updates over SSE and the bot, on Postgres. The design is `docs/SPEC.md`, and M1.5's
+multi-campaign design is `docs/design/multi-campaign.md`: read the sections your task touches before
+changing behavior. Starting a new session? Read `docs/HANDOFF.md` first: the author's decisions and
+working preferences, current status, pending items, and how to test without touching the author's setup.
 
 ## Commands
 
@@ -15,7 +18,7 @@ Run `mise run setup` once (pinned tools, `bun install`, and a `.env` with a rand
 | `mise run gen` | sqlc, then `web/src/api/openapi.json`, then `web/src/api/schema.d.ts` |
 | `mise run test` | Go tests against the `colony_test` database, then web unit tests |
 | `mise run check` | every check; it must end with "All checks passed" |
-| `mise run seed` / `reset` / `fresh` | load the sample campaign / wipe and re-migrate / both |
+| `mise run seed` / `reset` / `fresh` | load the two sample campaigns / wipe and re-migrate / both |
 | `mise run build` | the SPA into web/dist/spa and bin/colony (no devauth); then bin/colony serve is the one-origin shape |
 | `mise run db:up` / `db:down` | start / stop the Postgres container (and the database browser) |
 | `mise run db:studio` | DbGate, a web database browser on http://localhost:54330, connected to `colony`; edits skip the app's rules |
@@ -36,16 +39,17 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it) |
 | `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go` |
 | `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
-| `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Viewer middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
+| `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
-| `internal/bot/` | Beny Bot (discordgo), in-process |
-| `internal/seed/` | the fictional sample campaign for `colony seed` |
+| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, and `postToCampaign` in `internal/bot/notify.go` sends every campaign post |
+| `internal/seed/` | the two fictional sample campaigns for `colony seed` |
 | `db/migrations/` | goose SQL, the one schema source (enums included), embedded by `db/embed.go` and applied by `db/migrate.go` |
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
+| `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
 | `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
-| `docs/` | `docs/SPEC.md` (the design) and `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) |
+| `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) and `docs/checklists/` |
 
 ## Boundaries (enforced by `mise run check`)
 
@@ -58,7 +62,8 @@ web/src/** -> web/src/api -> the Go API
   `db` (exceptions: `internal/seed`, a fixture loader; `cmd/colony`, which wires the pool; tests).
   This is an allow-list over the whole module, so new packages are covered automatically.
 - `internal/core` knows none of its callers: no net, net/http, huma, discordgo or oauth2, and no import of
-  app, auth, bot or seed. It reaches outward only through `core.Notifier` and `core.SessionEvictor`.
+  app, auth, bot or seed. It reaches outward only through `core.Notifier`, `core.SessionEvictor` and
+  `core.DiscordDirectory` (Beny Bot's channel list, passed in `core.Options` at construction).
 - core's exported API never mentions a store or pgx type, because Go infers types and a returned
   `*store.Queries` would leak the database without an import. `internal/core/boundary_test.go` enforces
   this; re-export only enum and value types (see `internal/core/member_status.go`), never queries or pools.
@@ -78,7 +83,10 @@ web/src/** -> web/src/api -> the Go API
    records the undo snapshot, and publishes (spec §5.1).
 3. Every route declares its access. huma operations go through `app.Register(api, level, operation, handler)`,
    which writes x-access; everything else is one line in the route table in `internal/app/app.go`. The
-   server refuses to start if anything lacks a level. Levels: public, token, pending, member, dm.
+   server refuses to start if anything lacks a level. Levels: public, token, account, owner, pending,
+   member, dm. A route is pending, member or dm if and only if its path has `{campaignId}` and is outside
+   /api/admin/; owner appears only under /api/admin/ and on /api/openapi.json and /api/docs. Exactly
+   three routes admit pending members: `.../me`, `.../stream` and `.../leave`.
 4. Secrets go in a `Dm` pointer sub-struct (`json:"dm,omitempty"`). The one Transformer strips every `dm`
    object unless the viewer is the DM and not viewing as a player. No handler redacts; `dm` is a reserved key.
 5. Never hand-edit `internal/store`, `web/src/api/openapi.json`, `web/src/api/schema.d.ts` or
@@ -89,18 +97,52 @@ web/src/** -> web/src/api -> the Go API
 9. No timer polls the database and no ordinary request writes bookkeeping (last_seen_at at most daily).
 10. Local only until the author approves M6: no deploy work, no production credential, and never read,
     print or copy a secret value from any .env or .pem file, here or in the old party-planner repo.
+11. Every campaign-owned table carries `campaign_id NOT NULL REFERENCES campaign ON DELETE CASCADE` (first
+    in its primary key or in `UNIQUE (campaign_id, id)`, and first in every index); text keys are unique
+    per campaign; column references between campaign rows are composite foreign keys. Every query on a
+    campaign-owned table takes `@campaign_id` and filters each such table by `campaign_id`, or says
+    `-- unscoped: <reason>` on the line above `-- name:` (`db/scope_test.go`). IDs and keys from jsonb or
+    request bodies are loaded with the Viewer's campaign, and "not found" is a field error.
+12. A `core.Viewer` is proof of membership: only core builds one (`EnterCampaign`, `ViewerForGuild`), its
+    fields are unexported and it has no owner flag. Campaign functions take a Viewer; account functions
+    take a `core.Caller`; owner functions check `Caller.IsSiteOwner` and read only directory tables
+    (account, campaign, campaign_request, discord_guild_link, counts). A non-member, the site owner
+    included, gets 404 "No such campaign." from every campaign route.
+13. Broadcasts are per campaign: `Broker.Publish(campaignID, topics...)`; there is no unscoped publish.
+    Sequence numbers and the resume ring are per campaign.
+14. Logs carry IDs, kinds, counts and statuses, never campaign content or message text.
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.
 - Lists are never null: core returns empty slices, not nil ones.
 - Core returns typed errors (core.Invalid, Forbidden, NotFound, Conflict, ErrSessionEnded); `internal/app/errors.go` maps them.
-- The DM is `Viewer.IsDM`, derived from DM_DISCORD_ID on every request (or the seeded seed:dm member in
-  devauth builds when it is unset). Nothing stores a role.
+- The DM is the campaign's `campaign_member` with role DM: exactly one per campaign (a partial unique
+  index), always ACTIVE, and no API operation writes `role` (only campaign approval and the seed insert a
+  DM). No co-DMs and no hand-off. The site owner is `Caller.IsSiteOwner`, from `SITE_OWNER_DISCORD_ID` on
+  every request (the seeded seed:dm account in devauth builds when it is unset); a Viewer has no owner flag.
+- Decisions C1–C6 (`docs/design/multi-campaign.md`, last section) are settled: one DM, no hand-off; a slug
+  is fixed after approval; a DM may delete their own campaign after typing its slug, and the owner deletes
+  only a suspended one; a denied requester may ask again (one open request each); a player may leave
+  (their own membership, from PENDING or ACTIVE, never the DM), which sets REMOVED with `left_on_own`, so
+  the invite link can't bring them back and only the DM re-admits; the Eldari art belongs to the author's
+  campaign only, so M4 must not offer it to other campaigns as a starting map.
+- The campaign is in the path: SPA `/c/{slug}/...`, API `/api/campaigns/{campaignId}/...`; no active-campaign
+  cookie. `internal/app/access.go` resolves `{campaignId}` before huma parses input (an unparsable ID is the
+  same 404), so every campaign input struct declares its CampaignID field itself (huma ignores path
+  parameters in embedded structs).
+- `serve`, `migrate` (up and status) and `seed` refuse a database whose goose_db_version records a
+  migration this build doesn't embed (`CheckMigrationHistory` in `db/migrate.go`), because goose would
+  skip a later migration that reuses its version; the message says to run `mise run fresh`. `reset` drops
+  the schema before migrating, so `mise run reset` and `fresh` rebuild such a database. Never renumber or
+  delete a migration once it is merged.
 - Mutations accept JSON bodies only, behind stdlib http.CrossOriginProtection.
-- Sessions are cached in memory (`internal/auth/cache.go`). An operation that changes a member's status or
-  sessions evicts through `core.SessionEvictor`; after commit it publishes topics to the broker, never data.
-- Dev sign-in: `/auth/dev?as=dm|player|pending|<member id>`, or `?as=new&name=...` for a first-time sign-in.
-  It refuses requests another site starts (Sec-Fetch-Site), since a GET escapes CrossOriginProtection.
+- Sessions belong to the account and are cached in memory (`internal/auth/cache.go`). Sign-out and
+  sign-out-everywhere evict through `core.SessionEvictor`; a membership change (approve, deny, remove,
+  re-admit, leave) touches no session and rescopes that membership's streams instead. After commit an
+  operation publishes topics to the broker, never data.
+- Dev sign-in: `/auth/dev?as=owner|dm|player|pending|<account id>`, or `?as=new&name=...` for a first-time
+  sign-in; dm, player and pending mean Sample Colony's. It refuses requests another site starts
+  (Sec-Fetch-Site), since a GET escapes CrossOriginProtection.
 - Tests use TEST_DATABASE_URL (`colony_test`), never DATABASE_URL.
 
 ## Recipes
@@ -111,24 +153,29 @@ Add a field (four hand edits), then `mise run gen` and follow the compiler error
 3. the DTO field, its mapping and its input field in the feature's file in `internal/core/` (a secret
    field goes in the Dm sub-struct); free text goes through `cleanText` (`internal/core/text.go`), and
    core, not a huma tag, checks lengths and formats so the person reads core's message;
-4. its display and input in the screen under web/src/routes.
+4. its display and input in the screen under web/src/routes/_signedIn/c.$campaignSlug/_shell/.
 A secret field also needs a canary: plant a canary for every new Dm field or hidden row in its feature's
-fixture in `internal/app/secrecy_fixtures_test.go`. The secrecy sweep only sees a leak of a planted value.
+fixture in `internal/app/secrecy_fixtures_test.go`, into both campaigns. The secrecy sweep only sees a leak
+of a planted value. A new ID or map field in a request body also goes in `mixedIDFields` in
+`internal/app/secrecy_test.go`, so the sweep puts the other campaign's real IDs and keys into it.
 
 Add an entity, then `mise run gen`:
-1. a migration and a queries file in `db/queries/`;
+1. a migration (the table carries `campaign_id` per Invariant 11) and a queries file in `db/queries/`
+   whose every query takes `@campaign_id`;
 2. a core file in `internal/core/`, and its live-update topic: a `Topic` constant in
    `internal/core/broker.go` listed in `AllTopics()` (a test fails if it isn't), published after commit;
 3. for a new Postgres enum: a re-export of the type and every value in `internal/core/` (as
    `internal/core/member_status.go` does), each name in `allowedDataReferences` in
    `internal/core/boundary_test.go`, and one line in `enumTypes` in `internal/app/enums.go`;
 4. a thin handler file in `internal/app/` registered from `app.New`;
-5. a secrecy fixture in `internal/app/secrecy_fixtures_test.go`: plant a canary for every new Dm field
-   or hidden row (a DM-visibility timeline entry, an undone PUBLIC entry), name a real row for every
-   path parameter, and list a GET where the DM sees the canary;
-6. its reads in `web/src/api/queries.ts` and its topic's entry in `topicQueryKeys` in
-   `web/src/api/topics.ts`;
-7. a route file under web/src/routes, a nav entry, and a rules file in `internal/game/` if it has rules.
+5. a secrecy fixture in `internal/app/secrecy_fixtures_test.go`: plant into both campaigns (`canaryA` in
+   A's DM-only values, `canaryB` in every value of B, `canaryBdm` in B's DM-only values; SPEC §8.11 has the
+   details), name a real row for every path parameter, and list a GET where the DM sees the canary;
+6. its reads in `web/src/api/queries.ts` (factories that take the campaignId) and its topic's entry in
+   `topicQueryKeys` in `web/src/api/topics.ts`;
+7. a route file under web/src/routes/_signedIn/c.$campaignSlug/_shell/ (screens get the campaign from
+   `useCampaign()` in `web/src/hooks/use-campaign.ts`), a nav entry, and a rules file in `internal/game/`
+   if it has rules.
 
 Add a non-huma route: one route-table line in `internal/app/app.go` with its access level.
 
@@ -142,8 +189,9 @@ reaches 0 or morale is low. An undecided rule is data or an open question (`docs
 ## Process
 
 - Work one milestone at a time (`docs/SPEC.md` §10) and stop after each for the author's check-in.
-- The author makes every commit. Agents never commit or push (git or jj). The author's messages use
-  conventional prefixes: feat:, fix:, chore:, refactor:, docs:, test:.
+- The author makes commits. Agents commit or push (git or jj) only when the author asks for a PR: then
+  on a claude/<name> branch, never main, and the author merges. Messages use conventional prefixes:
+  feat:, fix:, chore:, refactor:, docs:, test:.
 - Pin exact dependency versions, choosing the newest release that is at least two weeks old.
 
 ## Conventions
@@ -162,7 +210,7 @@ reaches 0 or morale is low. An undecided rule is data or an open question (`docs
   its data and callbacks as props.
 - An action that removes or disables its own trigger (a row that moves, a banner or sheet that closes)
   moves focus to a stable target when it settles, with `focusFirstVisible` from `web/src/lib/focus.ts`
-  (a heading takes tabIndex={-1}); see Let in on /players and Back to DM view. BottomSheet and
+  (a heading takes tabIndex={-1}); see Let in on /c/{slug}/players and Back to DM view. BottomSheet and
   AlertDialogContent hand focus back to whatever opened them (`web/src/hooks/use-focus-return.ts`); a
   confirmed action that removes its opener prevents the default in onCloseAutoFocus and moves focus itself.
 - Web UI: shadcn/ui components (added with the shadcn CLI per `web/components.json`), `cn` from
