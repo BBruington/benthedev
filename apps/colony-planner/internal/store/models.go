@@ -800,6 +800,82 @@ func AllRequestStatusValues() []RequestStatus {
 	}
 }
 
+type Terrain string
+
+const (
+	TerrainFOREST   Terrain = "FOREST"
+	TerrainPLAINS   Terrain = "PLAINS"
+	TerrainWATER    Terrain = "WATER"
+	TerrainMOUNTAIN Terrain = "MOUNTAIN"
+	TerrainDESERT   Terrain = "DESERT"
+	TerrainSWAMP    Terrain = "SWAMP"
+	TerrainTUNDRA   Terrain = "TUNDRA"
+	TerrainVOLCANIC Terrain = "VOLCANIC"
+)
+
+func (e *Terrain) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = Terrain(s)
+	case string:
+		*e = Terrain(s)
+	default:
+		return fmt.Errorf("unsupported scan type for Terrain: %T", src)
+	}
+	return nil
+}
+
+type NullTerrain struct {
+	Terrain Terrain
+	Valid   bool // Valid is true if Terrain is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTerrain) Scan(value interface{}) error {
+	if value == nil {
+		ns.Terrain, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.Terrain.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTerrain) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.Terrain), nil
+}
+
+func (e Terrain) Valid() bool {
+	switch e {
+	case TerrainFOREST,
+		TerrainPLAINS,
+		TerrainWATER,
+		TerrainMOUNTAIN,
+		TerrainDESERT,
+		TerrainSWAMP,
+		TerrainTUNDRA,
+		TerrainVOLCANIC:
+		return true
+	}
+	return false
+}
+
+func AllTerrainValues() []Terrain {
+	return []Terrain{
+		TerrainFOREST,
+		TerrainPLAINS,
+		TerrainWATER,
+		TerrainMOUNTAIN,
+		TerrainDESERT,
+		TerrainSWAMP,
+		TerrainTUNDRA,
+		TerrainVOLCANIC,
+	}
+}
+
 type TimelineVisibility string
 
 const (
@@ -921,32 +997,69 @@ type DiscordGuildLink struct {
 	LinkedAt              time.Time
 }
 
+type Hex struct {
+	Q          int32
+	R          int32
+	Terrain    Terrain
+	Label      *string
+	UpdatedAt  time.Time
+	CampaignID uuid.UUID
+}
+
+type Image struct {
+	ID          uuid.UUID
+	ContentType string
+	Bytes       []byte
+	Sha256      []byte
+	Width       int32
+	Height      int32
+	UploadedBy  *uuid.UUID
+	CreatedAt   time.Time
+	CampaignID  uuid.UUID
+}
+
+type Map struct {
+	ID          uuid.UUID
+	Name        string
+	ImageID     *uuid.UUID
+	ExternalUrl *string
+	Width       int32
+	Height      int32
+	IsMainland  bool
+	Revealed    bool
+	SortOrder   int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CampaignID  uuid.UUID
+}
+
 type Npc struct {
-	ID             uuid.UUID
-	Name           string
-	KnownName      string
-	DisplayName    string
-	Revealed       bool
-	Aliases        []string
-	Labels         []string
-	Race           string
-	CharacterClass string
-	Level          *int32
-	Age            string
-	Appearance     string
-	Personality    string
-	Backstory      string
-	PlayerNotes    string
-	DmNotes        string
-	Status         NpcStatus
-	Health         NpcHealth
-	Relation       NpcRelation
-	CurrentPlaceID *uuid.UUID
-	OriginPlaceID  *uuid.UUID
-	ColonyRoleKey  *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CampaignID     uuid.UUID
+	ID              uuid.UUID
+	Name            string
+	KnownName       string
+	DisplayName     string
+	Revealed        bool
+	Aliases         []string
+	Labels          []string
+	Race            string
+	CharacterClass  string
+	Level           *int32
+	Age             string
+	Appearance      string
+	Personality     string
+	Backstory       string
+	PlayerNotes     string
+	DmNotes         string
+	Status          NpcStatus
+	Health          NpcHealth
+	Relation        NpcRelation
+	CurrentPlaceID  *uuid.UUID
+	OriginPlaceID   *uuid.UUID
+	ColonyRoleKey   *string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CampaignID      uuid.UUID
+	PortraitImageID *uuid.UUID
 }
 
 type Patron struct {
@@ -989,6 +1102,9 @@ type Place struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	CampaignID  uuid.UUID
+	MapID       *uuid.UUID
+	PinX        *float32
+	PinY        *float32
 }
 
 type Quest struct {

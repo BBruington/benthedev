@@ -412,6 +412,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/hexes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every charted hex of the campaign */
+        get: operations["listHexes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/hexes/erase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unchart hexes, terrain and label together */
+        post: operations["eraseHexes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/hexes/paint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Paint one batch of a stroke; painted hexes keep their labels */
+        post: operations["paintHexes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/hexes/{q}/{r}/label": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Label a charted hex, or clear its label with a blank one */
+        put: operations["setHexLabel"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload map art or a portrait; the same bytes again return the stored image */
+        post: operations["uploadImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An image's bytes; players get only images a revealed map or a revealed NPC's portrait uses */
+        get: operations["getImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/invite": {
         parameters: {
             query?: never;
@@ -457,6 +559,111 @@ export interface paths {
         put?: never;
         /** Leave this campaign (players only, from waiting or active); only its DM can let you back in */
         post: operations["leaveCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/maps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The campaign's image maps in the DM's order; players get revealed ones only */
+        get: operations["listMaps"];
+        put?: never;
+        /** Add a map with its art (an uploaded image of this campaign or an https address) */
+        post: operations["createMap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/maps/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put every map of the campaign in a new order */
+        put: operations["reorderMaps"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/maps/{mapId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One map with its pins; a hidden map is not found for players, who see revealed places' pins only */
+        get: operations["getMap"];
+        /** Rename a map (art, visibility, Mainland and order each have their own operation) */
+        put: operations["updateMap"];
+        post?: never;
+        /** Delete a map; its places stay, unpinned */
+        delete: operations["deleteMap"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/maps/{mapId}/art": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a map's art; pins keep their place on the new image */
+        put: operations["replaceMapArt"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/maps/{mapId}/mainland": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Make a map the campaign's Mainland, or unmark it */
+        put: operations["setMapMainland"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/maps/{mapId}/revealed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reveal a map to the players, or hide it again */
+        put: operations["setMapRevealed"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -698,6 +905,23 @@ export interface paths {
         put?: never;
         /** Take a named colonist out of the colony, or back among the role's unnamed colonists */
         post: operations["leaveColony"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/npcs/{npcId}/portrait": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set an NPC's portrait to an uploaded image, or clear it with null */
+        put: operations["setNpcPortrait"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -960,6 +1184,24 @@ export interface paths {
         post?: never;
         /** Delete a place; NPCs there or from there keep no place */
         delete: operations["deletePlace"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/places/{placeId}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Pin a place on a map, or move its pin */
+        put: operations["setPlacePin"];
+        post?: never;
+        /** Take a place's pin off its map */
+        delete: operations["clearPlacePin"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1743,6 +1985,10 @@ export interface components {
                 [key: string]: number;
             };
         };
+        EraseHexesInput: {
+            /** @description 1 to 200 cells */
+            cells: components["schemas"]["HexCoordinate"][];
+        };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
             location?: string;
@@ -1810,6 +2056,28 @@ export interface components {
             patronId: string;
             patronName: string;
         } | null;
+        Hex: {
+            /** @description Blank when the hex has none */
+            label: string;
+            /** Format: int64 */
+            q: number;
+            /** Format: int64 */
+            r: number;
+            terrain: components["schemas"]["Terrain"];
+        };
+        HexCoordinate: {
+            /** Format: int64 */
+            q: number;
+            /** Format: int64 */
+            r: number;
+        };
+        HexLabelInput: {
+            /** @description At most 40 characters; blank clears the label */
+            label: string;
+        };
+        HexList: {
+            hexes: components["schemas"]["Hex"][];
+        };
         InvalidateMessage: {
             topics: components["schemas"]["Topic"][];
         };
@@ -1881,6 +2149,52 @@ export interface components {
              */
             quantity: number;
         };
+        MainlandInput: {
+            /** @description true makes this map the Mainland, taking the flag from any other map */
+            mainland: boolean;
+        };
+        MapArtInput: {
+            /** @description An https address, at most 2000 characters; blank to use imageId */
+            externalUrl: string;
+            /**
+             * Format: int64
+             * @description The external art's natural height in pixels; ignored for an uploaded image
+             */
+            height: number;
+            /**
+             * Format: uuid
+             * @description An image from POST .../images; null to use externalUrl
+             */
+            imageId: string | null;
+            /**
+             * Format: int64
+             * @description The external art's natural width in pixels; ignored for an uploaded image
+             */
+            width: number;
+        };
+        MapInput: {
+            /** @description 1 to 80 characters */
+            name: string;
+        };
+        MapOrderInput: {
+            /** @description Every map of the campaign, each once, in the new order */
+            mapIds: string[];
+        };
+        MapPin: {
+            /** Format: uuid */
+            placeId: string;
+            placeName: string;
+            /**
+             * Format: double
+             * @description 0 (left edge) to 1 (right edge)
+             */
+            x: number;
+            /**
+             * Format: double
+             * @description 0 (top edge) to 1 (bottom edge)
+             */
+            y: number;
+        };
         Member: {
             avatarUrl: string | null;
             characterName: string | null;
@@ -1924,6 +2238,31 @@ export interface components {
         };
         MyCampaigns: {
             campaigns: components["schemas"]["MyCampaign"][];
+        };
+        NewMapInput: {
+            /** @description An https address, at most 2000 characters; blank to use imageId */
+            externalUrl: string;
+            /**
+             * Format: int64
+             * @description The external art's natural height in pixels; ignored for an uploaded image
+             */
+            height: number;
+            /**
+             * Format: uuid
+             * @description An image from POST .../images; null to use externalUrl
+             */
+            imageId: string | null;
+            /** @description Make this the campaign's Mainland */
+            mainland: boolean;
+            /** @description 1 to 80 characters */
+            name: string;
+            /** @description Visible to players; the create form starts it on */
+            revealed: boolean;
+            /**
+             * Format: int64
+             * @description The external art's natural width in pixels; ignored for an uploaded image
+             */
+            width: number;
         };
         NewNpcInput: {
             /** @description Free text, at most 80 characters */
@@ -2101,6 +2440,11 @@ export interface components {
             originPlace: components["schemas"]["PlaceReference"];
             personality: string;
             playerNotes: string;
+            /**
+             * Format: uuid
+             * @description The portrait image; null shows initials
+             */
+            portraitImageId: string | null;
             race: string;
             relation: components["schemas"]["NpcRelation"];
             status: components["schemas"]["NpcStatus"];
@@ -2165,6 +2509,13 @@ export interface components {
         NpcList: {
             npcs: components["schemas"]["Npc"][];
         };
+        NpcPortraitInput: {
+            /**
+             * Format: uuid
+             * @description An image from POST .../images; null clears the portrait
+             */
+            imageId: string | null;
+        };
         NpcReference: {
             displayName: string;
             dm?: components["schemas"]["NpcReferenceDm"];
@@ -2180,6 +2531,17 @@ export interface components {
         NpcRelation: "ALLY" | "NEUTRAL" | "SUSPICIOUS" | "ENEMY" | "UNKNOWN";
         /** @enum {string} */
         NpcStatus: "ALIVE" | "DEAD" | "MISSING" | "UNKNOWN";
+        PaintHexesInput: {
+            /** @description 1 to 200 cells; a longer stroke is sent in parts */
+            cells: components["schemas"]["PaintedHex"][];
+        };
+        PaintedHex: {
+            /** Format: int64 */
+            q: number;
+            /** Format: int64 */
+            r: number;
+            terrain: components["schemas"]["Terrain"];
+        };
         Patron: {
             archived: boolean;
             description: string;
@@ -2264,6 +2626,20 @@ export interface components {
             id: string;
             name: string;
         } | null;
+        PinInput: {
+            /** Format: uuid */
+            mapId: string;
+            /**
+             * Format: double
+             * @description 0 (left edge) to 1 (right edge)
+             */
+            x: number;
+            /**
+             * Format: double
+             * @description 0 (top edge) to 1 (bottom edge)
+             */
+            y: number;
+        };
         Place: {
             description: string;
             dm?: components["schemas"]["PlaceDm"];
@@ -2272,6 +2648,8 @@ export interface components {
             name: string;
             /** @description Filled on the place's own page; empty in lists */
             npcsHere: components["schemas"]["NpcReference"][];
+            /** @description null when unpinned or when its map is hidden from this viewer */
+            pin: components["schemas"]["PlacePin"];
             playerNotes: string;
         };
         PlaceDm: {
@@ -2291,6 +2669,21 @@ export interface components {
         PlaceList: {
             places: components["schemas"]["Place"][];
         };
+        PlacePin: {
+            /** Format: uuid */
+            mapId: string;
+            mapName: string;
+            /**
+             * Format: double
+             * @description 0 (left edge) to 1 (right edge)
+             */
+            x: number;
+            /**
+             * Format: double
+             * @description 0 (top edge) to 1 (bottom edge)
+             */
+            y: number;
+        } | null;
         PlaceReference: {
             /** Format: uuid */
             id: string;
@@ -2653,6 +3046,8 @@ export interface components {
              */
             nextDay: number | null;
         };
+        /** @enum {string} */
+        Terrain: "FOREST" | "PLAINS" | "WATER" | "MOUNTAIN" | "DESERT" | "SWAMP" | "TUNDRA" | "VOLCANIC";
         TimelineEntry: {
             /**
              * Format: uuid
@@ -2746,7 +3141,7 @@ export interface components {
         /** @enum {string} */
         TimelineVisibility: "PUBLIC" | "DM";
         /** @enum {string} */
-        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests";
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes";
         TransferInput: {
             /**
              * Format: int64
@@ -2762,6 +3157,24 @@ export interface components {
         UndoInput: {
             /** Format: uuid */
             groupId: string;
+        };
+        UploadedImage: {
+            /** Format: int64 */
+            byteSize: number;
+            /** @description image/png, image/jpeg, image/webp or image/gif */
+            contentType: string;
+            /**
+             * Format: int64
+             * @description Natural height in pixels
+             */
+            height: number;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: int64
+             * @description Natural width in pixels
+             */
+            width: number;
         };
         UseActionInput: {
             /** Format: uuid */
@@ -2813,6 +3226,38 @@ export interface components {
              * @description For players, hidden named colonists are counted here
              */
             unnamedCount: number;
+        };
+        WorldMap: {
+            dm?: components["schemas"]["WorldMapDm"];
+            /** @description An https address of the art; blank when the map uses imageId */
+            externalUrl: string;
+            /**
+             * Format: int64
+             * @description The art's natural height in pixels
+             */
+            height: number;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The uploaded art; null when the map uses externalUrl
+             */
+            imageId: string | null;
+            isMainland: boolean;
+            name: string;
+            /** @description Filled on the map's own page; empty in lists */
+            pins: components["schemas"]["MapPin"][];
+            /**
+             * Format: int64
+             * @description The art's natural width in pixels
+             */
+            width: number;
+        };
+        WorldMapDm: {
+            revealed: boolean;
+        };
+        WorldMapList: {
+            maps: components["schemas"]["WorldMap"][];
         };
     };
     responses: never;
@@ -3611,6 +4056,226 @@ export interface operations {
             };
         };
     };
+    listHexes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HexList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    eraseHexes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EraseHexesInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    paintHexes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaintHexesInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setHexLabel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                /** @description The hex's axial q coordinate */
+                q: number;
+                /** @description The hex's axial r coordinate */
+                r: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HexLabelInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    uploadImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description A PNG, JPEG, WebP or GIF image of at most 5 MB; the type is read from the bytes
+                     */
+                    image: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadedImage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getImage: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The ETag the browser holds; a match is a 304 once the caller may still read the image */
+                "If-None-Match"?: string;
+            };
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image, with the type read from its bytes at upload */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    "Content-Security-Policy"?: string;
+                    "Content-Type"?: string;
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     getInviteLink: {
         parameters: {
             query?: never;
@@ -3694,6 +4359,322 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CampaignMe"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listMaps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMapList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewMapInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    reorderMaps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapOrderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMapList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                mapId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                mapId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                mapId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    replaceMapArt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                mapId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapArtInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setMapMainland: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                mapId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MainlandInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setMapRevealed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                mapId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldMap"];
                 };
             };
             /** @description Error */
@@ -4291,6 +5272,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setNpcPortrait: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                npcId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NpcPortraitInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Npc"];
                 };
             };
             /** @description Error */
@@ -5033,6 +6051,76 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setPlacePin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                placeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Place"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    clearPlacePin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                placeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Place"];
+                };
             };
             /** @description Error */
             default: {

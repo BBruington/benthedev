@@ -14,7 +14,13 @@ import {
 import { type ReactNode, useState } from "react";
 import type { Schemas } from "@/api/client";
 import { problemMessage } from "@/api/problem";
-import { colonyBoardQuery, membersQuery, recentTimelineQuery, settingsQuery } from "@/api/queries";
+import {
+	colonyBoardQuery,
+	mapsQuery,
+	membersQuery,
+	recentTimelineQuery,
+	settingsQuery,
+} from "@/api/queries";
 import { AdjustSheet } from "@/colony/adjust-sheet";
 import { AdvanceSheet } from "@/colony/advance-sheet";
 import { ColonistsStrip, DmTools, RecentEntries, ResourceTiles } from "@/colony/board-sections";
@@ -38,6 +44,7 @@ import { dayName, shipmentLine, voyageProgress } from "@/lib/colony";
 import { focusFirstVisible } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
+import { artSource } from "@/maps/art";
 import { MyRequestsCard, PendingRequestsCard } from "@/ventures/board-ventures";
 
 type ColonyBoard = Schemas["ColonyBoard"];
@@ -51,6 +58,7 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/")({
 		// Prefetching never throws; the page shows its own loading and error states.
 		queryClient.prefetchQuery(colonyBoardQuery(campaignId));
 		queryClient.prefetchQuery(recentTimelineQuery(campaignId));
+		queryClient.prefetchQuery(mapsQuery(campaignId));
 		const me = cachedMe(queryClient, campaignId);
 		if (me && canUseDmTools(me)) {
 			queryClient.prefetchQuery(membersQuery(campaignId));
@@ -67,6 +75,10 @@ function ColonyPage() {
 	const campaignId = useCampaignId();
 	const board = useQuery(colonyBoardQuery(campaignId));
 	const recent = useQuery(recentTimelineQuery(campaignId));
+	// The viewer's own map list: players never get a hidden Mainland, so its art can't show here (C6).
+	const mainland = useQuery(mapsQuery(campaignId)).data?.maps.find(
+		(worldMap) => worldMap.isMainland,
+	);
 	useDocumentTitle("Colony", board.data?.colonyName ?? fallbackCampaignName);
 
 	if (board.isPending) {
@@ -91,7 +103,11 @@ function ColonyPage() {
 				title={data.colonyName}
 			/>
 			{canUseDmTools(me) && recent.data?.entries.length === 0 ? <FirstSteps /> : null}
-			<ClockCard board={data} me={me} />
+			<ClockCard
+				backdropSource={mainland ? artSource(campaignId, mainland) : null}
+				board={data}
+				me={me}
+			/>
 			<section aria-labelledby="stockpile-heading" className="flex flex-col gap-3">
 				<h2 className="sr-only" id="stockpile-heading">
 					Stockpile
@@ -135,18 +151,29 @@ function clockLine(board: ColonyBoard): string {
 	return `${dayName(board.day)} · ${shipments.charAt(0).toLowerCase()}${shipments.slice(1)}`;
 }
 
-/** The day dial with the shipment countdown, and the DM's tools beside it. */
-function ClockCard({ board, me }: { board: ColonyBoard; me: Me }) {
+/** The day dial with the shipment countdown, and the DM's tools beside it, over the Mainland's art. */
+function ClockCard({
+	backdropSource,
+	board,
+	me,
+}: {
+	backdropSource: string | null;
+	board: ColonyBoard;
+	me: Me;
+}) {
 	const showDmTools = canUseDmTools(me);
 	return (
 		<section
 			aria-labelledby={boardHeadingId}
 			className="relative isolate overflow-hidden rounded-2xl border border-border bg-card shadow-card"
 		>
-			<div
-				aria-hidden="true"
-				className="absolute inset-y-0 right-0 -z-10 hidden w-3/5 bg-[url(/eldari.webp)] bg-cover bg-center opacity-[0.12] [mask-image:linear-gradient(to_left,black,transparent)] lg:block"
-			/>
+			{backdropSource ? (
+				<img
+					alt=""
+					className="pointer-events-none absolute inset-y-0 right-0 -z-10 hidden h-full w-3/5 object-cover object-center opacity-[0.12] [mask-image:linear-gradient(to_left,black,transparent)] lg:block"
+					src={backdropSource}
+				/>
+			) : null}
 			<div
 				className={cn(
 					"grid items-center gap-6 p-5 sm:p-8",

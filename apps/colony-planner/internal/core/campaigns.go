@@ -507,6 +507,11 @@ func (service *Service) DeleteOwnCampaign(requestContext context.Context, viewer
 // lock, deletes it with everything it owns, and closes its streams, link code and resume ring.
 func (service *Service) deleteCampaign(requestContext context.Context, campaignID uuid.UUID, confirmSlug string, requireSuspended bool) error {
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// The colony lock comes first, as in every colony write: those hold it while their inserts check
+		// the campaign row, so locking the campaign first would deadlock with them.
+		if _, err := queries.GetColonyForUpdate(requestContext, campaignID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		campaign, err := queries.GetCampaignForUpdate(requestContext, campaignID)
 		if err != nil {
 			return campaignGone(err)

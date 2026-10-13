@@ -48,7 +48,7 @@ func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (Role, e
 }
 
 const listNamedColonists = `-- name: ListNamedColonists :many
-SELECT id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id FROM npc
+SELECT id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id FROM npc
 WHERE campaign_id = $1
   AND colony_role_key IS NOT NULL
   AND ($2::boolean OR revealed)
@@ -96,6 +96,7 @@ func (q *Queries) ListNamedColonists(ctx context.Context, arg ListNamedColonists
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CampaignID,
+			&i.PortraitImageID,
 		); err != nil {
 			return nil, err
 		}

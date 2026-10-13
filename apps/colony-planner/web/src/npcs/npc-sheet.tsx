@@ -25,6 +25,7 @@ import {
 	npcStatusLabels,
 	parseList,
 } from "@/lib/people";
+import { NpcPortraitField } from "./npc-portrait";
 
 type Npc = Schemas["Npc"];
 type NpcInput = Schemas["NpcInput"];
@@ -253,6 +254,7 @@ export function NpcSheet({
 			title={npc ? `Edit ${npc.displayName}` : "Add an NPC"}
 		>
 			<form className="grid gap-6" noValidate onSubmit={handleSubmit}>
+				{npc ? <NpcPortraitField npc={npc} /> : null}
 				<FormSection title="Names">
 					<Field
 						description="Only you see it."

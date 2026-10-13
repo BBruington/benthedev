@@ -17,6 +17,16 @@ describe("topic → query-key map", () => {
 		}
 	});
 
+	test("a key two topics share is invalidated once, so its read isn't run twice", () => {
+		const keys = queryKeysForTopics(campaignA, ["maps", "places"]);
+		if (keys === "everything") {
+			throw new Error("maps and places are known topics");
+		}
+		const hashes = keys.map((key) => JSON.stringify(key));
+		expect(new Set(hashes).size).toBe(hashes.length);
+		expect(hashes.length).toBeGreaterThan(0);
+	});
+
 	test("collects the keys of several topics, scoped to the campaign", () => {
 		const keys = queryKeysForTopics(campaignA, ["resources", "people"]);
 		expect(keys).toEqual([

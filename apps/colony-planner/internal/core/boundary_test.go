@@ -111,6 +111,15 @@ var allowedDataReferences = map[string]string{
 	"NpcRelationSuspicious":          "an npc_relation value",
 	"NpcRelationEnemy":               "an npc_relation value",
 	"NpcRelationUnknown":             "an npc_relation value",
+	"Terrain":                        "the terrain enum, re-exported so callers never import store",
+	"TerrainForest":                  "a terrain value",
+	"TerrainPlains":                  "a terrain value",
+	"TerrainWater":                   "a terrain value",
+	"TerrainMountain":                "a terrain value",
+	"TerrainDesert":                  "a terrain value",
+	"TerrainSwamp":                   "a terrain value",
+	"TerrainTundra":                  "a terrain value",
+	"TerrainVolcanic":                "a terrain value",
 }
 
 func TestCoreAPIExposesNoDataTypes(t *testing.T) {

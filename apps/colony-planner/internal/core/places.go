@@ -11,12 +11,14 @@ import (
 )
 
 // Place is one place as a projection sees it (spec §4.4, §5.9). Players get only revealed places;
-// dm_notes and the revealed switch live in Dm. Places are unpinned until maps arrive (M4).
+// dm_notes and the revealed switch live in Dm.
 type Place struct {
 	ID          uuid.UUID `json:"id" format:"uuid"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	PlayerNotes string    `json:"playerNotes"`
+	// Pin is null when the place has none, or for players while its map is hidden.
+	Pin *PlacePin `json:"pin" doc:"null when unpinned or when its map is hidden from this viewer"`
 	// NpcsHere lists the NPCs whose current place this is, revealed ones only for players. Only
 	// GetPlace fills it; lists leave it empty.
 	NpcsHere []NpcReference `json:"npcsHere" doc:"Filled on the place's own page; empty in lists"`
@@ -26,6 +28,16 @@ type Place struct {
 type PlaceDm struct {
 	DmNotes  string `json:"dmNotes"`
 	Revealed bool   `json:"revealed"`
+}
+
+// PlacePin is a place's spot on a map, as fractions of the art (y from the top), so it survives a new
+// image.
+type PlacePin struct {
+	_       struct{}  `nullable:"true"`
+	MapID   uuid.UUID `json:"mapId" format:"uuid"`
+	MapName string    `json:"mapName"`
+	X       float64   `json:"x" doc:"0 (left edge) to 1 (right edge)"`
+	Y       float64   `json:"y" doc:"0 (top edge) to 1 (bottom edge)"`
 }
 
 type PlaceList struct {
@@ -71,7 +83,7 @@ func (service *Service) ListPlaces(requestContext context.Context, viewer Viewer
 	}
 	places := make([]Place, 0, len(rows))
 	for _, row := range rows {
-		places = append(places, toPlace(row))
+		places = append(places, toPlace(store.GetPlaceViewRow(row)))
 	}
 	return PlaceList{Places: places}, nil
 }
@@ -191,9 +203,72 @@ func (service *Service) DeletePlace(requestContext context.Context, viewer Viewe
 	return nil
 }
 
-// publishPlaceChange: NPC pages name their places too.
+// SetPlacePin puts a place on a map, or moves it there (DM only). The map ID is loaded with the viewer's
+// campaign, so another campaign's map is a field error.
+func (service *Service) SetPlacePin(requestContext context.Context, viewer Viewer, placeID uuid.UUID, input PinInput) (Place, error) {
+	if err := requireDm(viewer); err != nil {
+		return Place{}, err
+	}
+	var fieldErrors []FieldError
+	if !(input.X >= 0 && input.X <= 1) {
+		fieldErrors = append(fieldErrors, FieldError{Field: "x", Message: "Use a fraction from 0 to 1."})
+	}
+	if !(input.Y >= 0 && input.Y <= 1) {
+		fieldErrors = append(fieldErrors, FieldError{Field: "y", Message: "Use a fraction from 0 to 1."})
+	}
+	if len(fieldErrors) > 0 {
+		return Place{}, Invalid("The pin needs fixing.", fieldErrors...)
+	}
+	return service.changePlacePin(requestContext, viewer, placeID, func(queries *store.Queries) error {
+		if _, err := queries.GetMap(requestContext, store.GetMapParams{CampaignID: viewer.campaignID, ID: input.MapID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return Invalid("That map doesn't exist.", FieldError{Field: "mapId", Message: "That map doesn't exist."})
+			}
+			return err
+		}
+		mapID := input.MapID
+		pinX, pinY := float32(input.X), float32(input.Y)
+		_, err := queries.SetPlacePin(requestContext, store.SetPlacePinParams{CampaignID: viewer.campaignID, ID: placeID, MapID: &mapID, PinX: &pinX, PinY: &pinY})
+		return placeGone(err)
+	})
+}
+
+// ClearPlacePin takes a place off its map; the place keeps its record.
+func (service *Service) ClearPlacePin(requestContext context.Context, viewer Viewer, placeID uuid.UUID) (Place, error) {
+	if err := requireDm(viewer); err != nil {
+		return Place{}, err
+	}
+	return service.changePlacePin(requestContext, viewer, placeID, func(queries *store.Queries) error {
+		_, err := queries.ClearPlacePin(requestContext, store.ClearPlacePinParams{CampaignID: viewer.campaignID, ID: placeID})
+		return placeGone(err)
+	})
+}
+
+// changePlacePin writes a pin, reads the place back for the DM and publishes: map pages list pins.
+func (service *Service) changePlacePin(requestContext context.Context, viewer Viewer, placeID uuid.UUID, write func(queries *store.Queries) error) (Place, error) {
+	var place Place
+	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Serialized with DeleteMap, so a pin can't land on a map between its pins clearing and its delete.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		if err := write(queries); err != nil {
+			return err
+		}
+		var err error
+		place, err = readPlace(requestContext, queries, viewer.campaignID, placeID, true)
+		return err
+	})
+	if err != nil {
+		return Place{}, err
+	}
+	service.broker.Publish(viewer.campaignID, TopicPlaces, TopicMaps)
+	return place, nil
+}
+
+// publishPlaceChange: NPC pages name their places too, and map pages list pins by place name.
 func (service *Service) publishPlaceChange(campaignID uuid.UUID) {
-	service.broker.Publish(campaignID, TopicPlaces, TopicNpcs)
+	service.broker.Publish(campaignID, TopicPlaces, TopicNpcs, TopicMaps)
 }
 
 func readPlace(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, placeID uuid.UUID, dmProjection bool) (Place, error) {
@@ -224,16 +299,21 @@ func placeGone(err error) error {
 	return err
 }
 
-// toPlace fills Dm unconditionally; the Transformer decides who keeps it.
-func toPlace(row store.Place) Place {
-	return Place{
-		ID:          row.ID,
-		Name:        row.Name,
-		Description: row.Description,
-		PlayerNotes: row.PlayerNotes,
+// toPlace fills Dm unconditionally; the Transformer decides who keeps it. The pin's map name is already
+// NULL for a map the projection can't see, so a hidden map's ID never leaves here.
+func toPlace(row store.GetPlaceViewRow) Place {
+	place := Place{
+		ID:          row.Place.ID,
+		Name:        row.Place.Name,
+		Description: row.Place.Description,
+		PlayerNotes: row.Place.PlayerNotes,
 		NpcsHere:    []NpcReference{},
-		Dm:          &PlaceDm{DmNotes: row.DmNotes, Revealed: row.Revealed},
+		Dm:          &PlaceDm{DmNotes: row.Place.DmNotes, Revealed: row.Place.Revealed},
 	}
+	if row.Place.MapID != nil && row.Place.PinX != nil && row.Place.PinY != nil && row.PinMapName != nil {
+		place.Pin = &PlacePin{MapID: *row.Place.MapID, MapName: *row.PinMapName, X: float64(*row.Place.PinX), Y: float64(*row.Place.PinY)}
+	}
+	return place
 }
 
 func cleanPlaceInput(input PlaceInput) (store.UpdatePlaceParams, error) {

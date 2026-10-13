@@ -270,7 +270,7 @@ The **site owner** (F8) has a third column: nothing inside a campaign they aren'
 | Colony | Remove colony | **Drop** | The colony is a permanent singleton. |
 | Colony | Colony timeline (uncommitted) | **Redesign** | Becomes the auto-logged ledger: typed kinds, text rendered at write time, links, visibility, session bands, Day 0 rendered, opens on today. |
 | Map | Hex exploration map | **Redesign** | Leaflet with a canvas layer; Look and Paint modes; grows as it is painted; label kept on repaint; live; usable on a phone. No edit history (F6). |
-| World | Regions with Leaflet image maps + pins | **Redesign** | Becomes Maps, with Eldari seeded as the Mainland. Pins are normalized to 0..1, so they survive an image swap. |
+| World | Regions with Leaflet image maps + pins | **Redesign** | Becomes Maps; each DM uploads their Mainland (the author uploads Eldari, 2026-10-12). Pins are normalized to 0..1, so they survive an image swap. |
 | World | Region map image (URL only) | **Redesign** | The DM uploads into the Postgres image store. An external URL is still allowed. |
 | World | Locations (player vs DM notes) | **Port + fix** | Renamed Places. Adds a Visible switch, on by default as today (Open Question 9). `dm_notes` is stripped on the server. The region becomes an optional map. |
 | NPCs | Roster/detail/edit, secrecy | **Port + fix** | Secrecy is enforced on the server. Places render as names, not UUIDs. Aliases stay visible to players, as today (Open Question 8). |
@@ -382,10 +382,20 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role WHERE campaign_id = @ca
 
 | Table | Key fields | Notes |
 |---|---|---|
-| `map` | `id`, `name`, `image_url` (`/eldari.webp`, `/img/{id}` or an external URL), `width`, `height` (natural pixels), `is_mainland bool`, `revealed bool DEFAULT true`, `sort_order`, timestamps | Seeded with "Mainland: Eldari" (1920×1080, revealed). |
+| `map` | `id`, `name`, `image_id` (this campaign's uploaded image) or `external_url` (an https address on another site), `width`, `height` (natural pixels), `is_mainland bool`, `revealed bool DEFAULT true`, `sort_order`, timestamps | **No map is seeded.** Each DM uploads their own Mainland art; the author uploads Eldari like any DM (decided 2026-10-12, C6). A map's art never points at the bundled `/eldari.webp`, which serves only the sign-in page. `colony seed` uploads Eldari as Sample Colony's Mainland for local testing. |
 | `place` | `id`, `name`, `description`, `player_notes`, `dm_notes`, `revealed bool DEFAULT true`, `map_id → map SET NULL`, `pin_x real NULL`, `pin_y real NULL` (0..1, y measured **from the top**), timestamps | `CHECK ((pin_x IS NULL) = (pin_y IS NULL))`. Replaces regions and locations. M2 builds it without `map_id`, `pin_x` and `pin_y`, which arrive with `map` in M4. |
 | `hex` | `q int`, `r int`, `PRIMARY KEY (q, r)`, `terrain terrain` (enum), `label text NULL` (≤ 40 chars), `updated_at` | No game boundary (decision 9). The only check is a technical bound against bad input, `abs(q) <= 100000 AND abs(r) <= 100000`. Pointy-top axial. No row means uncharted. No attribution and no history (F6). **The migrations seed no hexes.** |
-| `image` | `id`, `content_type`, `bytes bytea` (≤ 5 MB), `sha256 UNIQUE`, `width`, `height`, `uploaded_by → member`, `created_at` | Served at `/img/{id}` to members, with `Cache-Control: immutable`. |
+| `image` | `id`, `content_type`, `bytes bytea` (≤ 5 MB), `sha256 UNIQUE`, `width`, `height`, `uploaded_by → member`, `created_at` | Served at `/api/campaigns/{campaignId}/images/{imageId}` to members, with `Cache-Control: private, no-cache` and the image ID as ETag (§8.9). |
+
+- **As built in M4** (migration `0004_world_maps.sql`):
+  - Every table carries `campaign_id` with composite keys (multi-campaign design §2.6). `image` is unique on `(campaign_id, sha256)`, so the same bytes are stored once per campaign and never shared across campaigns.
+  - `map.image_url` became two columns: `image_id` (this campaign's image, composite FK) or `external_url` (https only, at most 2,000 characters), exactly one of them (`CHECK`). An external address may not be on this site (PUBLIC_URL's host, whatever the port or case), so the bundled `/eldari.webp` is refused (C6); its host name must be plain ASCII letters, digits, dots and hyphens, because browsers map Unicode and percent-encoded host names (fullwidth letters, soft hyphens) to another host before connecting. A DM could still download the sign-in art and upload it, so beyond this site's addresses C6 is a product rule, not something the server can enforce. A partial unique index allows at most one Mainland per campaign.
+  - `place.map_id` is a composite FK with `ON DELETE SET NULL (map_id)`; deleting a map clears its places' pins along with `map_id`.
+  - `hex.terrain` is `NOT NULL`, so a label needs a charted hex (§5.10). `label` is NULL for none (the API sends `''`).
+  - `npc.avatar_url` became `npc.portrait_image_id`, one of this campaign's images.
+  - Core caps map names at 80 characters and image sides at 1..1,048,576 px, and allows 200 maps per campaign (`MapLimit`, a technical bound like `PlaceLimit`).
+  - `sort_order` isn't sent: lists come in order, and a player's numbers would have gaps where hidden maps sit.
+  - Pinning or unpinning a place takes the colony lock, like deleting a map, so a pin can't land on a map between its pins clearing and its delete. Deleting a campaign takes the colony lock before the campaign row, the order every colony write uses, so it can't deadlock with one.
 
 ### 4.5 Table logistics
 
@@ -702,6 +712,7 @@ type Step interface {
   - patrons and patron actions start hidden, because players have never seen patrons.
 - The DM reveals or hides a row with the switch, and a "Hidden" badge marks hidden rows in the DM's view. After an NPC or place is created, the switch on its page is the only way to change its visibility: edits never carry it, so an edit form left open can't undo a hide made since.
 - **As built in M3:** the same holds for quests, patrons and patron actions, and for archiving patrons and actions: each has its own switch endpoint, create takes the starting visibility, and an edit can't change either. A quest's failure cost lives in its `dm` object with `dm_notes`. A request's decision note is the one per-viewer field: it isn't in a `dm` object, so core itself returns it only to the requester and the DM (not in view as player), and the secrecy sweep plants a canary note that every other player must never receive.
+- **As built in M4:** maps are hidden rows too, starting visible. A map's visibility, Mainland flag, order and art each have their own endpoint, and its edit body is only the name. For players, a map's pins leave out hidden places, and a place's `pin` is null while its map is hidden, so a hidden map's name and ID never travel on a place. An image reaches a player (or the DM in view as player) only while a revealed map's art or a revealed NPC's portrait uses it; any other image, an unused upload included, is the same 404 as a missing one. So the DM should use distinct art for hidden and visible things: an image both use is readable. Nothing about maps, pins, portraits, images or hexes is written to the timeline.
 
 ### 5.10 Hex map (decision 9; history cut by F6)
 
@@ -725,6 +736,12 @@ type Step interface {
   - With nothing charted, a radius-5 starter area of empty outlines is drawn.
   - Otherwise the map shows charted hexes plus a dashed **frontier ring** two hexes deep, so the map grows as players explore.
   - There is no boundary. The server rejects only coordinates beyond ±100,000, a technical guard against bad input that painting never reaches.
+- **As built in M4:**
+  - The routes are per campaign: `GET /api/campaigns/{campaignId}/hexes`, `POST .../hexes/paint`, `POST .../hexes/erase` (1–200 cells each) and `PUT .../hexes/{q}/{r}/label`, all for any active member, view as player included.
+  - Terrain values are uppercase (`FOREST`, `PLAINS`, `WATER`, `MOUNTAIN`, `DESERT`, `SWAMP`, `TUNDRA`, `VOLCANIC`), like every other closed set.
+  - A repeated cell within one paint call takes its last terrain. Labelling an uncharted hex is a 404 ("That hex isn't charted. Paint it before labelling it."); a blank label clears it.
+  - A campaign holds at most 50,000 charted hexes (checked under the colony lock, multi-campaign design §8); past that, painting a new hex is a 409, and repainting a charted one never is.
+  - The once-a-second refetch lives in the Explore screen's own query function, not in the stream client. `?since=` was not added; the author's phone check at 5,000 hexes decides whether it's needed.
 
 ### 5.11 Sessions and time
 
@@ -872,13 +889,19 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
 | `/patrons`, `/patrons/$patronId` | All patrons with favor; edit; archive; adjust favor; define and archive actions; request history; **Use action now** (on behalf of a player) | Visible patrons; favor; action cards (cost → effects) with **Request** (with a note); request history |
 | `/requests` | Approval queue (pending first); approval sheet (§6.5); history | My requests (withdraw while pending); party history with decision notes |
 | `/explore` | Hex map (§6.4), with the same tools as players | Hex map (§6.4) |
-| `/maps/$mapId` (Mainland = Eldari) | Image map; Edit pins mode (place, drag, remove); upload or replace the image (pins survive) | Image map with revealed pins; tap a pin → sheet → place |
+| `/maps/$mapId` (the Mainland the DM uploads) | Image map; Edit pins mode (place, drag, remove); upload or replace the image (pins survive) | Image map with revealed pins; tap a pin → sheet → place |
 | `/places`, `/places/$placeId` | List and detail; CRUD; reveal; `dm_notes`; pin (arrives in M4) | Visible places, redacted; NPCs who are here |
 | `/npcs`, `/npcs/$npcId` | Roster with search and filters; full edit; reveal; colony role; first-encountered session (arrives in M5) | Revealed NPCs under their display name, redacted |
 | `/sessions`, `/sessions/$sessionId` | Series CRUD; upcoming dates (cancel or restore); history; recap editor; mark played or end session; edit day stamps; ICS link | Upcoming dates (cancelled ones struck through) in local time; history with recaps and "Days 36–41"; ICS link |
 | `/players` | Pending (approve or deny); active (character names, remove); removed, left or denied, each labeled so (re-admit) | 403 |
 | `/settings` | Campaign and colony name; timezone; resources (add, rename, icon, bounds, archive); roles; Discord channels and event location; bot invite link; ICS token | 403 |
 | Profile menu | Character name, theme, **View as player**, sign out, sign out everywhere | Character name, theme, sign out, sign out everywhere |
+
+- **As built in M4:**
+  - The Mainland nav item opens `/c/{slug}/maps`, a list of map cards. The DM adds a map there (name, uploaded art, a Mainland switch that starts on while no map is the Mainland, and Visible to players, on by default), and each card has its own Mainland and Visible switches, Move up/down and Delete. The DM orders maps by hand; the Mainland isn't sorted first. Players see visible maps only.
+  - `/maps/$mapId` shows the art at its natural size, fitted to the screen. Edit pins taps the art to pin a place and drags pins to move them; "Pin a place at the centre" is the keyboard path. Replace art keeps every pin. A list under the map links each pinned place. Pins open with Enter or Space as well as a tap.
+  - A place's page has an "On the map" section with the art and its pin. An NPC's edit sheet has a Portrait section that saves at once through its own endpoint, apart from the sheet's Save; the roster and the NPC page show the portrait, other NPC lists still show initials.
+  - There is no screen for an external-URL map yet; the API takes one (§8.9).
 
 ### 6.3 Live at the table
 
@@ -905,7 +928,7 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
   - Toggled by a large brush button.
   - Tap to paint; drag one finger to paint a stroke.
   - Strokes are sent every 250 ms and on lift as one batched call.
-  - **Two fingers always pan and zoom.** One-finger map dragging is turned off in this mode. This gesture split is verified on a real phone at the start of M4 (§8.3).
+  - **Two fingers always pan and zoom.** One-finger map dragging is turned off in this mode. This gesture split is checked on a real phone as a step of the M4 checklist (decided 2026-10-12); M4 builds the fallback handler in from the start (§8.3).
   - The label is never touched.
 - **Palette.** A horizontally scrolling chip bar: the 8 terrains, each with its pattern, plus **Unchart**. The selected chip is enlarged.
 - **Frontier.** Dashed outlines ring the charted area. Painting one charts it, so the map grows outward.
@@ -914,6 +937,11 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
 - **Desktop shortcuts:** `1`–`8` pick a terrain, `P` toggles Paint, `E` selects Unchart.
 - **Live.** Other members' strokes appear within about a second.
 - **Performance target:** smooth panning at 5,000 charted hexes on a mid-range phone, checked in M4 with `colony seed --hexes 5000`.
+- **As built in M4:**
+  - In Paint mode the pointer handler is the main path, not only a fallback: Leaflet's dragging, touch zoom and box zoom are off, a small tested gesture helper (`web/src/explore/paint-gesture.ts`) owns every pointer, and two fingers move the map with `setView`. The map's `touch-action` is `none` in Paint mode, because Leaflet leaves `pan-x pan-y` once dragging is off, which would hand one-finger moves to the page. A finger must move 8 px before it paints, so a pinch never leaves a stray hex. The real-phone check is a step of the M4 checklist.
+  - Painting shows at once; strokes go out every 250 ms and on lift, in calls of at most 200 cells, one call at a time, so a later stroke over the same hex lands last. A failed call shows a toast, reverts those hexes and refetches.
+  - Zoomed out, the map is drawn once into a cached image (while it fits 4,096 device pixels a side) and panning copies it; zoomed in, only the hexes in view are drawn. Labels show once a hex is 56 px wide. Double-tap zoom is off in Look mode, so a double tap doesn't fight the sheet.
+  - On a desktop, Paint mode can't drag-pan with the mouse; switch back with `P`, or use the wheel or the zoom buttons.
 
 ### 6.5 The DM's approval sheet
 
@@ -1155,7 +1183,7 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
 | Server state | TanStack Query | 5.103.2 | Caching, plus invalidation driven by SSE. |
 | API client | openapi-fetch + openapi-react-query; openapi-typescript (dev) | 0.17.0 / 0.5.4 / 7.13.0 | Typed paths and bodies from huma's spec. If the pre-1.0 openapi-react-query becomes a problem, replace it with plain `queryOptions` helpers over openapi-fetch. |
 | Styling | Tailwind + `@tailwindcss/vite`; shadcn/ui (radix-ui), lucide-react, sonner, `@fontsource` (Cinzel, Alegreya, Alegreya Sans) | Tailwind 4.3.3 | Familiar. Copied components add no runtime framework. |
-| Maps | Leaflet + react-leaflet, `CRS.Simple`, for both the Eldari image map and the hex map | 1.9.4 / 5.0.0 | One pan, zoom and pinch stack. Leaflet 2.0 is still pre-release. react-hexgrid and honeycomb-grid are both dormant and dropped. **To verify at the start of M4:** two-finger pan and pinch still work while one-finger dragging is off in Paint mode. If Leaflet's touch-zoom handler doesn't pan, a small pointer handler drives `setView`. |
+| Maps | Leaflet + react-leaflet, `CRS.Simple`, for both the Eldari image map and the hex map | 1.9.4 / 5.0.0 | One pan, zoom and pinch stack. Leaflet 2.0 is still pre-release. react-hexgrid and honeycomb-grid are both dormant and dropped. **Checked on a real phone in the M4 checklist (decided 2026-10-12):** two-finger pan and pinch still work while one-finger dragging is off in Paint mode. M4 builds the fallback in from the start: if Leaflet's touch-zoom handler doesn't pan, a small pointer handler drives `setView`. |
 | Hex drawing | One custom Leaflet canvas layer: fills, `createPattern` patterns, labels by zoom; hit-testing by axial rounding of the pointer | — | `L.Polygon` per hex can't carry patterns and costs an object per hex. |
 | Forms | Native `<form>` + controlled inputs; server 422 field errors mapped onto inputs | — | No Zod or react-hook-form mirrors. The server is the validator. |
 | Lint / format | Biome (TS); `gofmt`, `go vet`, golangci-lint v2 with depguard + forbidigo (Go) | Biome 2.5.14 | One tool per language; keeps the rules package pure. |
@@ -1305,7 +1333,7 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
   - any other case (too far behind, a new boot, or no ID): one invalidate for everything.
 - **A reconnect runs exactly one read**, the membership (`EnterCampaign`), and no write (since M1.5; there is no membership cache). The session comes from the in-memory cache (§8.5), and `last_seen_at` is written at most once a day. An idle open tab runs no query. A tab left open between sessions therefore won't keep a hosted database awake (M6).
 - **Client.**
-  - Maps topics to query-key prefixes and invalidates them.
+  - Maps topics to query-key prefixes and invalidates them. A live invalidation never aborts a read in flight: it marks the read stale and that read runs once more when it lands (`web/src/api/live-invalidation.ts`), so updates that come faster than a read finishes (strokes on a slow connection) can't starve it.
   - After a `timeline` invalidation, it fetches the newest PUBLIC entries and toasts them.
 - **Hexes** refetch the whole map on a `hexes` invalidation, at most once a second while strokes stream in (§5.10).
 - **Fallback.** If the M6 host's proxy misbehaves, `refetchInterval` can be switched on per query; the keys are the same. Polling is never the default, because polling keeps a hosted database awake.
@@ -1322,6 +1350,14 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
   - Neon's free plan allows 0.5 GB of storage per project, history retention included.
   - Storage is checked on Neon's usage page along with CU-hours during M6.
   - Past the budget, images move to a bucket behind the same `/img/{id}` URL, or the database moves to a paid plan.
+- **As built in M4** (multi-campaign design §8 and §9.3 replace `/img/{id}` and the single budget):
+  - `POST /api/campaigns/{campaignId}/images` (DM only) takes multipart/form-data with one file field `image`, the one exception to JSON-only bodies. The type is read from the bytes, never the name or header: PNG, JPEG, WebP or GIF; SVG, text and files cut off inside their header are a 422. The server reads only the header, never the pixels, so a file cut off after its header is stored and shows broken. A header declaring more than 16,384 pixels on a side or 50 megapixels in all is a 422, so no player's phone is handed an image it can't decode. A body over 5 MiB + 64 KiB is a 413: before it is read when it has a Content-Length, and as soon as it passes the cap when it is sent chunked. A file over 5 MiB inside that is a 422. Reading the body has a 2-minute deadline (a stalled upload is a 408), checked only after the access check, so only the DM's uploads are read.
+  - Each campaign has 50 MB of images, checked under the colony lock; past it, a 409 names what's used ("Replace or remove a map or portrait first."). The same bytes uploaded again return the stored image and restart its hour (below), so the next upload's sweep can't take an image a form was just given.
+  - An image is deleted once nothing uses it: replacing a map's art, replacing or clearing a portrait, deleting an NPC or a map. An upload nothing takes up within an hour (a form closed after its upload) is deleted by the campaign's next upload, so abandoned uploads stop counting without a timer.
+  - `GET /api/campaigns/{campaignId}/images/{imageId}` serves the bytes to members with the stored type, `Cache-Control: private, no-cache` and the image ID as its ETag (private, because only members may read it; no-cache, because the same URL is 404 for players, so a browser shared at the table revalidates the DM's copy instead of reusing it, and a revalidation is a 304), `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`. Players read only images a revealed map or a revealed NPC's portrait uses (§5.9).
+  - A map's art may still be an external https address, with its width and height given by the DM. It isn't counted in the budget, and players' browsers fetch it from that host. Non-https addresses, any address on this site (PUBLIC_URL's host, whatever the port), the bundled `/eldari.webp` among them, and host names that aren't plain ASCII are refused.
+  - The bundled `/eldari.webp` is never a map's art (decided 2026-10-12); it is the backdrop of the sign-in, pending and error screens, and of no campaign's screens. The colony board's faint background (wide screens) is the campaign's own Mainland art, taken from the viewer's own map list: a player, or the DM in view as player, sees it only while the Mainland is visible, and no Mainland means no background.
+  - Every request but the upload and the event stream has 30 seconds to arrive, body included (`ReadTimeout`, with a 10-second `ReadHeaderTimeout`), so a body that stalls frees its connection even when it's refused unread. The upload's own 2-minute deadline replaces it once the access check passes, and a GET's connection read has no deadline once the handler runs, so streams live on; there is no `WriteTimeout`. `colony seed` uploads the same bytes as Sample Colony's Mainland, reading `web/public/eldari.webp` from the repository root (`MainlandArtPath` in `internal/seed/world.go`), and the DM uploads it like any other art.
 
 ### 8.10 Local development (M0–M5)
 
@@ -1418,7 +1454,7 @@ There is no importer (F2). The old app holds only throwaway test data, so nothin
 | M1 | A colony some weeks in: day, gold, food, materials and morale; a 7-day shipment schedule; a short history (a few advances, an arrival with recorded cargo, a DM-only adjustment). Role headcounts are set directly, so upkeep has colonists before the People screen exists. |
 | M2 | Headcounts across the eight roles, with some Unassigned; NPCs, including hidden ones, one whom players know by a different name, and named colonists such as Brannoc the farmer; a few places. |
 | M3 | Quests: active, completed, failed, one hidden, and one from Lady Vex with a favor reward. Patrons: Lady Vex (revealed, with favor), one hidden and one archived, with actions such as the Grain Barge. Requests: pending, granted, and declined with a note. |
-| M4 | A small charted area on the hex map with a few labels; pins for the sample places on the Eldari map. |
+| M4 | A small charted area on the hex map with a few labels; pins for the sample places on the Eldari map. As built: the Eldari bytes uploaded as Sample Colony's Mainland "Eldari" (1920×1080, visible) with all five sample places pinned (players see four: The Drowned Chapel is hidden), and 19 hexes around Port Eldari painted by Ana with 4 labels (Port Eldari, Saltmarsh, Wolf Den, Grey Tor). Second Sample gets 7 hexes, 2 labels (Ridgehold, The Old Mine) and no map. `--hexes N` (0 to 50,000) paints N hexes in a spiral instead, with a "Survey mark" label every 100. |
 | M5 | A weekly series with one cancelled date; two played sessions with recaps and colony-day stamps, so the timeline shows session bands. |
 
 ---
@@ -1524,8 +1560,8 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
 **M4: World maps.**
 - **Scope:**
   - per campaign (F8): maps, pins, hexes and images carry `campaign_id`; images are served under `/api/campaigns/{campaignId}/images/`; 50 MB of images and 50,000 hexes per campaign. **The Eldari art belongs to the author's campaign only (C6):** it is not seeded or offered to other campaigns as a starting map; other DMs upload their own mainland art;
-  - Explore (canvas layer; Look and Paint modes; batched strokes; frontier; patterns; label search; live), starting with the two-finger gesture check on a real phone;
-  - Mainland (Eldari) with pins; image uploads; `place.map_id`, `pin_x`, `pin_y` and NPC portraits (`npc.avatar_url`), which M2 left out;
+  - Explore (canvas layer; Look and Paint modes; batched strokes; frontier; patterns; label search; live), with the two-finger gesture check on a real phone as a checklist step and the pointer-handler fallback built in (decided 2026-10-12);
+  - Mainland with pins (each DM uploads their own; the author uploads Eldari, 2026-10-12); image uploads; `place.map_id`, `pin_x`, `pin_y` and NPC portraits (`npc.avatar_url`), which M2 left out;
   - PWA manifest;
   - sample hexes and pins in `colony seed`, plus `--hexes 5000` for the performance check.
 - **Acceptance:**

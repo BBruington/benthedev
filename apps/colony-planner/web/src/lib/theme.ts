@@ -70,6 +70,16 @@ function subscribeToDeviceScheme(listener: () => void) {
 	};
 }
 
+/** Calls listener whenever the theme on screen may have changed: a new preference or device scheme. */
+export function subscribeToResolvedTheme(listener: () => void) {
+	const stopWatchingPreference = subscribeToTheme(listener);
+	const stopWatchingDevice = subscribeToDeviceScheme(listener);
+	return () => {
+		stopWatchingPreference();
+		stopWatchingDevice();
+	};
+}
+
 function readDeviceSchemeIsDark() {
 	return window.matchMedia(darkSchemeQuery).matches;
 }

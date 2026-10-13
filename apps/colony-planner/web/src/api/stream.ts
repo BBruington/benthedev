@@ -1,5 +1,6 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useSyncExternalStore } from "react";
+import { createLiveInvalidator } from "./live-invalidation";
 import { campaignMeQuery, meQuery } from "./queries";
 import { isInvalidateMessage, queryKeysForTopics } from "./topics";
 
@@ -70,6 +71,7 @@ export function startLiveStream(queryClient: QueryClient, campaignId: string): (
 	let graceTimer: ReturnType<typeof setTimeout> | undefined;
 	let failureCount = 0;
 	let stopped = false;
+	const invalidator = createLiveInvalidator(queryClient);
 
 	function clearTimers() {
 		clearTimeout(retryTimer);
@@ -131,7 +133,7 @@ export function startLiveStream(queryClient: QueryClient, campaignId: string): (
 			return;
 		}
 		for (const queryKey of queryKeys) {
-			queryClient.invalidateQueries({ queryKey });
+			invalidator.invalidate(queryKey);
 		}
 	}
 
@@ -190,6 +192,7 @@ export function startLiveStream(queryClient: QueryClient, campaignId: string): (
 	return () => {
 		stopped = true;
 		close();
+		invalidator.stop();
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
 		window.removeEventListener("online", handleOnline);
 		setLiveState("connecting");

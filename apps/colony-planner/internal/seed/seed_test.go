@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -15,7 +17,7 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	database := dbtest.New(t)
 	testContext := context.Background()
 	service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), SiteOwnerDiscordID: core.SeedDmDiscordID})
-	options := Options{Pool: database.Pool, Core: service, OwnerDiscordID: core.SeedDmDiscordID}
+	options := Options{Pool: database.Pool, Core: service, OwnerDiscordID: core.SeedDmDiscordID, MainlandArt: mainlandArt(t)}
 	if err := Run(testContext, options); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -244,6 +246,37 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatalf("open requests = %+v, %v", requests, err)
 	}
 
+	// M4: Sample Colony's Mainland is the uploaded Eldari art with the sample pins (the hidden chapel's
+	// for the DM only) and a small charted area; Second Sample has a few hexes and no map.
+	for _, check := range []struct {
+		viewer core.Viewer
+		pins   int
+	}{{dm, 5}, {player, 4}} {
+		maps, err := service.ListMaps(testContext, check.viewer)
+		if err != nil || len(maps.Maps) != 1 || !maps.Maps[0].IsMainland || maps.Maps[0].ImageID == nil || maps.Maps[0].Width != 1920 || maps.Maps[0].Height != 1080 {
+			t.Fatalf("maps = %+v (%v)", maps, err)
+		}
+		mainland, err := service.GetMap(testContext, check.viewer, maps.Maps[0].ID)
+		if err != nil || len(mainland.Pins) != check.pins {
+			t.Fatalf("the Mainland has %d pins, want %d (%v)", len(mainland.Pins), check.pins, err)
+		}
+		if _, err := service.GetImage(testContext, check.viewer, *maps.Maps[0].ImageID); err != nil {
+			t.Fatalf("the Mainland's art: %v", err)
+		}
+	}
+	sampleHexes, err := service.ListHexes(testContext, player)
+	if err != nil || len(sampleHexes.Hexes) != len(sampleColonyHexes) {
+		t.Fatalf("Sample Colony's hexes = %d (%v)", len(sampleHexes.Hexes), err)
+	}
+	secondMaps, err := service.ListMaps(testContext, secondDm)
+	if err != nil || len(secondMaps.Maps) != 0 {
+		t.Fatalf("Second Sample's maps = %+v (%v)", secondMaps, err)
+	}
+	secondHexes, err := service.ListHexes(testContext, secondDm)
+	if err != nil || len(secondHexes.Hexes) != len(secondSampleHexes) {
+		t.Fatalf("Second Sample's hexes = %d (%v)", len(secondHexes.Hexes), err)
+	}
+
 	if err := Run(testContext, options); !errors.Is(err, ErrDatabaseInUse) {
 		t.Fatalf("seeding twice = %v, want ErrDatabaseInUse", err)
 	}
@@ -254,7 +287,7 @@ func TestSeedUsesTheConfiguredOwner(t *testing.T) {
 	testContext := context.Background()
 	realOwnerID := "800000000000000008"
 	service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), SiteOwnerDiscordID: realOwnerID})
-	if err := Run(testContext, Options{Pool: database.Pool, Core: service, OwnerDiscordID: realOwnerID}); err != nil {
+	if err := Run(testContext, Options{Pool: database.Pool, Core: service, OwnerDiscordID: realOwnerID, MainlandArt: mainlandArt(t)}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	accountID, found, err := service.AccountIDForDiscordUser(testContext, realOwnerID)
@@ -267,10 +300,85 @@ func TestSeedUsesTheConfiguredOwner(t *testing.T) {
 	}
 }
 
-func TestSeedRefusesHexesBeforeTheMapExists(t *testing.T) {
-	if err := Run(context.Background(), Options{Hexes: 5000, OwnerDiscordID: core.SeedDmDiscordID}); err == nil {
-		t.Fatal("--hexes was accepted before M4")
+// mainlandArt is the Eldari art `colony seed` reads from the repository root.
+func mainlandArt(t *testing.T) []byte {
+	t.Helper()
+	art, err := os.ReadFile(filepath.Join("..", "..", MainlandArtPath))
+	if err != nil {
+		t.Fatal(err)
 	}
+	return art
+}
+
+// --hexes N paints N hexes in Sample Colony instead of the default handful, for the 5,000-hex check.
+func TestSeedPaintsManyHexes(t *testing.T) {
+	for _, hexes := range []int{-1, core.HexLimit + 1} {
+		if err := Run(context.Background(), Options{Hexes: hexes, OwnerDiscordID: core.SeedDmDiscordID}); err == nil {
+			t.Fatalf("--hexes %d was accepted", hexes)
+		}
+	}
+	database := dbtest.New(t)
+	testContext := context.Background()
+	service := core.New(core.Options{Pool: database.Pool, Logger: slog.New(slog.DiscardHandler), SiteOwnerDiscordID: core.SeedDmDiscordID})
+	const hexes = 450
+	if err := Run(testContext, Options{Pool: database.Pool, Core: service, OwnerDiscordID: core.SeedDmDiscordID, Hexes: hexes, MainlandArt: mainlandArt(t)}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	accountID, _, err := service.AccountIDForDiscordUser(testContext, core.SeedDmDiscordID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := core.Caller{AccountID: accountID, DiscordUserID: core.SeedDmDiscordID, IsSiteOwner: true}
+	campaigns, err := service.MyCampaigns(testContext, owner)
+	if err != nil || len(campaigns.Campaigns) != 1 {
+		t.Fatalf("the owner's campaigns = %+v (%v)", campaigns, err)
+	}
+	dm, err := service.EnterCampaign(testContext, owner, campaigns.Campaigns[0].Campaign.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := service.ListHexes(testContext, dm)
+	if err != nil || len(list.Hexes) != hexes {
+		t.Fatalf("%d hexes, want %d (%v)", len(list.Hexes), hexes, err)
+	}
+	labelled := 0
+	for _, hex := range list.Hexes {
+		if hex.Label != "" {
+			labelled++
+		}
+	}
+	if labelled != len(sampleColonyHexLabels)+4 {
+		t.Fatalf("%d labels, want the sample ones and a survey mark every %d hexes", labelled, sampleHexLabelEvery)
+	}
+}
+
+// The spiral grows ring by ring: 1, then 6 more, then 12 more, each cell once.
+func TestSpiralHexesGrowRingByRing(t *testing.T) {
+	cells := spiralHexes(37)
+	seen := map[core.HexCoordinate]bool{}
+	for index, cell := range cells {
+		distance := max(abs(cell.Q), abs(cell.R), abs(cell.Q+cell.R))
+		wantRing := int64(0)
+		switch {
+		case index >= 19:
+			wantRing = 3
+		case index >= 7:
+			wantRing = 2
+		case index >= 1:
+			wantRing = 1
+		}
+		if distance != wantRing || seen[cell] {
+			t.Fatalf("cell %d = %+v (ring %d, repeated %v), want ring %d", index, cell, distance, seen[cell], wantRing)
+		}
+		seen[cell] = true
+	}
+}
+
+func abs(value int64) int64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func TestRequireLocalDevelopment(t *testing.T) {

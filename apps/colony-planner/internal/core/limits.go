@@ -31,6 +31,23 @@ const (
 	PatronActionLimit                  = 2000
 	PatronActionLimitIncludingArchived = 20000
 
+	// ImageBudgetBytes is the image storage of one campaign (docs/design/multi-campaign.md §8), counted
+	// over the images in use, and ImageMaxBytes one upload (spec §8.9).
+	ImageBudgetBytes = 50 * 1024 * 1024
+	ImageMaxBytes    = 5 * 1024 * 1024
+	// ImageMaxSide and ImageMaxPixels keep an image one a phone can decode: the server reads only the
+	// header, so a small file declaring a huge canvas would otherwise reach every player's browser.
+	ImageMaxSide   = 16384
+	ImageMaxPixels = 50_000_000
+	// HexLimit is the charted hexes of one campaign; HexCellsPerCall is one paint or erase call, so a
+	// longer stroke is sent in parts (spec §5.10). HexCoordinateLimit only refuses bad input: the map
+	// has no edge (decision 9).
+	HexLimit           = 50000
+	HexCellsPerCall    = 200
+	HexCoordinateLimit = 100000
+	// MapLimit is a technical bound of the same kind as PlaceLimit.
+	MapLimit = 200
+
 	campaignNameMaxLength = 80
 	slugMinLength         = 3
 	slugMaxLength         = 40

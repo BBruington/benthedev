@@ -42,12 +42,12 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
 | `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, and `internal/bot/requests.go` is the request prompts with Grant and Decline |
-| `internal/seed/` | the two fictional sample campaigns for `colony seed` |
+| `internal/seed/` | the two fictional sample campaigns for `colony seed`; `internal/seed/world.go` uploads the Eldari art as Sample Colony's Mainland, pins its places and paints the sample hexes (`--hexes N`) |
 | `db/migrations/` | goose SQL, the one schema source (enums included), embedded by `db/embed.go` and applied by `db/migrate.go` |
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
-| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/` and `web/src/ventures/` (quests, patrons, requests, the approval sheet) hold the pieces their route files render |
+| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it) and `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) and `docs/checklists/` |
 
@@ -112,9 +112,9 @@ web/src/** -> web/src/api -> the Go API
 13. Broadcasts are per campaign: `Broker.Publish(campaignID, topics...)`; there is no unscoped publish.
     Sequence numbers and the resume ring are per campaign.
 14. Logs carry IDs, kinds, counts and statuses, never campaign content or message text.
-15. A hidden row (`revealed = false`: NPCs, places, quests, patrons, patron actions) never reaches a
-    player: reads answer 404 exactly like a missing row, and it is absent from lists, search, named
-    colonists, a place's npcsHere, quest givers, requests, the timeline and Beny Bot. A hidden named
+15. A hidden row (`revealed = false`: NPCs, places, quests, patrons, patron actions, maps) never reaches
+    a player: reads answer 404 exactly like a missing row, and it is absent from lists, search, named
+    colonists, a place's npcsHere, quest givers, requests, map pins, the timeline and Beny Bot. A hidden named
     colonist still counts, as unnamed, in the player's headcounts. Players get an NPC only by
     `displayName`; the true name, known name, revealed flag and DM notes live in `NpcDm`.
     Timeline text names NPCs by display name, which is the true name while known_name is blank. So an
@@ -142,6 +142,23 @@ web/src/** -> web/src/api -> the Go API
     decision note is per viewer, not DM-only: core returns it only to the requester and the DM (not in
     view as player), because it isn't in a `dm` object and the Transformer won't strip it
     (`mayReadDecisionNote` in `internal/core/requests.go`).
+17. M4 secrecy (maps, pins, images). A hidden map is a hidden row like those in 15: players get 404
+    "That map doesn't exist." and never its ID, name or art. Visibility, the Mainland flag, order and
+    art each have their own endpoint; a map's edit body is only its name. Players' reads filter in SQL:
+    a map's pins leave out hidden places, and a place's `pin` is null while its map is hidden, so a
+    hidden map's ID and name never travel on a place. An image (`GET .../images/{imageId}`, member level)
+    reaches a player, or the DM in view as player, only while a revealed map's art or a revealed NPC's
+    portrait uses it (`GetImageView` in `db/queries/images.sql`); any other image, an unused upload
+    included, is the same 404 as a missing one. Images are served with `Cache-Control: private,
+    no-cache` and their ID as the ETag (the same URL is 404 for a player, so a browser shared with the DM
+    must ask before reusing the DM's copy; a revalidation is a 304), nosniff and `Content-Security-Policy: default-src 'none'; sandbox`, and
+    the type is sniffed from the bytes (PNG, JPEG, WebP, GIF; never SVG), with at most 16,384 pixels on a
+    side and 50 megapixels in all. A map's art is this campaign's image or an https address on another
+    site: core refuses PUBLIC_URL's host (`core.Options.PublicURL`) and any host name that isn't plain
+    ASCII (a browser maps those first), so never the bundled `/eldari.webp` (C6). The colony board's faint
+    backdrop is the Mainland from the viewer's own map list, so it follows the Mainland's visibility, and
+    nothing when there is none. Hexes have no secrets: any active member, view as player included, may paint, label or erase.
+    Maps, pins, portraits, images and hexes write no timeline entries.
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.
@@ -166,7 +183,17 @@ API details that keep the contract single-sourced:
   skip a later migration that reuses its version; the message says to run `mise run fresh`. `reset` drops
   the schema before migrating, so `mise run reset` and `fresh` rebuild such a database. Never renumber or
   delete a migration once it is merged.
-- Mutations accept JSON bodies only, behind stdlib http.CrossOriginProtection.
+- Mutations accept JSON bodies only, behind stdlib http.CrossOriginProtection. The one exception is the
+  image upload, `POST /api/campaigns/{campaignId}/images`, which must be multipart/form-data with one file
+  field `image` (`requireJSONBodies` in `internal/app/app.go`, `isImageUpload` in `internal/app/images.go`).
+  A body over 5 MiB + 64 KiB with a Content-Length is a 413 before anything reads it, and every upload
+  body goes through http.MaxBytesReader. After the access check, `readImageUpload` in
+  `internal/app/images.go` reads the form under a 2-minute deadline (408 when it stalls) and gives a
+  chunked body over the cap the same 413. Every other request has 30 seconds to arrive whole
+  (`HTTPServer` in `internal/app/app.go`, the server `cmd/colony` runs: ReadHeaderTimeout plus a ReadTimeout
+  that covers the body, so a stalled body is cut off even when it's answered unread); there is no
+  WriteTimeout, which would end event streams. The app has no app-wide Content-Security-Policy; if one is ever
+  added, its img-src needs https: for maps whose art is an external address.
 - Sessions belong to the account and are cached in memory (`internal/auth/cache.go`). Sign-out and
   sign-out-everywhere evict through `core.SessionEvictor`; a membership change (approve, deny, remove,
   re-admit, leave) touches no session and rescopes that membership's streams instead. After commit an
@@ -201,9 +228,16 @@ use each undone with the UNDO made PUBLIC, the revealed quest's and patron's DM 
 failure cost, a quest completed for the hidden patron (its favor line is in `dm.note`), and archived
 patrons and actions. A dedicated requester account no sweep caller uses owns a declined and a granted
 request whose decision notes are canaries, so no other player and no DM viewing as player may see them.
+M4's maps, pins, hexes and images fixture plants a revealed Mainland (the {mapId} row, its art the
+{imageId} row) pinning the hidden place, a hidden map with a canary name and its own art pinning the
+revealed {placeId} place (whose `pin` must be null for players), a portrait on the hidden NPC, an upload
+nothing uses, and hex labels carrying canaryB in B. The hidden map's ID and every image only hidden
+things use are forbidden values. Image bytes aren't JSON, so `TestPlayersGetHiddenImagesAsMissing` checks
+that players and view as player get exactly the missing-image 404 for each of those images (use distinct
+images for hidden and visible things: an image both use is rightly readable).
 The secrecy sweep only sees a leak of a planted value. A new ID or map field in a request body also goes
-in `mixedIDFields` in `internal/app/secrecy_test.go`, so the sweep puts the other campaign's real IDs and
-keys into it.
+in `mixedIDFields` in `internal/app/secrecy_test.go` (kind "uuid", "uuids" for a list of IDs, "key" or
+"map"), so the sweep puts the other campaign's real IDs and keys into it.
 
 Add an entity, then `mise run gen`:
 1. a migration (the table carries `campaign_id` per Invariant 11) and a queries file in `db/queries/`
@@ -263,3 +297,6 @@ reaches 0 or morale is low. An undecided rule is data or an open question (`docs
 - Web UI: shadcn/ui components (added with the shadcn CLI per `web/components.json`), `cn` from
   `web/src/lib/utils.ts`, palette tokens and fonts in `web/src/styles.css` ("Night Sea and Parchment").
   Players use phones: every player screen works one-handed at 360 px wide.
+- Leaflet maps: the map's container isolates its stacking context (`isolation: isolate`, as
+  `web/src/maps/image-map.css` and the Explore map's wrapper do), because Leaflet's panes use z-indexes up
+  to 1000 and would otherwise cover bottom sheets, dialogs and the shell's bars.

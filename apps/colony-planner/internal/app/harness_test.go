@@ -105,6 +105,8 @@ type campaignFixture struct {
 	keptPlaceID uuid.UUID
 	// hiddenNpcID is a hidden named colonist.
 	hiddenNpcID uuid.UUID
+	// hiddenImageIDs are images only hidden things use, or nothing: players read each like a missing one.
+	hiddenImageIDs []uuid.UUID
 	// requester is a member no sweep caller signs in as: their declined request's note is DM-only to
 	// everyone else, so only they and the DM may read it.
 	requester account
@@ -186,6 +188,7 @@ func newHarness(t *testing.T) *harness {
 		SiteOwnerDiscordID: testOwnerDiscordID,
 		Sessions:           cache,
 		Directory:          directory,
+		PublicURL:          testPublicURL,
 	})
 	authService, err := auth.New(auth.Options{
 		Core:               service,
@@ -199,11 +202,13 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("auth.New: %v", err)
 	}
 	server, err := New(Options{
-		Core:            service,
-		Auth:            authService,
-		Logger:          logger,
-		StreamHeartbeat: 50 * time.Millisecond,
-		StreamLifetime:  10 * time.Second,
+		Core:                   service,
+		Auth:                   authService,
+		Logger:                 logger,
+		StreamHeartbeat:        50 * time.Millisecond,
+		StreamLifetime:         10 * time.Second,
+		ImageUploadReadTimeout: time.Second,
+		RequestReadTimeout:     testRequestReadTimeout,
 	})
 	if err != nil {
 		t.Fatalf("app.New: %v", err)
@@ -401,6 +406,12 @@ func (testHarness *harness) openStream(campaign *campaignFixture, token string, 
 	testHarness.t.Helper()
 	server := httptest.NewServer(testHarness.handler)
 	testHarness.t.Cleanup(server.Close)
+	return testHarness.openStreamOn(server, campaign, token, lastEventID)
+}
+
+// openStreamOn opens the stream on a server the test started, such as one with the app's read limits.
+func (testHarness *harness) openStreamOn(server *httptest.Server, campaign *campaignFixture, token string, lastEventID string) *liveStream {
+	testHarness.t.Helper()
 	streamContext, cancel := context.WithCancel(context.Background())
 	testHarness.t.Cleanup(cancel)
 	request, err := http.NewRequestWithContext(streamContext, http.MethodGet, server.URL+campaignPathOf(campaign, "/stream"), nil)

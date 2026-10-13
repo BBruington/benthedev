@@ -111,3 +111,13 @@ WHERE campaign_id = @campaign_id AND id = @id;
 -- A colonist can't be deleted until they leave the colony (spec §5.5); core checks first and says so.
 -- name: DeleteNpc :execrows
 DELETE FROM npc WHERE campaign_id = @campaign_id AND id = @id AND colony_role_key IS NULL;
+
+-- A portrait is one of this campaign's images; NULL clears it. Returns the portrait it replaced, so core
+-- can delete that image once nothing uses it.
+-- name: SetNpcPortrait :one
+UPDATE npc AS updated
+SET portrait_image_id = sqlc.narg(portrait_image_id), updated_at = now()
+FROM npc AS previous
+WHERE updated.campaign_id = @campaign_id AND updated.id = @id
+  AND previous.campaign_id = updated.campaign_id AND previous.id = updated.id
+RETURNING previous.portrait_image_id AS previous_portrait_image_id;

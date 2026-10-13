@@ -1,6 +1,6 @@
 # Handoff: Colony Planner
 
-**Last updated:** 2026-10-12, after the M3 debrief fixes. M2 is merged ([PR #3](https://github.com/BBruington/colony-planner/pull/3)). M3 is built in the working copy (a jj change on top of `main`), not yet committed, awaiting the author's checklist run (`docs/checklists/M3.md`).
+**Last updated:** 2026-10-12, after the M4 build. M3 is merged ([PR #4](https://github.com/BBruington/colony-planner/pull/4)). M4 is built in the working copy (a jj change on top of `main`), not yet committed, awaiting the author's checklist run (`docs/checklists/M4.md`).
 **For:** the author, and any future session or AI agent picking this project up cold.
 
 This document carries the context that isn't in the code: why the project exists, what the author decided and why, how the author likes to work, what's pending, and what bit us along the way. Read it with:
@@ -28,8 +28,8 @@ It replaces `~/myCodeSpace/party-planner`: the author's earlier, unfinished, gen
 | M1 | Colony clock and books: Advance N days with preview, shipments (exact cadence), Adjust, Record cargo, Correct day, single-level Undo, timeline, live updates; plus the M0 review hardening | Merged ([PR #1](https://github.com/BBruington/colony-planner/pull/1)) |
 | M1.5 | Multi-campaign: accounts and memberships, site owner, invite links, DM requests and owner approval, one shared Beny Bot with `/link`, cross-campaign isolation; then a cleanup pass that squashed migrations into one `0001` | Merged ([PR #2](https://github.com/BBruington/colony-planner/pull/2)) |
 | M2 | People and secrecy: `/people` (transfers, set counts, named colonists joining and leaving), NPC roster with server-side secrecy, places (unpinned), Settings roles card, Beny Bot `/npc view` | Merged ([PR #3](https://github.com/BBruington/colony-planner/pull/3)) |
-| M3 | Quests (Effects rewards, favor to patron givers, an optional failure cost), patrons and actions, player requests with the DM's approval sheet, Beny Bot Grant/Decline buttons | Built, not yet committed; awaiting the author's checklist run (`docs/checklists/M3.md`). `mise run check` passes |
-| M4 | Hex map (players chart the new world; no fog of war, no history), the mainland map with pins | Planned |
+| M3 | Quests (Effects rewards, favor to patron givers, an optional failure cost), patrons and actions, player requests with the DM's approval sheet, Beny Bot Grant/Decline buttons | Merged ([PR #4](https://github.com/BBruington/colony-planner/pull/4)) |
+| M4 | World maps: the Explore hex map (players chart the new world; no fog of war, no history), each DM's uploaded Mainland and other maps with pins, image uploads, NPC portraits, the PWA manifest | Built, not yet committed; awaiting the author's checklist run (`docs/checklists/M4.md`), including the real-phone gesture and 5,000-hex checks. `mise run check` passes |
 | M5 | Sessions (local time + time zone), Discord events, reminders, recaps, ICS feed | Planned |
 | M6 | Deploy to the author's existing domain, replacing party-planner. **Optional, and only after the author says the app meets their standards** | Not started |
 
@@ -45,6 +45,7 @@ Most of these came from conversations, not documents. When code or docs disagree
 
 - **The colony sits on a new world with no DM-provided map.** **Eldari** (`web/public/eldari.webp`) is the **mainland** that ships come from. The hex map is the players' own tool to chart the new world: free painting, **no fog of war, no hex history**.
 - **Eldari belongs to the author's campaign only.** Never offer it to other campaigns (C6); another DM would ask the author.
+- **M4 answers (2026-10-12):** no map is seeded in production. Each DM uploads their own Mainland art, and the author uploads Eldari like any DM; a map's art never points at the bundled `/eldari.webp` (it serves the sign-in page). `colony seed` uploads the Eldari bytes as Sample Colony's Mainland for local testing only. The two-finger gesture split in Paint mode is checked by the author on a real phone in the M4 checklist, with the pointer-handler fallback built in from the start.
 - **Don't invent game mechanics.** The author is still designing the campaign. Advance Day does only what SPEC §5.2 says: Days +1, and upkeep of 1 food per colonist per day, floored at the minimum. Nothing happens when food hits 0 or morale is low. Undecided rules become DM-editable data or open questions, never code.
 - **The DM advances time by hand**, any number of days, with no limit enforced by the site.
 - **Colonists = the sum of role headcounts**, with named NPC colonists counting toward their role. New colonists land in **Unassigned**.
@@ -98,7 +99,8 @@ Most of these came from conversations, not documents. When code or docs disagree
 
 Roughly in order:
 
-- [ ] **Try M3** with `docs/checklists/M3.md` (it starts with `mise run fresh`, which **erases local data** and loads the sample quests, patrons and requests; the debrief amended `0003`, so a database that already applied it needs that `fresh` anyway). The Discord step (Grant in the test server) can only be checked by the author. Then, if the author asks for a PR, commit on a `claude/` branch.
+- [ ] **Try M4** with `docs/checklists/M4.md` (it starts with `mise run fresh`, which **erases local data** and loads the sample Mainland, pins and hexes). Three steps only the author can run: the two-finger gesture split on a real phone over `mise run dev:phone`, smooth panning at 5,000 hexes on that phone, and Chrome's install offer on the Mac. Then, if the author asks for a PR, commit on a `claude/` branch.
+- [ ] **M4 choices to confirm** (SPEC.md "As built in M4" notes): terrain values are uppercase like every other enum; the external-URL map art is kept (https only, not counted in the budget, fetched by players' browsers from that host; no screen for it yet); an upload nothing uses within an hour is deleted by the campaign's next upload; at most 200 maps per campaign; a label needs a charted hex (labelling an uncharted one is a 404); deleting a map unpins its places; the Mainland isn't listed first (the DM orders maps by hand); in Paint mode the pointer handler always drives two-finger pan and pinch, and a mouse can't drag-pan there.
 - [ ] **M3 choices to confirm** (SPEC.md "As built in M3" notes): a request's own note is visible to the whole party (only the decision note is per viewer); undoing a grant puts the request back to waiting; a `PATRON_ACTION` entry is public only when both the patron and the action are revealed; a hidden patron's favor line goes in the entry's DM-only note; a request the DM used while its patron or action was hidden stays DM-only even after both are revealed; the DM can't send a request (only Use action now); undoing Use action now writes "The DM rewound a change to the colony" rather than naming the action, in the DM's timeline too; Use action now's note is visible to players who can see the request (its field says so), and the action carries the board version, so a repeated submit is refused instead of spending twice.
 - [ ] **Remove Beny Bot's legacy guild-command cleanup.** That's `DISCORD_GUILD_ID` / `LegacyGuildID` in `internal/bot/bot.go`, `cmd/colony/serve.go` and `cmd/colony/config.go`, plus its tests and docs. Waiting on the author: if `/beny` appears only once in their Discord test server, the old command is gone. Then delete `DISCORD_GUILD_ID` from `.env` and remove the code.
 - [ ] **Bump Go to 1.27.2 on or after 2026-10-22** (in `mise.toml` and `go.mod`), then remove the 10 accepted stdlib advisories from `scripts/vulncheck.sh`. The author was asked whether to take these security fixes earlier and hasn't answered.
@@ -115,6 +117,15 @@ Roughly in order:
   - The owner-ping limiter counts a failed DM toward its hourly cap.
   - The broker's `memberActive` map is never pruned (tiny memory growth).
   - A campaign with no DM row (only possible by editing the database directly) disappears from Site admin.
+- [ ] **Known small things, fine for now** (from the M4 build):
+  - The two-finger gesture split was checked only with synthetic touch events in Chromium's mobile emulation, and Firefox wasn't tried; the frame timings (about 0.1 ms a frame panning 5,000 hexes once the zoomed-out map is cached) come from the Mac. The real phone decides.
+  - Zoomed out on a big map, a stroke ends with one or two full repaints of the cached map image (about 20 ms each on the Mac), which may be a short hitch on a phone after lifting the finger.
+  - Keyboard users can pan Explore with the arrow keys but can't open a hex's sheet, which needs a tap or click.
+  - The server reads only an upload's header, so a file cut off after its header is stored and shows as a broken image (the DM's own upload; players' phones are protected by the 16,384-pixel and 50-megapixel caps).
+  - The hexes read is about 234 KB of uncompressed JSON at 5,000 hexes (18 KB gzipped). Live updates no longer abort a read in flight, so a slow connection still gets one read a second while someone paints; gzip for the JSON API (or the reserved `?since=`) would shrink each read.
+  - Lists that carry an NPC reference (named colonists on People, a place's NPCs who are here) show initials, not portraits.
+  - Upload shows "Uploading…", not a progress bar (fetch reports no upload progress).
+  - Sandboxes on plain `localhost` share one cookie host, so two at once sign each other out; give each its own host (`PUBLIC_URL=http://<key>.localhost:<port>`).
 - [ ] **Known small things, fine for now** (from the M3 build):
   - Beny Bot stores a request prompt's message ID but not its channel. If the DM picks another DM channel after a prompt is posted, that prompt can't be edited and keeps its buttons (clicks still answer correctly). Fix: store the channel with the message.
   - There is no exported "already decided" error, so the bot reads the request once more after any Conflict to tell it from a shortfall.
@@ -132,7 +143,7 @@ Roughly in order:
 
 The full open-question list, with defaults, is SPEC.md §11. The "Before M2" questions were answered on 2026-10-11 (all defaults) and the "Before M3" ones on 2026-10-12. Ask the "Before M5" ones when M5 starts.
 
-M2 sequencing decided on 2026-10-11: columns arrive with the tables they point at. `npc.first_session_id` comes with sessions in M5; NPC portraits (`npc.avatar_url`) and place pins (`place.map_id`, `pin_x`, `pin_y`) come with images and maps in M4. M2 shows initials avatars.
+M2 sequencing decided on 2026-10-11: columns arrive with the tables they point at. `npc.first_session_id` comes with sessions in M5; NPC portraits (`npc.avatar_url`) and place pins (`place.map_id`, `pin_x`, `pin_y`) come with images and maps in M4. M2 shows initials avatars. As built in M4, the portrait column is `npc.portrait_image_id` (one of the campaign's images).
 
 ---
 
@@ -192,3 +203,4 @@ Ana plays in both. Wren has a pending request to run a campaign. These sandbox s
 - **2026-10-12:** M2 went up as PR #3. After the debrief the author approved follow-up fixes for it: an NPC's or place's visibility now changes only through the switch on its page (edits and stale edit sheets can't reveal it again), a server field error no longer keeps Save disabled after it's corrected, timeline entries about an NPC link to their page, and some wording and switch polish.
 - **2026-10-12 (later):** M2 merged. The author answered the "Before M3" questions and added the failure cost. M3 was built in stages (core, app, web, Beny Bot, then integration), with the secrecy sweep extended to quests, patrons and per-viewer decision notes, and walked on a sandbox with curl and the browser.
 - **2026-10-12 (evening):** the M3 debrief's fixes: undo after a quest delete, action-named `PATRON_ACTION` titles, SPEC and migration corrections (`CHECK (reward_favor >= 0)` in `0003`), unarchived-only patron and action limits with an unarchive guard and a ceiling counting archived rows, Add loot and copying on plain http, archived resources in the effects editor, field errors and hints in Use action now and the approval sheet, and broader live-update topics.
+- **2026-10-12 (night):** M3 merged (PR #4). M4 was built in stages (core, app, the Explore hex map and the image maps in parallel, then integration): per-campaign images with a 50 MB budget, maps with pins, hexes with a 50,000 limit, NPC portraits and the PWA manifest, with the secrecy sweep extended to hidden maps, pins and images, and walked on a sandbox with curl and the browser (desktop and phone width).

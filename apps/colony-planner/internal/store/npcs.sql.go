@@ -32,7 +32,7 @@ INSERT INTO npc (
     $11, $12, $13, $14, $15, $16, $17, $18,
     $19, $20
 )
-RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id
+RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id
 `
 
 type CreateNpcParams struct {
@@ -108,6 +108,7 @@ func (q *Queries) CreateNpc(ctx context.Context, arg CreateNpcParams) (Npc, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.PortraitImageID,
 	)
 	return i, err
 }
@@ -131,7 +132,7 @@ func (q *Queries) DeleteNpc(ctx context.Context, arg DeleteNpcParams) (int64, er
 }
 
 const getNpc = `-- name: GetNpc :one
-SELECT id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id FROM npc WHERE campaign_id = $1 AND id = $2
+SELECT id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id FROM npc WHERE campaign_id = $1 AND id = $2
 `
 
 type GetNpcParams struct {
@@ -170,12 +171,13 @@ func (q *Queries) GetNpc(ctx context.Context, arg GetNpcParams) (Npc, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.PortraitImageID,
 	)
 	return i, err
 }
 
 const getNpcView = `-- name: GetNpcView :one
-SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id,
+SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id, npc.portrait_image_id,
        current_place.name AS current_place_name,
        origin_place.name AS origin_place_name,
        role.label AS colony_role_label,
@@ -235,6 +237,7 @@ func (q *Queries) GetNpcView(ctx context.Context, arg GetNpcViewParams) (GetNpcV
 		&i.Npc.CreatedAt,
 		&i.Npc.UpdatedAt,
 		&i.Npc.CampaignID,
+		&i.Npc.PortraitImageID,
 		&i.CurrentPlaceName,
 		&i.OriginPlaceName,
 		&i.ColonyRoleLabel,
@@ -245,7 +248,7 @@ func (q *Queries) GetNpcView(ctx context.Context, arg GetNpcViewParams) (GetNpcV
 
 const listNpcs = `-- name: ListNpcs :many
 
-SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id,
+SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id, npc.portrait_image_id,
        current_place.name AS current_place_name,
        origin_place.name AS origin_place_name,
        role.label AS colony_role_label,
@@ -355,6 +358,7 @@ func (q *Queries) ListNpcs(ctx context.Context, arg ListNpcsParams) ([]ListNpcsR
 			&i.Npc.CreatedAt,
 			&i.Npc.UpdatedAt,
 			&i.Npc.CampaignID,
+			&i.Npc.PortraitImageID,
 			&i.CurrentPlaceName,
 			&i.OriginPlaceName,
 			&i.ColonyRoleLabel,
@@ -388,8 +392,32 @@ func (q *Queries) SetNpcColonyRole(ctx context.Context, arg SetNpcColonyRolePara
 	return err
 }
 
+const setNpcPortrait = `-- name: SetNpcPortrait :one
+UPDATE npc AS updated
+SET portrait_image_id = $1, updated_at = now()
+FROM npc AS previous
+WHERE updated.campaign_id = $2 AND updated.id = $3
+  AND previous.campaign_id = updated.campaign_id AND previous.id = updated.id
+RETURNING previous.portrait_image_id AS previous_portrait_image_id
+`
+
+type SetNpcPortraitParams struct {
+	PortraitImageID *uuid.UUID
+	CampaignID      uuid.UUID
+	ID              uuid.UUID
+}
+
+// A portrait is one of this campaign's images; NULL clears it. Returns the portrait it replaced, so core
+// can delete that image once nothing uses it.
+func (q *Queries) SetNpcPortrait(ctx context.Context, arg SetNpcPortraitParams) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, setNpcPortrait, arg.PortraitImageID, arg.CampaignID, arg.ID)
+	var previous_portrait_image_id *uuid.UUID
+	err := row.Scan(&previous_portrait_image_id)
+	return previous_portrait_image_id, err
+}
+
 const setNpcRevealed = `-- name: SetNpcRevealed :one
-UPDATE npc SET revealed = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id
+UPDATE npc SET revealed = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id
 `
 
 type SetNpcRevealedParams struct {
@@ -427,6 +455,7 @@ func (q *Queries) SetNpcRevealed(ctx context.Context, arg SetNpcRevealedParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.PortraitImageID,
 	)
 	return i, err
 }
@@ -453,7 +482,7 @@ SET name = $1,
     origin_place_id = $18,
     updated_at = now()
 WHERE campaign_id = $19 AND id = $20
-RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id
+RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id
 `
 
 type UpdateNpcParams struct {
@@ -531,6 +560,7 @@ func (q *Queries) UpdateNpc(ctx context.Context, arg UpdateNpcParams) (Npc, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.PortraitImageID,
 	)
 	return i, err
 }

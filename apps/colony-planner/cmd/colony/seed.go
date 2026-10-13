@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/BBruington/colony-planner/internal/core"
 	"github.com/BBruington/colony-planner/internal/seed"
@@ -36,8 +37,12 @@ func seedDatabase(commandContext context.Context, arguments []string) error {
 	if ownerDiscordID == "" {
 		ownerDiscordID = core.SeedDmDiscordID
 	}
+	mainlandArt, err := os.ReadFile(seed.MainlandArtPath)
+	if err != nil {
+		return fmt.Errorf("seed: run it from the repository root, where the Mainland art is: %w", err)
+	}
 	service := core.New(core.Options{Pool: pool, Logger: logger, SiteOwnerDiscordID: ownerDiscordID})
-	if err := seed.Run(commandContext, seed.Options{Pool: pool, Core: service, OwnerDiscordID: ownerDiscordID, Hexes: *hexes}); err != nil {
+	if err := seed.Run(commandContext, seed.Options{Pool: pool, Core: service, OwnerDiscordID: ownerDiscordID, Hexes: *hexes, MainlandArt: mainlandArt}); err != nil {
 		return err
 	}
 	fmt.Println("seed: the two sample campaigns are loaded.")

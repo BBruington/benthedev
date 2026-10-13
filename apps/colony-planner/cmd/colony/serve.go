@@ -71,6 +71,7 @@ func serve(commandContext context.Context) error {
 		Sessions:           sessionCache,
 		Directory:          benyBot.Directory(),
 		BotInviteURL:       bot.InviteURL(loaded.discordClientID),
+		PublicURL:          loaded.publicURL,
 	})
 	authService, err := auth.New(auth.Options{
 		Core:                service,
@@ -98,13 +99,8 @@ func serve(commandContext context.Context) error {
 	}
 
 	group, groupContext := errgroup.WithContext(commandContext)
-	httpServer := &http.Server{
-		Handler:           server.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-		// Request contexts end at shutdown, which closes open SSE streams instead of waiting on them.
-		BaseContext: func(net.Listener) context.Context { return groupContext },
-	}
+	// Request contexts end at shutdown, which closes open SSE streams instead of waiting on them.
+	httpServer := server.HTTPServer(func(net.Listener) context.Context { return groupContext })
 	group.Go(func() error {
 		logger.Info("Colony Planner is listening",
 			slog.String("address", "http://"+listener.Addr().String()),
