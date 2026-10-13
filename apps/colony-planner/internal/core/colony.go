@@ -25,7 +25,9 @@ type ColonyBoard struct {
 	// CampaignName and ColonyName are here so every member's top bar can show them; settings is DM-only.
 	CampaignName string `json:"campaignName"`
 	ColonyName   string `json:"colonyName"`
-	Day          int64  `json:"day"`
+	// Timezone has no secret: every member reads the table's clock by its name.
+	Timezone string `json:"timezone" doc:"The table's IANA time zone, e.g. America/New_York"`
+	Day      int64  `json:"day"`
 	// Version goes back as expectedVersion on every form that changes the colony (spec §5.1).
 	Version   int64             `json:"version"`
 	Shipments *ShipmentSchedule `json:"shipments" doc:"null when no shipment schedule is set"`
@@ -748,6 +750,8 @@ type plannedEntry struct {
 	questID   *uuid.UUID
 	patronID  *uuid.UUID
 	requestID *uuid.UUID
+	// sessionID links SESSION_PLAYED to its session.
+	sessionID *uuid.UUID
 	// dmNote is detail only the DM reads, such as a hidden patron's favor line (spec §5.6); it is stored
 	// in data and served in the entry's Dm.
 	dmNote string
@@ -1035,6 +1039,7 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 			QuestID:    entry.questID,
 			PatronID:   entry.patronID,
 			RequestID:  entry.requestID,
+			SessionID:  entry.sessionID,
 		})
 		if err != nil {
 			return nil, err
@@ -1289,7 +1294,7 @@ func (service *Service) readBoard(requestContext context.Context, queries *store
 	if err != nil {
 		return ColonyBoard{}, campaignGone(err)
 	}
-	campaign, err := queries.GetCampaign(requestContext, campaignID)
+	header, err := queries.GetBoardHeader(requestContext, campaignID)
 	if err != nil {
 		return ColonyBoard{}, campaignGone(err)
 	}
@@ -1301,7 +1306,9 @@ func (service *Service) readBoard(requestContext context.Context, queries *store
 	if err != nil {
 		return ColonyBoard{}, err
 	}
-	return toColonyBoard(colony, campaign.Name, resources, roles, dmProjection)
+	board, err := toColonyBoard(colony, header.CampaignName, resources, roles, dmProjection)
+	board.Timezone = header.Timezone
+	return board, err
 }
 
 // toColonyBoard fills Dm unconditionally; the Transformer decides who keeps it. Headcounts follow the

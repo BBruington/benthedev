@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -113,6 +114,7 @@ func New(options Options) (*Server, error) {
 	featureHandlers.registerImages(api)
 	featureHandlers.registerMaps(api)
 	featureHandlers.registerHexes(api)
+	featureHandlers.registerGameSessions(api)
 	nullableEnumFields(api.OpenAPI())
 
 	openAPIJSON, err := json.Marshal(api.OpenAPI())
@@ -127,6 +129,7 @@ func New(options Options) (*Server, error) {
 		{Pattern: "POST /auth/logout", Access: AccessAccount, Handler: options.Auth.Logout()},
 		{Pattern: "POST /auth/logout-everywhere", Access: AccessAccount, Handler: options.Auth.LogoutEverywhere()},
 		{Pattern: "GET /api/campaigns/{campaignId}/stream", Access: AccessPending, Handler: featureHandlers.stream()},
+		{Pattern: "GET /calendar/{" + calendarFileParameter + "}", Access: AccessToken, Handler: featureHandlers.calendarFeed()},
 		{Pattern: "GET /api/openapi.json", Access: AccessOwner, Handler: serveOpenAPI(openAPIJSON)},
 		{Pattern: "GET /api/docs", Access: AccessOwner, Handler: http.HandlerFunc(serveDocs)},
 		{Pattern: "GET /", Access: AccessPublic, Handler: spaHandler()},
@@ -273,22 +276,32 @@ func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 	})
 }
 
-// invitePathPrefixes are the paths that carry an invite code: the API's invite routes and the SPA's
-// join page.
-var invitePathPrefixes = []string{"/api/invites/", "/join/"}
+// secretPathSegments are the paths whose next segment is a secret: the API's invite routes and the
+// SPA's join page carry an invite code, and the ICS feed carries its token.
+var secretPathSegments = []struct{ prefix, placeholder string }{
+	{prefix: "/api/invites/", placeholder: "{inviteCode}"},
+	{prefix: "/join/", placeholder: "{inviteCode}"},
+	{prefix: "/calendar/", placeholder: "{icsToken}"},
+}
 
-// loggedPath keeps invite codes out of the log (Invariant 14): a code lets anyone ask to join a
-// campaign, and only its DM may read it, while the log is the operator's.
-func loggedPath(path string) string {
-	for _, prefix := range invitePathPrefixes {
-		rest, found := strings.CutPrefix(path, prefix)
+// loggedPath keeps invite codes and ICS tokens out of the log (Invariant 14): a code lets anyone ask
+// to join a campaign and a token reads its schedule, while the log is the operator's. The path is
+// cleaned first, as ServeMux does before redirecting, so "//calendar/…" or "/x/../calendar/…" is
+// redacted too.
+func loggedPath(rawPath string) string {
+	cleanPath := path.Clean("/" + rawPath)
+	if strings.HasSuffix(rawPath, "/") && cleanPath != "/" {
+		cleanPath += "/"
+	}
+	for _, secretPath := range secretPathSegments {
+		rest, found := strings.CutPrefix(cleanPath, secretPath.prefix)
 		if !found || rest == "" {
 			continue
 		}
 		if _, suffix, hasSuffix := strings.Cut(rest, "/"); hasSuffix {
-			return prefix + "{inviteCode}/" + suffix
+			return secretPath.prefix + secretPath.placeholder + "/" + suffix
 		}
-		return prefix + "{inviteCode}"
+		return secretPath.prefix + secretPath.placeholder
 	}
-	return path
+	return cleanPath
 }

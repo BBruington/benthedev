@@ -288,6 +288,70 @@ export function hexesQuery(campaignId: string) {
 	return api.queryOptions("get", "/api/campaigns/{campaignId}/hexes", inCampaign(campaignId));
 }
 
+/** Every series and one-off session (spec §4.5), for /sessions and the DM's series editor. */
+export function sessionSeriesQuery(campaignId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/session-series",
+		inCampaign(campaignId),
+	);
+}
+
+/** The next 12 weeks of dates, oldest first; cancelled ones are included and marked. */
+export function upcomingSessionsQuery(campaignId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/sessions/upcoming",
+		inCampaign(campaignId),
+	);
+}
+
+/** The history, newest first. */
+export function playedSessionsQuery(campaignId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/sessions/played",
+		inCampaign(campaignId),
+	);
+}
+
+/** The board's next session; its `session` is null when nothing is planned. */
+export function nextSessionQuery(campaignId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/sessions/next",
+		inCampaign(campaignId),
+	);
+}
+
+/** The board's last recap snippet; its `session` is null when no session has a recap. */
+export function latestRecapQuery(campaignId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/sessions/latest-recap",
+		inCampaign(campaignId),
+	);
+}
+
+/** The played sessions whose colony days meet a timeline range, both ends inclusive. */
+export function sessionBandsQuery(campaignId: string, fromDay: number, toDay: number) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/sessions/bands", {
+		params: { path: { campaignId }, query: { fromDay, toDay } },
+	});
+}
+
+/** One stored session; an upcoming date without a row has no ID and no page yet. */
+export function sessionQuery(campaignId: string, sessionId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/sessions/{sessionId}", {
+		params: { path: { campaignId, sessionId } },
+	});
+}
+
+/** The ICS subscription path; every member may read it, and only the DM regenerates it. */
+export function calendarLinkQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/calendar", inCampaign(campaignId));
+}
+
 export function timelineQueryKeyPrefix(campaignId: string) {
 	return ["get", "/api/campaigns/{campaignId}/timeline", inCampaign(campaignId)] as const;
 }
@@ -369,4 +433,16 @@ export function approveRequestPreviewQueryKeyPrefix(campaignId: string) {
 
 export function mapQueryKeyPrefix(campaignId: string) {
 	return ["get", "/api/campaigns/{campaignId}/maps/{mapId}", inCampaign(campaignId)] as const;
+}
+
+export function sessionBandsQueryKeyPrefix(campaignId: string) {
+	return ["get", "/api/campaigns/{campaignId}/sessions/bands", inCampaign(campaignId)] as const;
+}
+
+export function sessionQueryKeyPrefix(campaignId: string) {
+	return [
+		"get",
+		"/api/campaigns/{campaignId}/sessions/{sessionId}",
+		inCampaign(campaignId),
+	] as const;
 }

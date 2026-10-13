@@ -74,9 +74,9 @@ SELECT * FROM timeline_event WHERE campaign_id = @campaign_id AND id = @id;
 -- tell news from older entries that slid into the recent list (web/src/lib/colony.ts).
 -- name: CreateTimelineEvent :one
 INSERT INTO timeline_event (campaign_id, group_id, day, kind, title, body, visibility, deltas, data, created_by, npc_id, npc_name,
-    quest_id, patron_id, request_id, created_at)
+    quest_id, patron_id, request_id, session_id, created_at)
 VALUES (@campaign_id, sqlc.narg(group_id), @day, @kind, @title, @body, @visibility, @deltas, @data, sqlc.narg(created_by), sqlc.narg(npc_id), @npc_name,
-    sqlc.narg(quest_id), sqlc.narg(patron_id), sqlc.narg(request_id), clock_timestamp())
+    sqlc.narg(quest_id), sqlc.narg(patron_id), sqlc.narg(request_id), sqlc.narg(session_id), clock_timestamp())
 RETURNING *;
 
 -- The DM edits any entry's text and visibility; only a CUSTOM entry may move to another day (core

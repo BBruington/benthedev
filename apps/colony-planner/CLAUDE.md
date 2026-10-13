@@ -36,18 +36,18 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | Path | Holds |
 |---|---|
 | `cmd/colony/main.go` | subcommands serve, migrate up/status, openapi, seed, reset; `cmd/colony/config.go` reads every env var |
-| `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it) |
-| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go` |
+| `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`) |
+| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go` |
 | `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
-| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, and `internal/bot/requests.go` is the request prompts with Grant and Decline |
-| `internal/seed/` | the two fictional sample campaigns for `colony seed`; `internal/seed/world.go` uploads the Eldari art as Sample Colony's Mainland, pins its places and paints the sample hexes (`--hexes N`) |
+| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, `internal/bot/requests.go` is the request prompts with Grant and Decline, `internal/bot/planner.go` is the one timer planner (Discord events, reminders, the cancellation notice, event status updates) and `internal/bot/colony.go` is `/colony` and `/nextsession` |
+| `internal/seed/` | the two fictional sample campaigns for `colony seed`; `internal/seed/world.go` uploads the Eldari art as Sample Colony's Mainland, pins its places and paints the sample hexes (`--hexes N`); `internal/seed/sessions.go` plays the sample series and their bands |
 | `db/migrations/` | goose SQL, the one schema source (enums included), embedded by `db/embed.go` and applied by `db/migrate.go` |
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
-| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it) and `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
+| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it), `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue) and `web/src/sessions/` (the series sheet, session times, the calendar link card, the board's next game night; helpers in `web/src/lib/sessions.ts`) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) and `docs/checklists/` |
 
@@ -63,8 +63,9 @@ web/src/** -> web/src/api -> the Go API
   This is an allow-list over the whole module, so new packages are covered automatically.
 - `internal/core` knows none of its callers: no net, net/http, huma, discordgo or oauth2, and no import of
   app, auth, bot or seed. It reaches outward only through `core.Notifier`, `core.RequestNotifier` (request
-  prompts and their outcomes), `core.SessionEvictor` and `core.DiscordDirectory` (Beny Bot's channel list),
-  all passed in `core.Options` at construction.
+  prompts and their outcomes), `core.SessionEvictor`, `core.DiscordDirectory` (Beny Bot's channel list) and
+  `core.SessionPlanner` (the planner's re-plan signal and the cancellation notice), all passed in
+  `core.Options` at construction.
 - core's exported API never mentions a store or pgx type, because Go infers types and a returned
   `*store.Queries` would leak the database without an import. `internal/core/boundary_test.go` enforces
   this; re-export only enum and value types (see `internal/core/member_status.go`), never queries or pools.
@@ -159,6 +160,26 @@ web/src/** -> web/src/api -> the Go API
     backdrop is the Mainland from the viewer's own map list, so it follows the Mainland's visibility, and
     nothing when there is none. Hexes have no secrets: any active member, view as player included, may paint, label or erase.
     Maps, pins, portraits, images and hexes write no timeline entries.
+18. M5 sessions. Series and session rows have no secrets and no hidden rows: every active member reads
+    them, view as player included, and an NPC's first session (`firstSession`) is player-visible. The
+    ICS token is the campaign's secret against outsiders and other campaigns, readable by its members,
+    regenerated only by the DM; `GET /calendar/{token}.ics` is token level, an unknown, regenerated or
+    suspended campaign's token answers exactly like a missing route, and logs show `/calendar/{icsToken}`.
+    The one Beny Bot planner spans campaigns, so its campaign list is the only query marked
+    `-- unscoped: planner`; the scope lint requires such a query to join discord_guild_link, filter
+    `campaign.status = 'ACTIVE'` and use no OR or outer join. Every other planner read and write takes
+    the campaign. Claim before calling Discord: a reminder claims `reminded_at` (released only when
+    the post failed: Discord refused it or the campaign's server couldn't be read), an event create takes a 5-minute lease on `discord_claimed_at` that
+    `game.PlanSessions` and `ClaimSessionDiscordEvent` both call over at exactly 5 minutes, and the bot
+    adopts its own event with the same name and start (one no other date holds) before creating one. The
+    event claim and its record hold only while the campaign is ACTIVE and linked to the plan's server, and
+    unlinking forgets the events of unplayed dates (Beny Bot deletes the upcoming ones there, best
+    effort). The table's time zone has no secret: the colony board carries it. Core signals the planner
+    (`SessionPlanner.SessionsChanged`) after commit of every series, session and settings write, link and
+    unlink, and event status update, but never after a released claim, so a failing Discord can't spin
+    it. Mark played, End session and Discord's ACTIVE/COMPLETED stamps take the colony lock and write a
+    PUBLIC `SESSION_PLAYED` entry, but are not undoable and leave the version and undo slot alone. Played
+    sessions only stamp colony days; nothing else happens.
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.
@@ -235,9 +256,13 @@ nothing uses, and hex labels carrying canaryB in B. The hidden map's ID and ever
 things use are forbidden values. Image bytes aren't JSON, so `TestPlayersGetHiddenImagesAsMissing` checks
 that players and view as player get exactly the missing-image 404 for each of those images (use distinct
 images for hidden and visible things: an image both use is rightly readable).
+M5's sessions fixture plants a weekly series with a played first date and a recap (canaryB in every
+text of B, since sessions have no DM-only values), sets that session as the first session of both the
+hidden and the revealed NPC, and keeps each campaign's ICS token: B's token is forbidden wherever canaryB
+is, and the outside-campaign routes sweep A's feed for B's values.
 The secrecy sweep only sees a leak of a planted value. A new ID or map field in a request body also goes
 in `mixedIDFields` in `internal/app/secrecy_test.go` (kind "uuid", "uuids" for a list of IDs, "key" or
-"map"), so the sweep puts the other campaign's real IDs and keys into it.
+"map"; M5 added `seriesId` and `sessionId`), so the sweep puts the other campaign's real IDs and keys into it.
 
 Add an entity, then `mise run gen`:
 1. a migration (the table carries `campaign_id` per Invariant 11) and a queries file in `db/queries/`

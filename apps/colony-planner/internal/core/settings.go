@@ -27,6 +27,7 @@ type Settings struct {
 	DiscordAnnounceChannelID *string `json:"discordAnnounceChannelId"`
 	DiscordReminderChannelID *string `json:"discordReminderChannelId"`
 	DiscordDmChannelID       *string `json:"discordDmChannelId"`
+	DiscordEventLocation     string  `json:"discordEventLocation" doc:"The text location of Beny Bot's Discord events"`
 	// BotInviteURL is not stored: it comes from DISCORD_CLIENT_ID, and inputs never carry it.
 	BotInviteURL *string `json:"botInviteUrl" doc:"Adds Beny Bot to a Discord server; null until DISCORD_CLIENT_ID is set"`
 	// DiscordServer is the linked Discord server, or null when none is linked.
@@ -44,7 +45,13 @@ type SettingsInput struct {
 	DiscordAnnounceChannelID *string `json:"discordAnnounceChannelId" doc:"A text channel of the linked Discord server"`
 	DiscordReminderChannelID *string `json:"discordReminderChannelId" doc:"A text channel of the linked Discord server"`
 	DiscordDmChannelID       *string `json:"discordDmChannelId" doc:"A text channel of the linked Discord server"`
+	// Required like every other field (full-record PUT), so a body that leaves it out is refused rather
+	// than resetting the location the DM set.
+	DiscordEventLocation string `json:"discordEventLocation" doc:"At most 100 characters after trimming; blank means Online"`
 }
+
+// DefaultDiscordEventLocation is the migration's default, which a blank location goes back to.
+const DefaultDiscordEventLocation = "Online"
 
 const (
 	colonyNameMaxLength = 80
@@ -62,6 +69,7 @@ func (service *Service) toSettings(row store.Settings, campaignName string, colo
 		DiscordAnnounceChannelID: row.DiscordAnnounceChannelID,
 		DiscordReminderChannelID: row.DiscordReminderChannelID,
 		DiscordDmChannelID:       row.DiscordDmChannelID,
+		DiscordEventLocation:     row.DiscordEventLocation,
 	}
 	if service.botInviteURL != "" {
 		inviteURL := service.botInviteURL
@@ -140,6 +148,13 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 	if fieldError != nil {
 		fieldErrors = append(fieldErrors, *fieldError)
 	}
+	eventLocation, fieldError := cleanText("discordEventLocation", input.DiscordEventLocation, discordEventLocationMax)
+	if eventLocation == "" {
+		eventLocation = DefaultDiscordEventLocation
+	}
+	if fieldError != nil {
+		fieldErrors = append(fieldErrors, *fieldError)
+	}
 	announceChannelID, announceError := discordChannelID("discordAnnounceChannelId", input.DiscordAnnounceChannelID)
 	reminderChannelID, reminderError := discordChannelID("discordReminderChannelId", input.DiscordReminderChannelID)
 	dmChannelID, dmChannelError := discordChannelID("discordDmChannelId", input.DiscordDmChannelID)
@@ -157,6 +172,7 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 		"discordDmChannelId":       dmChannelID,
 	}
 	var settings Settings
+	timezoneChanged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		current, err := queries.GetSettings(requestContext, viewer.campaignID)
 		if err != nil {
@@ -177,11 +193,18 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 		if _, err := queries.UpdateSettings(requestContext, store.UpdateSettingsParams{
 			CampaignID:               viewer.campaignID,
 			Timezone:                 timezone,
+			DiscordEventLocation:     eventLocation,
 			DiscordAnnounceChannelID: announceChannelID,
 			DiscordReminderChannelID: reminderChannelID,
 			DiscordDmChannelID:       dmChannelID,
 		}); err != nil {
 			return err
+		}
+		timezoneChanged = current.Timezone != timezone
+		if timezoneChanged {
+			if err := refreshFollowingSessions(requestContext, queries, viewer.campaignID); err != nil {
+				return err
+			}
 		}
 		if _, err := queries.SetCampaignName(requestContext, store.SetCampaignNameParams{CampaignID: viewer.campaignID, Name: campaignName}); err != nil {
 			return campaignGone(err)
@@ -198,6 +221,11 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 	}
 	// The board carries both names, so every member's top bar refreshes too.
 	service.broker.Publish(viewer.campaignID, TopicSettings, TopicColony, TopicMe)
+	if timezoneChanged {
+		// Every date's instant moved with the zone.
+		service.broker.Publish(viewer.campaignID, TopicSessions)
+	}
+	service.sessionPlanner.SessionsChanged(viewer.campaignID)
 	return settings, nil
 }
 

@@ -7,8 +7,10 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countNpcs = `-- name: CountNpcs :one
@@ -32,7 +34,7 @@ INSERT INTO npc (
     $11, $12, $13, $14, $15, $16, $17, $18,
     $19, $20
 )
-RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id
+RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id, first_session_id
 `
 
 type CreateNpcParams struct {
@@ -109,6 +111,7 @@ func (q *Queries) CreateNpc(ctx context.Context, arg CreateNpcParams) (Npc, erro
 		&i.UpdatedAt,
 		&i.CampaignID,
 		&i.PortraitImageID,
+		&i.FirstSessionID,
 	)
 	return i, err
 }
@@ -132,7 +135,7 @@ func (q *Queries) DeleteNpc(ctx context.Context, arg DeleteNpcParams) (int64, er
 }
 
 const getNpc = `-- name: GetNpc :one
-SELECT id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id FROM npc WHERE campaign_id = $1 AND id = $2
+SELECT id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id, first_session_id FROM npc WHERE campaign_id = $1 AND id = $2
 `
 
 type GetNpcParams struct {
@@ -172,17 +175,22 @@ func (q *Queries) GetNpc(ctx context.Context, arg GetNpcParams) (Npc, error) {
 		&i.UpdatedAt,
 		&i.CampaignID,
 		&i.PortraitImageID,
+		&i.FirstSessionID,
 	)
 	return i, err
 }
 
 const getNpcView = `-- name: GetNpcView :one
-SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id, npc.portrait_image_id,
+SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id, npc.portrait_image_id, npc.first_session_id,
        current_place.name AS current_place_name,
        origin_place.name AS origin_place_name,
        role.label AS colony_role_label,
-       role.icon AS colony_role_icon
+       role.icon AS colony_role_icon,
+       first_session.title AS first_session_title,
+       first_session.local_date AS first_session_local_date,
+       first_session.starts_at AS first_session_starts_at
 FROM npc
+LEFT JOIN session AS first_session ON first_session.campaign_id = npc.campaign_id AND first_session.id = npc.first_session_id
 LEFT JOIN place AS current_place ON current_place.campaign_id = npc.campaign_id
     AND current_place.id = npc.current_place_id AND ($1::boolean OR current_place.revealed)
 LEFT JOIN place AS origin_place ON origin_place.campaign_id = npc.campaign_id
@@ -200,11 +208,14 @@ type GetNpcViewParams struct {
 }
 
 type GetNpcViewRow struct {
-	Npc              Npc
-	CurrentPlaceName *string
-	OriginPlaceName  *string
-	ColonyRoleLabel  *string
-	ColonyRoleIcon   *ColonyIcon
+	Npc                   Npc
+	CurrentPlaceName      *string
+	OriginPlaceName       *string
+	ColonyRoleLabel       *string
+	ColonyRoleIcon        *ColonyIcon
+	FirstSessionTitle     *string
+	FirstSessionLocalDate pgtype.Date
+	FirstSessionStartsAt  *time.Time
 }
 
 // One NPC as the given projection sees it.
@@ -238,22 +249,30 @@ func (q *Queries) GetNpcView(ctx context.Context, arg GetNpcViewParams) (GetNpcV
 		&i.Npc.UpdatedAt,
 		&i.Npc.CampaignID,
 		&i.Npc.PortraitImageID,
+		&i.Npc.FirstSessionID,
 		&i.CurrentPlaceName,
 		&i.OriginPlaceName,
 		&i.ColonyRoleLabel,
 		&i.ColonyRoleIcon,
+		&i.FirstSessionTitle,
+		&i.FirstSessionLocalDate,
+		&i.FirstSessionStartsAt,
 	)
 	return i, err
 }
 
 const listNpcs = `-- name: ListNpcs :many
 
-SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id, npc.portrait_image_id,
+SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id, npc.portrait_image_id, npc.first_session_id,
        current_place.name AS current_place_name,
        origin_place.name AS origin_place_name,
        role.label AS colony_role_label,
-       role.icon AS colony_role_icon
+       role.icon AS colony_role_icon,
+       first_session.title AS first_session_title,
+       first_session.local_date AS first_session_local_date,
+       first_session.starts_at AS first_session_starts_at
 FROM npc
+LEFT JOIN session AS first_session ON first_session.campaign_id = npc.campaign_id AND first_session.id = npc.first_session_id
 LEFT JOIN place AS current_place ON current_place.campaign_id = npc.campaign_id
     AND current_place.id = npc.current_place_id AND ($1::boolean OR current_place.revealed)
 LEFT JOIN place AS origin_place ON origin_place.campaign_id = npc.campaign_id
@@ -295,11 +314,14 @@ type ListNpcsParams struct {
 }
 
 type ListNpcsRow struct {
-	Npc              Npc
-	CurrentPlaceName *string
-	OriginPlaceName  *string
-	ColonyRoleLabel  *string
-	ColonyRoleIcon   *ColonyIcon
+	Npc                   Npc
+	CurrentPlaceName      *string
+	OriginPlaceName       *string
+	ColonyRoleLabel       *string
+	ColonyRoleIcon        *ColonyIcon
+	FirstSessionTitle     *string
+	FirstSessionLocalDate pgtype.Date
+	FirstSessionStartsAt  *time.Time
 }
 
 // NPC reads take dm_projection, which core sets from viewer.SeesDmFields() (never IsDM): the player
@@ -359,10 +381,14 @@ func (q *Queries) ListNpcs(ctx context.Context, arg ListNpcsParams) ([]ListNpcsR
 			&i.Npc.UpdatedAt,
 			&i.Npc.CampaignID,
 			&i.Npc.PortraitImageID,
+			&i.Npc.FirstSessionID,
 			&i.CurrentPlaceName,
 			&i.OriginPlaceName,
 			&i.ColonyRoleLabel,
 			&i.ColonyRoleIcon,
+			&i.FirstSessionTitle,
+			&i.FirstSessionLocalDate,
+			&i.FirstSessionStartsAt,
 		); err != nil {
 			return nil, err
 		}
@@ -417,7 +443,7 @@ func (q *Queries) SetNpcPortrait(ctx context.Context, arg SetNpcPortraitParams) 
 }
 
 const setNpcRevealed = `-- name: SetNpcRevealed :one
-UPDATE npc SET revealed = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id
+UPDATE npc SET revealed = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id, first_session_id
 `
 
 type SetNpcRevealedParams struct {
@@ -456,6 +482,7 @@ func (q *Queries) SetNpcRevealed(ctx context.Context, arg SetNpcRevealedParams) 
 		&i.UpdatedAt,
 		&i.CampaignID,
 		&i.PortraitImageID,
+		&i.FirstSessionID,
 	)
 	return i, err
 }
@@ -482,7 +509,7 @@ SET name = $1,
     origin_place_id = $18,
     updated_at = now()
 WHERE campaign_id = $19 AND id = $20
-RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id
+RETURNING id, name, known_name, display_name, revealed, aliases, labels, race, character_class, level, age, appearance, personality, backstory, player_notes, dm_notes, status, health, relation, current_place_id, origin_place_id, colony_role_key, created_at, updated_at, campaign_id, portrait_image_id, first_session_id
 `
 
 type UpdateNpcParams struct {
@@ -561,6 +588,7 @@ func (q *Queries) UpdateNpc(ctx context.Context, arg UpdateNpcParams) (Npc, erro
 		&i.UpdatedAt,
 		&i.CampaignID,
 		&i.PortraitImageID,
+		&i.FirstSessionID,
 	)
 	return i, err
 }

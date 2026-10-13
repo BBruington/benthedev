@@ -15,8 +15,6 @@ import {
 	UsersIcon,
 } from "lucide-react";
 
-export type Milestone = "M1" | "M2" | "M3" | "M4" | "M5";
-
 export type NavigationItemId =
 	| "colony"
 	| "people"
@@ -51,10 +49,6 @@ export type NavigationItem = {
 		| "/c/$campaignSlug/settings";
 	label: string;
 	icon: LucideIcon;
-	/** The milestone that builds the screen; until then it shows a "Coming in" page. */
-	arrivesIn?: Milestone;
-	/** What the screen will hold, for its placeholder page. */
-	summary: string;
 	dmOnly?: boolean;
 };
 
@@ -63,51 +57,42 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		icon: CastleIcon,
 		id: "colony",
 		label: "Colony",
-		summary: "The day clock, the stockpile, shipments and who works the colony.",
 		to: "/c/$campaignSlug",
 	},
 	explore: {
 		icon: HexagonIcon,
 		id: "explore",
 		label: "Explore",
-		summary:
-			"The shared hex map of the new world, charted stroke by stroke by the players themselves.",
 		to: "/c/$campaignSlug/explore",
 	},
 	mainland: {
 		icon: MapIcon,
 		id: "mainland",
 		label: "Mainland",
-		summary: "The Mainland and the DM's other maps, with pins for the places the party knows.",
 		to: "/c/$campaignSlug/maps",
 	},
 	npcs: {
 		icon: DramaIcon,
 		id: "npcs",
 		label: "NPCs",
-		summary: "The people of Eldari and the colony, as far as the party knows them.",
 		to: "/c/$campaignSlug/npcs",
 	},
 	patrons: {
 		icon: CrownIcon,
 		id: "patrons",
 		label: "Patrons",
-		summary: "The colony's backers on the mainland, their favor, and what they can be asked for.",
 		to: "/c/$campaignSlug/patrons",
 	},
 	people: {
 		icon: UsersIcon,
 		id: "people",
 		label: "People",
-		summary:
-			"Every role's headcount, the unassigned, and the named colonists who keep things running.",
 		to: "/c/$campaignSlug/people",
 	},
 	places: {
 		icon: MapPinIcon,
 		id: "places",
 		label: "Places",
-		summary: "Settlements, ruins and landmarks the party has found, and who can be met there.",
 		to: "/c/$campaignSlug/places",
 	},
 	players: {
@@ -115,30 +100,24 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		icon: UserCheckIcon,
 		id: "players",
 		label: "Players",
-		summary: "Who is waiting to join, who plays, and who was removed.",
 		to: "/c/$campaignSlug/players",
 	},
 	quests: {
 		icon: SwordsIcon,
 		id: "quests",
 		label: "Quests",
-		summary: "Active, finished and failed quests, with their rewards and who gave them.",
 		to: "/c/$campaignSlug/quests",
 	},
 	requests: {
 		icon: InboxIcon,
 		id: "requests",
 		label: "Requests",
-		summary: "What the party has asked of its patrons, and the DM's grants and declines.",
 		to: "/c/$campaignSlug/requests",
 	},
 	sessions: {
-		arrivesIn: "M5",
 		icon: CalendarDaysIcon,
 		id: "sessions",
 		label: "Sessions",
-		summary:
-			"Upcoming game nights in your own time zone, recaps of past ones, and a calendar link.",
 		to: "/c/$campaignSlug/sessions",
 	},
 	settings: {
@@ -146,15 +125,12 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 		icon: Settings2Icon,
 		id: "settings",
 		label: "Settings",
-		summary: "The campaign's name, time zone, resources, roles and Discord channels.",
 		to: "/c/$campaignSlug/settings",
 	},
 	timeline: {
 		icon: ScrollTextIcon,
 		id: "timeline",
 		label: "Timeline",
-		summary:
-			"The colony's ledger: every day advanced, every ship that landed, every session played.",
 		to: "/c/$campaignSlug/timeline",
 	},
 };

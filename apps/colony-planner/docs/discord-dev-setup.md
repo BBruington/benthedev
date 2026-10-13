@@ -16,7 +16,8 @@ This guide walks you through five things, once:
 4. putting Beny Bot Dev's values in `.env`;
 5. linking the test server to Sample Colony with `/link`.
 
-It takes about 15 minutes. Coming from M1? Read "Coming from M1" first.
+It takes about 15 minutes. Coming from M1? Read "Coming from M1" first. Already set up for M4? Read
+"Coming from M4".
 
 > **Never use the real Beny Bot here.** Don't use the production Beny Bot application, its bot token or its
 > client secret, and don't copy anything from the old party-planner `.env` files. The old Beny Bot keeps
@@ -41,18 +42,27 @@ issue or a screenshot. If one leaks, reset it on the same page and update `.env`
 
 ## Coming from M1
 
-M1.5 names the site owner with `SITE_OWNER_DISCORD_ID` and replaces M1's `DISCORD_GUILD_ID`.
+M1.5 names the site owner with `SITE_OWNER_DISCORD_ID`, and Beny Bot registers its commands for every
+server instead of M1's one `DISCORD_GUILD_ID`.
 
 1. Put your own Discord user ID in `SITE_OWNER_DISCORD_ID` in `.env` (step 5 says how to copy it).
-2. **Keep `DISCORD_GUILD_ID` for one start of Beny Bot.** M1 registered `/beny` in that one server only;
-   now Beny Bot registers its commands for every server. On the first `mise run dev` with Beny Bot on,
-   it clears the old server-only `/beny` and logs `old guild commands cleared; delete DISCORD_GUILD_ID
-   from .env`. Without this step your test server would show `/beny` twice.
-3. After you see that line, delete the `DISCORD_GUILD_ID` line from `.env`. Nothing else reads it.
+2. If `.env` still has a `DISCORD_GUILD_ID` line, delete it. Nothing reads it any more, so leaving it in
+   does no harm.
 
 Then skip to step 4 of "Try it" below: your application, token and invite already exist. Only the invite
 permissions changed (step 4 below); your existing invite keeps working, and you can re-invite Beny Bot
 Dev with the new link to drop the permission it no longer needs.
+
+## Coming from M4
+
+M5 removed Beny Bot's one-time clean-up of M1's server-only commands, so nothing reads
+`DISCORD_GUILD_ID` any more.
+
+1. Delete the `DISCORD_GUILD_ID` line from `.env` (Beny Bot starts the same with or without it).
+2. Restart `mise run dev`. Discord may take a minute to offer the two new commands, `/colony` and
+   `/nextsession`; reload Discord (Command-R) if they don't show.
+3. Sessions in Discord are steps 11 to 15 of "Try it". Your invite already has **Manage Events**, which
+   the Discord events need.
 
 ## 1. Turn on Developer Mode in Discord
 
@@ -191,9 +201,32 @@ Leave every other line as it is. `PUBLIC_URL` stays `http://localhost:5173`.
     back). If the patron's favor is too low, Grant keeps the buttons and says "Not enough favor: Lady Vex
     has 2, needs 3. Open in app." The sample request from Maren Ashgrove was loaded by `mise run fresh`
     while Beny Bot was off, so it has no Discord message: decide it on **Requests**.
-11. To unlink, use **Unlink…** on Settings, or run `/unlink` in the server. Removing Beny Bot Dev from the
+11. **Sessions in Discord.** On **Settings**, check the time zone, pick an **Announce channel** (and, if
+    you like, a **Reminder channel**), set the **Discord event location** (the text Discord shows as the
+    event's place; it starts as "Online") and save. Every series on **Sessions** with
+    **Announce** on gets a Discord event for its next date within a few seconds (**Events** at the top
+    of the server's channel list): the series' title, its start and length, at that location. Beny Bot
+    Dev also posts "**Port Eldari Fridays** is scheduled for *date* (*in N days*)" in the announce
+    channel. A restart never makes a second event. Once a date ends, the next date gets its event.
+12. **Cancel, restore, edit.** Cancel the next date on **Sessions**: its event disappears, "❌ **Port
+    Eldari Fridays** on *date* has been cancelled." appears in the reminder channel (or the announce
+    channel when no reminder channel is picked), and the following date gets an event. Restore the date
+    and the event moves back to it. Changing the series' time, title, length or weekdays, or the event
+    location on Settings, edits the same event, so its "interested" list stays; deleting the series
+    deletes it.
+13. **Reminders.** A series with **Remind** on gets "Reminder: **Port Eldari Fridays** is coming up *in N
+    hours* (*date*). Don't forget!" 24 hours before each date, in the same channel as the cancellation
+    notice. Add a one-off session starting in 23 hours: its reminder comes at once, and restarting
+    `mise run dev` doesn't send another.
+14. **Played sessions.** In Discord, open the event and click **Start Event**, then end it. The session
+    is marked played on the colony's current day, its last day is stamped when the event ends, and the
+    timeline shows its band. Only events Beny Bot Dev made count.
+15. Type `/colony` and `/nextsession`. Beny Bot Dev answers with the colony at a glance and the next
+    session's date, as players see them on the website.
+16. To unlink, use **Unlink…** on Settings, or run `/unlink` in the server. Removing Beny Bot Dev from the
     server unlinks it too, even while the site is stopped: it notices on its next start. Re-inviting it
-    then needs a new `/link`.
+    then needs a new `/link`. Unlinking stops events and reminders for that campaign and deletes Beny Bot
+    Dev's events for upcoming dates in that server (after a removal it can't, so delete those by hand).
 
 Only one copy of the site may run with this token at a time. Stop one `mise run dev` before starting
 another.
@@ -214,8 +247,7 @@ while Beny Bot is off; its channel lists are empty until it is back.
 | No **Site admin** in the profile menu | `SITE_OWNER_DISCORD_ID` isn't your user ID, or `mise run dev` wasn't restarted after editing `.env`. |
 | The first lines say `beny_bot=false` | `DISCORD_BOT_TOKEN` is empty, or `mise run dev` wasn't restarted after editing `.env`. |
 | An error mentioning authentication, or `4004` | The bot token is wrong or was reset. Reset it again (step 3) and paste the new one. |
-| `/beny`, `/npc` or `/link` isn't offered | Beny Bot Dev isn't in the server (step 4), or Discord hasn't shown the new commands yet: wait a minute and reload Discord (Command-R). `/link` and `/unlink` are only offered to members with Manage Server. |
-| `/beny` is offered twice | M1's server-only command is still there. Put `DISCORD_GUILD_ID` back for one start (see "Coming from M1"). |
+| `/beny`, `/npc`, `/colony`, `/nextsession` or `/link` isn't offered | Beny Bot Dev isn't in the server (step 4), or Discord hasn't shown the new commands yet: wait a minute and reload Discord (Command-R). `/link` and `/unlink` are only offered to members with Manage Server. |
 | "The application did not respond" | The site isn't running, or it was started without the bot token. |
 | "Use Beny Bot in your campaign's server." | The command was sent in a direct message. Run it in the linked server. |
 | "This server isn't linked to a campaign yet." | Link it: step 4 of "Try it". |
@@ -234,6 +266,9 @@ while Beny Bot is off; its channel lists are empty until it is back.
 | "That request was already decided." | It was granted, declined or withdrawn already, on the website or by an earlier click. Nothing changed. |
 | A prompt keeps its buttons after a decision on the website | The site was stopped while it was decided, or the DM channel changed on Settings after the prompt was posted: Beny Bot Dev edits prompts only in the current DM channel. Its buttons now answer "That request was already decided." |
 | A decided prompt shows only the outcome, not the request line | Beny Bot Dev can't read the message history of `dm-desk`. Give it **Read Message History** in that channel's permissions. |
+| No Discord event for the next session | The series has **Announce** off; the server isn't linked; Beny Bot Dev lacks **Manage Events** (re-invite it with the link in step 4); or that date has already started, since Discord can't make an event in the past (the next date gets one when it ends). |
+| No reminder | The series has **Remind** off; neither a reminder nor an announce channel is picked; the date is more than 24 hours away; it was already reminded (a restart never sends a second); or the game had already started. |
+| Starting or ending an event doesn't mark the session played | The event wasn't made by Beny Bot Dev. Events people make by hand are ignored; use **Mark played** and **End session** on the session's page. |
 | The channel lists on Settings are empty | Beny Bot is off, or the server isn't linked, or it has no text channels Beny Bot can see. |
 | No direct message about a campaign request | `SITE_OWNER_DISCORD_ID` is empty or isn't your user ID; your Discord privacy settings block direct messages from members of the test server; or five were already sent in the last hour. The request still appears on Site admin. |
 | A token or secret was pasted somewhere it shouldn't be | Reset it on the Developer Portal (step 3), update `.env`, and restart. |

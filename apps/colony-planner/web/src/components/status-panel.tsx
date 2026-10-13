@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { GiltRule } from "@/components/gilt-rule";
 import { cn } from "@/lib/utils";
 
-/** A centred icon, heading and message: empty, coming-soon, forbidden and error states. */
+/** A centred icon, heading and message: empty, forbidden and error states. */
 export function StatusPanel({
 	icon: Icon,
 	tone = "gilt",

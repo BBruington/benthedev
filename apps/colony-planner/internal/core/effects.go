@@ -134,6 +134,7 @@ func writeLooseEntry(requestContext context.Context, queries *store.Queries, vie
 		CreatedBy:  memberReference(viewer),
 		QuestID:    entry.questID,
 		PatronID:   entry.patronID,
+		SessionID:  entry.sessionID,
 	})
 	return err
 }

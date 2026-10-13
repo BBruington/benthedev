@@ -8,6 +8,7 @@ import { problemMessage } from "@/api/problem";
 import {
 	colonyBoardQuery,
 	recentTimelineQuery,
+	sessionBandsQuery,
 	timelineQuery,
 	timelineQueryKeyPrefix,
 } from "@/api/queries";
@@ -131,8 +132,13 @@ function TimelinePageView({ board, page }: { board: Schemas["ColonyBoard"]; page
 	const me = useMe();
 	const isDm = canUseDmTools(me);
 	const navigate = useNavigate({ from: Route.fullPath });
+	const campaignId = useCampaignId();
 	const timeline = useQuery({
-		...timelineQuery(useCampaignId(), page.fromDay, page.toDay),
+		...timelineQuery(campaignId, page.fromDay, page.toDay),
+		placeholderData: keepPreviousData,
+	});
+	const bands = useQuery({
+		...sessionBandsQuery(campaignId, page.fromDay, page.toDay),
 		placeholderData: keepPreviousData,
 	});
 	const [shownKinds, setShownKinds] = useState<ReadonlySet<TimelineKind>>(new Set());
@@ -187,6 +193,7 @@ function TimelinePageView({ board, page }: { board: Schemas["ColonyBoard"]; page
 				/>
 			) : null}
 			<TimelineBody
+				bands={bands.data ?? []}
 				board={board}
 				entries={timeline.data && isShowingPage ? timeline.data.entries : undefined}
 				error={timeline.error}
@@ -201,6 +208,7 @@ function TimelinePageView({ board, page }: { board: Schemas["ColonyBoard"]; page
 
 function TimelineBody({
 	board,
+	bands,
 	page,
 	today,
 	entries,
@@ -209,6 +217,7 @@ function TimelineBody({
 	filter,
 }: {
 	board: Schemas["ColonyBoard"];
+	bands: readonly Schemas["Session"][];
 	page: DayPage;
 	today: number;
 	entries: readonly Entry[] | undefined;
@@ -233,19 +242,29 @@ function TimelineBody({
 		);
 	}
 	if (isDm) {
-		return <DmTimelineDays board={board} entries={filter(entries)} page={page} today={today} />;
+		return (
+			<DmTimelineDays
+				bands={bands}
+				board={board}
+				entries={filter(entries)}
+				page={page}
+				today={today}
+			/>
+		);
 	}
-	return <TimelineDays actions={null} entries={entries} page={page} today={today} />;
+	return <TimelineDays actions={null} bands={bands} entries={entries} page={page} today={today} />;
 }
 
 /** The page's days with the DM's entry controls and the sheets they open. */
 function DmTimelineDays({
 	board,
+	bands,
 	page,
 	today,
 	entries,
 }: {
 	board: Schemas["ColonyBoard"];
+	bands: readonly Schemas["Session"][];
 	page: DayPage;
 	today: number;
 	entries: readonly Entry[];
@@ -271,7 +290,7 @@ function DmTimelineDays({
 
 	return (
 		<>
-			<TimelineDays actions={actions} entries={entries} page={page} today={today} />
+			<TimelineDays actions={actions} bands={bands} entries={entries} page={page} today={today} />
 			{editing.value ? (
 				<TimelineEntrySheet
 					editing={editing.value}

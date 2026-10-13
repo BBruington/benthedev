@@ -16,8 +16,10 @@ import type { Schemas } from "@/api/client";
 import { problemMessage } from "@/api/problem";
 import {
 	colonyBoardQuery,
+	latestRecapQuery,
 	mapsQuery,
 	membersQuery,
+	nextSessionQuery,
 	recentTimelineQuery,
 	settingsQuery,
 } from "@/api/queries";
@@ -45,6 +47,7 @@ import { focusFirstVisible } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
 import { artSource } from "@/maps/art";
+import { BoardSessions } from "@/sessions/board-sessions";
 import { MyRequestsCard, PendingRequestsCard } from "@/ventures/board-ventures";
 
 type ColonyBoard = Schemas["ColonyBoard"];
@@ -59,6 +62,8 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/")({
 		queryClient.prefetchQuery(colonyBoardQuery(campaignId));
 		queryClient.prefetchQuery(recentTimelineQuery(campaignId));
 		queryClient.prefetchQuery(mapsQuery(campaignId));
+		queryClient.prefetchQuery(nextSessionQuery(campaignId));
+		queryClient.prefetchQuery(latestRecapQuery(campaignId));
 		const me = cachedMe(queryClient, campaignId);
 		if (me && canUseDmTools(me)) {
 			queryClient.prefetchQuery(membersQuery(campaignId));
@@ -69,7 +74,10 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/")({
 
 const boardHeadingId = "colony-board-heading";
 
-/** The colony board (spec §6.2): the clock, the stockpile, the colonists and the latest entries. */
+/**
+ * The colony board (spec §6.2): the clock, the stockpile, the colonists, the latest entries, and the
+ * next game night with the last recap.
+ */
 function ColonyPage() {
 	const me = useMe();
 	const campaignId = useCampaignId();
@@ -125,6 +133,7 @@ function ColonyPage() {
 				isError={recent.isError}
 				isPending={recent.isPending}
 			/>
+			<BoardSessions isDm={canUseDmTools(me)} />
 			{canUseDmTools(me) ? <TableChecklist /> : <YourPlace me={me} />}
 		</div>
 	);

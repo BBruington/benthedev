@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
 import { fieldErrors, problemMessage } from "@/api/problem";
 import {
+	calendarLinkQuery,
 	campaignMeQuery,
 	colonyBoardQuery,
 	discordChannelsQuery,
@@ -35,7 +36,6 @@ import { campaignPickerHeadingId } from "@/components/shell/account-ids";
 import { Forbidden } from "@/components/shell/forbidden";
 import { StatusPanel } from "@/components/status-panel";
 import { TimezonePicker } from "@/components/timezone-picker";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,6 +48,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { forgetLastCampaign } from "@/lib/last-campaign";
 import { cn } from "@/lib/utils";
 import { RoleSettingsCard } from "@/people/role-settings";
+import { CalendarLinkCard } from "@/sessions/session-parts";
 
 type Settings = Schemas["Settings"];
 type SettingsInput = Schemas["SettingsInput"];
@@ -61,6 +62,7 @@ type SettingsDraft = {
 	discordAnnounceChannelId: string;
 	discordReminderChannelId: string;
 	discordDmChannelId: string;
+	discordEventLocation: string;
 };
 
 type ChannelField = "discordAnnounceChannelId" | "discordReminderChannelId" | "discordDmChannelId";
@@ -76,6 +78,7 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/settings
 			queryClient.prefetchQuery(settingsQuery(campaignId));
 			queryClient.prefetchQuery(resourcesQuery(campaignId));
 			queryClient.prefetchQuery(inviteLinkQuery(campaignId));
+			queryClient.prefetchQuery(calendarLinkQuery(campaignId));
 		}
 	},
 });
@@ -96,7 +99,7 @@ function SettingsPage() {
 	return (
 		<div className="flex flex-col gap-8 md:gap-10">
 			<PageHeader
-				description="The campaign's and colony's names, the time zone, who can join, the colony's resources, and Beny Bot's Discord server."
+				description="The campaign's and colony's names, the time zone, who can join, the calendar link, the colony's resources, and Beny Bot's Discord server."
 				eyebrow="Dungeon Master"
 				title="Settings"
 			/>
@@ -132,10 +135,10 @@ function SettingsBody({
 		<>
 			<SettingsForm settings={settings.data} />
 			<InviteLink />
+			<CalendarLinkCard canRegenerate />
 			<ResourceSettingsCard />
 			<RoleSettingsCard />
 			<DeleteCampaign campaignName={settings.data.campaignName} />
-			<ComingLater />
 		</>
 	);
 }
@@ -227,6 +230,7 @@ function toDraft(settings: Settings): SettingsDraft {
 		colonyName: settings.colonyName,
 		discordAnnounceChannelId: settings.discordAnnounceChannelId ?? "",
 		discordDmChannelId: settings.discordDmChannelId ?? "",
+		discordEventLocation: settings.discordEventLocation,
 		discordReminderChannelId: settings.discordReminderChannelId ?? "",
 		timezone: settings.timezone,
 	};
@@ -243,6 +247,8 @@ function toInput(draft: SettingsDraft): SettingsInput {
 		colonyName: draft.colonyName.trim(),
 		discordAnnounceChannelId: optionalText(draft.discordAnnounceChannelId),
 		discordDmChannelId: optionalText(draft.discordDmChannelId),
+		// Always sent: the server reads a missing location as a reset to the default.
+		discordEventLocation: draft.discordEventLocation.trim(),
 		discordReminderChannelId: optionalText(draft.discordReminderChannelId),
 		timezone: draft.timezone,
 	};
@@ -412,6 +418,22 @@ function SettingsForm({ settings }: { settings: Settings }) {
 					icon={ShieldIcon}
 					label="DM channel"
 				/>
+				<Field
+					description="Shown as the place on Beny Bot's game-night events. Leave it blank for Online."
+					error={errors.discordEventLocation}
+					id="settings-event-location"
+					label="Event location"
+				>
+					<Input
+						{...fieldInputProps("settings-event-location", errors.discordEventLocation, true)}
+						autoComplete="off"
+						maxLength={100}
+						onChange={(event) => {
+							update("discordEventLocation", event.target.value);
+						}}
+						value={draft.discordEventLocation}
+					/>
+				</Field>
 			</DiscordServerCard>
 
 			<SaveBar
@@ -494,34 +516,6 @@ function useDiscordLink(settings: Settings) {
 			unlink.mutate({ params: { path: { campaignId } } });
 		},
 	};
-}
-
-const laterSettings: { label: string; arrivesIn: string }[] = [
-	{ arrivesIn: "M5", label: "Discord event location and the calendar (ICS) link" },
-];
-
-function ComingLater() {
-	return (
-		<section
-			aria-labelledby="settings-later-heading"
-			className="rounded-2xl border border-border border-dashed px-5 py-5 md:px-7"
-		>
-			<h2
-				className="font-medium text-muted-foreground text-xs uppercase tracking-[0.18em]"
-				id="settings-later-heading"
-			>
-				Arriving with later milestones
-			</h2>
-			<ul className="mt-3 grid gap-2 lg:grid-cols-2">
-				{laterSettings.map((setting) => (
-					<li className="flex items-center gap-2 text-muted-foreground" key={setting.label}>
-						<Badge variant="muted">{setting.arrivesIn}</Badge>
-						<span className="text-sm">{setting.label}</span>
-					</li>
-				))}
-			</ul>
-		</section>
-	);
 }
 
 function SaveBar({

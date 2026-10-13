@@ -40,7 +40,10 @@ type Npc struct {
 	OriginPlace  *PlaceReference `json:"originPlace" doc:"null when unset or hidden from this viewer"`
 	// ColonyRole is set when the NPC is a named colonist (spec §5.5).
 	ColonyRole *ColonyRoleReference `json:"colonyRole" doc:"null when not a colonist"`
-	Dm         *NpcDm               `json:"dm,omitempty"`
+	// FirstSession is where the party first met them (Open Question 10). Sessions have no secrets, so
+	// players see it like the NPC's other fields.
+	FirstSession *SessionReference `json:"firstSession" doc:"The session where the party first met them; null when unset"`
+	Dm           *NpcDm            `json:"dm,omitempty"`
 }
 
 // NpcDm is what only the DM sees of an NPC.
@@ -489,6 +492,14 @@ func npcFromView(row store.GetNpcViewRow) Npc {
 	}
 	if row.Npc.ColonyRoleKey != nil && row.ColonyRoleLabel != nil && row.ColonyRoleIcon != nil {
 		npc.ColonyRole = &ColonyRoleReference{Key: *row.Npc.ColonyRoleKey, Label: *row.ColonyRoleLabel, Icon: *row.ColonyRoleIcon}
+	}
+	if row.Npc.FirstSessionID != nil && row.FirstSessionTitle != nil && row.FirstSessionStartsAt != nil && row.FirstSessionLocalDate.Valid {
+		npc.FirstSession = &SessionReference{
+			ID:        *row.Npc.FirstSessionID,
+			Title:     *row.FirstSessionTitle,
+			LocalDate: localDateText(row.FirstSessionLocalDate),
+			StartsAt:  row.FirstSessionStartsAt.UTC(),
+		}
 	}
 	return npc
 }

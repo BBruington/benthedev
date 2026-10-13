@@ -19,10 +19,7 @@ type config struct {
 	discordClientID     string
 	discordClientSecret string
 	discordBotToken     string
-	// legacyDiscordGuildID is read only for Beny Bot's one-time clean-up of the old guild-scoped
-	// commands (docs/discord-dev-setup.md); then the author deletes it from .env.
-	legacyDiscordGuildID string
-	siteOwnerDiscordID   string
+	siteOwnerDiscordID  string
 }
 
 var discordUserIDPattern = regexp.MustCompile(`^[0-9]{17,20}$`)
@@ -31,15 +28,14 @@ var appEnvironments = []string{"development", "test", "production"}
 
 func loadConfig() (config, error) {
 	loaded := config{
-		appEnvironment:       os.Getenv("APP_ENV"),
-		databaseURL:          os.Getenv("DATABASE_URL"),
-		publicURL:            os.Getenv("PUBLIC_URL"),
-		port:                 os.Getenv("PORT"),
-		discordClientID:      os.Getenv("DISCORD_CLIENT_ID"),
-		discordClientSecret:  os.Getenv("DISCORD_CLIENT_SECRET"),
-		discordBotToken:      os.Getenv("DISCORD_BOT_TOKEN"),
-		legacyDiscordGuildID: os.Getenv("DISCORD_GUILD_ID"),
-		siteOwnerDiscordID:   os.Getenv("SITE_OWNER_DISCORD_ID"),
+		appEnvironment:      os.Getenv("APP_ENV"),
+		databaseURL:         os.Getenv("DATABASE_URL"),
+		publicURL:           os.Getenv("PUBLIC_URL"),
+		port:                os.Getenv("PORT"),
+		discordClientID:     os.Getenv("DISCORD_CLIENT_ID"),
+		discordClientSecret: os.Getenv("DISCORD_CLIENT_SECRET"),
+		discordBotToken:     os.Getenv("DISCORD_BOT_TOKEN"),
+		siteOwnerDiscordID:  os.Getenv("SITE_OWNER_DISCORD_ID"),
 	}
 	if loaded.siteOwnerDiscordID != "" && !discordUserIDPattern.MatchString(loaded.siteOwnerDiscordID) {
 		return config{}, errors.New("SITE_OWNER_DISCORD_ID must be a Discord user ID: 17 to 20 digits")

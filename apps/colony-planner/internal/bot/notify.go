@@ -36,6 +36,9 @@ const (
 	announceChannel channelKind = "announce"
 	reminderChannel channelKind = "reminder"
 	dmChannel       channelKind = "dm"
+	// sessionNoticeChannel is the reminder channel, or the announce channel while that is unset (spec
+	// §7.2: the cancellation notice falls back this way, and reminders follow it).
+	sessionNoticeChannel channelKind = "session_notice"
 )
 
 func (kind channelKind) in(target core.DiscordTarget) string {
@@ -47,6 +50,11 @@ func (kind channelKind) in(target core.DiscordTarget) string {
 		channelID = target.ReminderChannelID
 	case dmChannel:
 		channelID = target.DmChannelID
+	case sessionNoticeChannel:
+		channelID = target.ReminderChannelID
+		if channelID == nil || *channelID == "" {
+			channelID = target.AnnounceChannelID
+		}
 	}
 	if channelID == nil {
 		return ""
@@ -115,19 +123,23 @@ func (benyBot *Bot) inBackground(requestContext context.Context, what string, po
 	})
 }
 
-// postToCampaign is the one way Beny Bot posts for a campaign (pings and request prompts now; reminders
-// and event notices later). It posts only to a channel campaignChannel vouches for. withinLimit runs
-// last, so a skipped post never uses up an hourly allowance. It returns the posted message, or nil
-// when it skipped the post or Discord refused it.
-func (benyBot *Bot) postToCampaign(postContext context.Context, service colonyService, campaignID uuid.UUID, kind channelKind, message *discordgo.MessageSend, withinLimit func() bool) *discordgo.Message {
+// postToCampaign is the one way Beny Bot posts for a campaign: pings, request prompts, reminders and
+// event notices. It posts only to a channel campaignChannel vouches for. withinLimit runs last, so a
+// skipped post never uses up an hourly allowance. It returns the posted message, or nil when it
+// skipped the post or the post failed; failed (Discord refused the send, or the campaign's server
+// couldn't be read) tells the two apart, so a reminder is retried only after a post that failed.
+func (benyBot *Bot) postToCampaign(postContext context.Context, service colonyService, campaignID uuid.UUID, kind channelKind, message *discordgo.MessageSend, withinLimit func() bool) (posted *discordgo.Message, failed bool) {
 	logger := benyBot.options.Logger.With(slog.String("campaign_id", campaignID.String()), slog.String("channel_kind", string(kind)))
-	channelID, found := benyBot.campaignChannel(postContext, logger, service, campaignID, kind)
+	channelID, found, err := benyBot.campaignChannel(postContext, logger, service, campaignID, kind)
+	if err != nil {
+		return nil, true
+	}
 	if !found {
-		return nil
+		return nil, false
 	}
 	if withinLimit != nil && !withinLimit() {
 		logger.Info("the hourly limit of posts was reached; skipped this one")
-		return nil
+		return nil, false
 	}
 	return benyBot.send(postContext, logger.With(slog.String("channel_id", channelID)), channelID, message)
 }
@@ -135,38 +147,38 @@ func (benyBot *Bot) postToCampaign(postContext context.Context, service colonySe
 // campaignChannel reads the campaign's linked server and channel, and finds it only when the campaign
 // is ACTIVE and linked, the channel is set, and the gateway knows that channel as a text channel of the
 // linked server, so a DM can never make Beny Bot post or edit in someone else's server.
-func (benyBot *Bot) campaignChannel(postContext context.Context, logger *slog.Logger, service colonyService, campaignID uuid.UUID, kind channelKind) (string, bool) {
+func (benyBot *Bot) campaignChannel(postContext context.Context, logger *slog.Logger, service colonyService, campaignID uuid.UUID, kind channelKind) (string, bool, error) {
 	target, found, err := service.DiscordTargetFor(postContext, campaignID)
 	if err != nil {
 		logger.Error("Beny Bot couldn't read the campaign's Discord server", slog.Any("error", err))
-		return "", false
+		return "", false, err
 	}
 	if !found {
 		logger.Info("the campaign has no linked server or is paused; skipped a post")
-		return "", false
+		return "", false, nil
 	}
 	channelID := kind.in(target)
 	if channelID == "" {
 		logger.Info("the campaign's channel isn't set; skipped a post")
-		return "", false
+		return "", false, nil
 	}
 	if !benyBot.channelInGuild(channelID, target.GuildID) {
 		logger.Warn("the channel isn't a text channel of the campaign's linked server; skipped a post", slog.String("channel_id", channelID), slog.String("guild_id", target.GuildID))
-		return "", false
+		return "", false, nil
 	}
-	return channelID, true
+	return channelID, true, nil
 }
 
-func (benyBot *Bot) send(postContext context.Context, logger *slog.Logger, channelID string, message *discordgo.MessageSend) *discordgo.Message {
+func (benyBot *Bot) send(postContext context.Context, logger *slog.Logger, channelID string, message *discordgo.MessageSend) (posted *discordgo.Message, discordRefused bool) {
 	message.AllowedMentions = noMentions()
 	// Names are chosen by whoever signs in; no preview card may hang off Beny Bot's message.
 	message.Flags |= discordgo.MessageFlagsSuppressEmbeds
 	posted, err := benyBot.client.ChannelMessageSendComplex(channelID, message, discordgo.WithContext(postContext))
 	if err != nil {
 		logger.Warn("Beny Bot couldn't post", slog.Any("error", err))
-		return nil
+		return nil, true
 	}
-	return posted
+	return posted, false
 }
 
 // waitingMessage links to the campaign's Players page. The slug is a-z, 0-9 and dashes (core checks it),

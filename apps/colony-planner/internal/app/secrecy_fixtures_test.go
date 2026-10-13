@@ -7,7 +7,9 @@ import (
 	"image/png"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -657,6 +659,49 @@ var secrecyFixtures = []secrecyFixture{
 		dmProof: []string{"/maps"},
 	},
 	{
+		feature: "sessions",
+		// Sessions have no DM-only values (spec §5.11), so B's carry canaryB in every text. The ICS token
+		// is the campaign's: every member may read it (spec §6.2 shows players the link), and B's is
+		// forbidden wherever canaryB is. The hidden NPC's first session is set, so its link is planted
+		// beside a forbidden ID; the revealed NPC's names a session players may see.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			visible := side.playerVisible
+			firstDate := time.Now().UTC().AddDate(0, 0, -28)
+			weekly := int64(1)
+			series, err := testHarness.core.CreateSessionSeries(testHarness.context, dmViewer, core.SessionSeriesInput{
+				Title: "Friday Game" + visible, Description: "Bring dice" + visible,
+				Weekdays: []int64{int64(firstDate.Weekday())}, EveryWeeks: &weekly, FirstDate: firstDate.Format(time.DateOnly),
+				StartLocal: "20:00", DurationMinutes: 240, Announce: true, Remind: true,
+			})
+			if err != nil {
+				t.Fatalf("plant a series in %s: %v", side.campaign.name, err)
+			}
+			played, err := testHarness.core.MarkSessionPlayed(testHarness.context, dmViewer, core.SessionDateInput{SeriesID: series.ID, LocalDate: firstDate.Format(time.DateOnly)})
+			if err != nil || played.ID == nil {
+				t.Fatalf("play the first date in %s: %+v, %v", side.campaign.name, played, err)
+			}
+			if _, err := testHarness.core.SetSessionRecap(testHarness.context, dmViewer, *played.ID, core.SessionRecapInput{Recap: "We landed" + visible}); err != nil {
+				t.Fatalf("write a recap in %s: %v", side.campaign.name, err)
+			}
+			for _, npcID := range []uuid.UUID{side.campaign.hiddenNpcID, uuid.MustParse(side.campaign.pathIDs["npcId"])} {
+				if _, err := testHarness.core.SetNpcFirstSession(testHarness.context, dmViewer, npcID, core.NpcFirstSessionInput{SessionID: played.ID}); err != nil {
+					t.Fatalf("set an NPC's first session in %s: %v", side.campaign.name, err)
+				}
+			}
+			link, err := testHarness.core.GetCalendarLink(testHarness.context, dmViewer)
+			if err != nil {
+				t.Fatalf("read the calendar link of %s: %v", side.campaign.name, err)
+			}
+			side.campaign.icsToken = strings.TrimSuffix(strings.TrimPrefix(link.Path, "/calendar/"), ".ics")
+			side.campaign.pathIDs["seriesId"] = series.ID.String()
+			side.campaign.pathIDs["sessionId"] = played.ID.String()
+		},
+		// The one DM-only thing here is the hidden NPC's first-session link, on the DM's roster.
+		dmProof: []string{"/npcs"},
+	},
+	{
 		feature: "invite link",
 		// The invite code is DM-only: the harness's forbidden lists hold it as a literal.
 		plant:   func(*testing.T, *harness, campaignSide) {},
@@ -675,6 +720,11 @@ func plantCanaries(t *testing.T, testHarness *harness) {
 		side.campaign.pathIDs["campaignRequestId"] = side.campaign.requestID.String()
 		side.campaign.pathIDs["inviteCode"] = side.campaign.inviteCode
 	}
+}
+
+// visibleValuesOfB are B's values only B's members may see: canaryB and the ICS token.
+func (testHarness *harness) visibleValuesOfB() []string {
+	return []string{canaryB, testHarness.campaignB.icsToken}
 }
 
 // dmOnlyValues are the values only a campaign's DM may ever see.

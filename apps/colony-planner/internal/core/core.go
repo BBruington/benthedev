@@ -39,8 +39,10 @@ type Options struct {
 	BotInviteURL string
 	// PublicURL is the site's own address; a map's external art may not point at this host (C6).
 	PublicURL string
-	// Now is the clock for link-code expiry; nil means time.Now. Tests move it.
+	// Now is the clock for link-code expiry and sessions; nil means time.Now. Tests move it.
 	Now func() time.Time
+	// SessionPlanner is Beny Bot's timer planner; nil while Beny Bot is off.
+	SessionPlanner SessionPlanner
 }
 
 // SessionEvictor drops cached session lookups so the next request reads the database again.
@@ -69,6 +71,8 @@ type Service struct {
 	botInviteURL       string
 	siteHost           string
 	linkCodes          *linkCodeStore
+	sessionPlanner     SessionPlanner
+	clock              func() time.Time
 }
 
 func New(options Options) *Service {
@@ -84,6 +88,14 @@ func New(options Options) *Service {
 		botInviteURL:       options.BotInviteURL,
 		siteHost:           siteHostOf(options.PublicURL),
 		linkCodes:          newLinkCodeStore(options.Now),
+		sessionPlanner:     options.SessionPlanner,
+		clock:              options.Now,
+	}
+	if service.clock == nil {
+		service.clock = time.Now
+	}
+	if service.sessionPlanner == nil {
+		service.sessionPlanner = NoopSessionPlanner{}
 	}
 	if options.Pool != nil {
 		service.queries = store.New(options.Pool)

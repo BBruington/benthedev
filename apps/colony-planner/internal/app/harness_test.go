@@ -122,6 +122,8 @@ type campaignFixture struct {
 	archivedIDs []string
 	// failureCost is the revealed quest's DM-only failure cost: its gold delta and failure favor.
 	failureCost []int64
+	// icsToken is the campaign's ICS token as planted: its members may read it, nobody else.
+	icsToken string
 }
 
 // harness is the whole server on a fresh test schema with the accounts and campaigns of the

@@ -335,7 +335,7 @@ All tables live in one Postgres database:
 |---|---|---|
 | `campaign_member` | `id`, `campaign_id`, `account_id`, `role campaign_role` (DM, PLAYER), `status member_status` (PENDING, ACTIVE, REMOVED), `character_name NULL`, `left_on_own bool` (only when REMOVED, C5), `created_at`, `approved_at`; `UNIQUE (campaign_id, account_id)` | One DM per campaign (partial unique index), always ACTIVE. No API writes `role`. |
 | `web_session` | `token_hash bytea PK` (SHA-256 of a 32-byte random token), `account_id → account ON DELETE CASCADE`, `view_as_player bool`, `created_at`, `expires_at`, `last_seen_at` (written at most once a day) | Per account, so one sign-in serves every campaign. Removal from a campaign no longer touches sessions. |
-| `settings` (one per campaign) | `campaign_id PK` (the name is `campaign.name`), `timezone text` (IANA), `discord_announce_channel_id`, `discord_reminder_channel_id`, `discord_dm_channel_id`, `discord_event_location text DEFAULT 'Forge + Discord Voice'`, `ics_token` | Every column has a consumer. |
+| `settings` (one per campaign) | `campaign_id PK` (the name is `campaign.name`), `timezone text` (IANA), `discord_announce_channel_id`, `discord_reminder_channel_id`, `discord_dm_channel_id`, `discord_event_location text DEFAULT 'Online'`, `ics_token` | Every column has a consumer. |
 
 ### 4.2 Colony
 
@@ -403,6 +403,14 @@ SELECT (SELECT COALESCE(SUM(unnamed_count), 0) FROM role WHERE campaign_id = @ca
 |---|---|---|
 | `session_series` | `id`, `title`, `description`, `weekdays smallint[]` (0 = Sunday … 6 = Saturday), `every_weeks smallint NULL CHECK IN (1, 2)` (NULL means a one-off on `first_date`), `first_date date`, `last_date date NULL`, `start_local time`, `duration_minutes CHECK 15..480`, `announce bool DEFAULT true`, `remind bool DEFAULT true`, timestamps | Local wall time, interpreted in `settings.timezone`. |
 | `session` | `id`, `series_id → session_series SET NULL`, `local_date date`, `starts_at timestamptz`, `duration_minutes`, `title`, `status session_status` (SCHEDULED, CANCELLED, PLAYED), `discord_event_id NULL`, `discord_claimed_at NULL` (a lease, §7.3), `reminded_at NULL`, `recap text`, `colony_day_start NULL`, `colony_day_end NULL`, timestamps; `UNIQUE (series_id, local_date)` | Created on demand (cancel, Discord event, reminder, played, recap) with `INSERT … ON CONFLICT`. It replaces the old exceptions table and the history-only session rows. |
+
+- **As built in M5** (migration `0005_sessions.sql`):
+  - Both tables carry `campaign_id` with composite keys (multi-campaign design §2.6); the unique key is `(campaign_id, series_id, local_date)`.
+  - A one-off is a series too: `every_weeks` NULL, no weekdays, on `first_date`, and never a `last_date` (CHECKs enforce all three). Events, reminders, the ICS feed and `/nextsession` therefore share one code path.
+  - `session.series_id` is `ON DELETE SET NULL (series_id)`: deleting a series keeps its played sessions, recaps and stamps. Day stamps are allowed only on PLAYED rows (CHECK).
+  - The Discord event's start, title, length and location (`session.discord_event_location`) are recorded on the row when the event is made or edited, so the planner sees when an edit or a new settings location left the event behind.
+  - `settings` gains `discord_event_location` (default "Online", the author's choice on 2026-10-12, at most 100 characters) and `ics_token` (globally unique, because `/calendar/{token}.ics` names its campaign; 64 random hex characters by default, and 43 URL-safe characters from 32 `crypto/rand` bytes after a regenerate).
+  - `npc.first_session_id` (Open Question 10) and `timeline_event.session_id` are composite FKs with `ON DELETE SET NULL` on that column only.
 
 ### 4.6 Relationships
 
@@ -762,7 +770,14 @@ type Step interface {
   - When the Discord event COMPLETES, or the DM clicks **End session**, `colony_day_end` is stamped and the band is updated.
   - The DM can edit both stamps.
 - **Recap.** Written by the DM and shown to everyone on the session page.
-- **ICS.** `/calendar/{ics_token}.ics` lists SCHEDULED occurrences for the next 6 months and the past 30 days. There is one shared token, and the DM can regenerate it.
+- **ICS.** `/calendar/{ics_token}.ics` lists SCHEDULED and PLAYED dates for the next 6 months and the past 30 days; only CANCELLED dates are left out (the author's decision, 2026-10-12). There is one shared token, and the DM can regenerate it.
+- **As built in M5:**
+  - `occurrences()` is `game.Occurrences` in `internal/game/sessions.go`, beside `game.PlanSessions` (the planner's rules, §7.3). Every-other-week parity counts whole weeks from `first_date` itself (the seven days starting on `first_date` are on, the next seven off), so "every other weekend, Saturday and Sunday" from a Saturday keeps each Saturday with the Sunday after it. A start time that doesn't exist on a date (inside a spring-forward gap) is read with the offset before the gap, so it starts after the skipped hour (2:30 AM becomes 3:30 AM), as RFC 5545 does; a start inside the fall-back overlap is the first one. Cancel, restore and mark played name a date by `(seriesId, localDate)`, and a date the series doesn't meet on is a 422.
+  - `/sessions` lists the next 12 weeks, cancelled dates included and marked. A date leaves that list once it ends, so a date nobody marked played can't be marked from the web afterwards (the Discord event normally marks it). The author decides whether a short window of recently ended dates should stay.
+  - **Mark played, End session and the Discord-driven stamps are not undoable.** They take the colony lock so the day can't move under them and write a PUBLIC `SESSION_PLAYED` entry (linked by `session_id`) the way `QUEST_POSTED` is written, but leave the version and the undo slot alone: a stamp is a fact, not a change to the stockpile, the DM fixes a wrong one by editing the days, and a Discord ACTIVE update must never replace the DM's last real change in the undo slot. Entries Discord causes have no author (`created_by` NULL). Editing the days moves the session's `SESSION_PLAYED` entry to the new first day. A session still in play (no last day) bands every timeline page from its first day through today.
+  - The server lets the DM mark any scheduled date played, a future one included; the web offers **Mark played** on the next date and on any date starting within 24 hours. Rename works only on PLAYED sessions (409 otherwise); a scheduled date's title follows its series.
+  - **ICS:** the feed keeps played dates (a deleted series' ones too, whose UID is then their row's) and drops only cancelled ones, so a date leaves subscribers' calendars only when it is cancelled. Its location is `settings.discord_event_location`. The feed is served as `text/calendar; charset=utf-8` with `Cache-Control: no-store`, CRLF lines folded at 75 octets and UTC instants.
+  - **Who sees the ICS link:** every active member, players and view as player included (§6.2 shows it to players). The token is the campaign's secret against outsiders and other campaigns; only the DM regenerates it, which kills the old link at once. Removing a player doesn't change the link: a removed player who copied it keeps reading the schedule until the DM presses **New link…** (the removal confirmation says so). The author decides whether removal should rotate it instead. An unknown, regenerated or suspended campaign's token gets exactly the 404 of a path that isn't a route, and request logs show `/calendar/{icsToken}` instead of the token.
 
 ### 5.12 Worked examples (encoded verbatim in `internal/game/spec_examples_test.go`)
 
@@ -902,6 +917,13 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
   - `/maps/$mapId` shows the art at its natural size, fitted to the screen. Edit pins taps the art to pin a place and drags pins to move them; "Pin a place at the centre" is the keyboard path. Replace art keeps every pin. A list under the map links each pinned place. Pins open with Enter or Space as well as a tap.
   - A place's page has an "On the map" section with the art and its pin. An NPC's edit sheet has a Portrait section that saves at once through its own endpoint, apart from the sheet's Save; the roster and the NPC page show the portrait, other NPC lists still show initials.
   - There is no screen for an external-URL map yet; the API takes one (§8.9).
+- **As built in M5:**
+  - Session times show on the viewer's own clock first, with its zone ("Fri, Oct 16 · 7:00 PM CDT, your time"), and on the table's clock on a second line only when they differ. The time zone has no secret, so the colony board every member reads carries it (`ColonyBoard.timezone`), and everyone, players and view as player included, sees the table's clock by name ("Table time 8:00 PM EDT (New York)"), past sessions included; only while the board loads is it labeled by its UTC offset.
+  - `/sessions` has upcoming dates (cancelled ones struck through, the next one marked), the DM's Cancel and Restore on each date, **Mark played** on the next date and any date starting within 24 hours, the list of series and one-offs (Edit, Delete) and the **Schedule** sheet (title, every week / every other week / one-off, weekdays, first and last date, start time in the table's zone, length 15 minutes to 8 hours, and the Discord event and reminder switches). History shows recaps cut to three lines and "Days 36–41".
+  - `/sessions/$sessionId` shows the status, both clocks and "In the colony" with a link to the timeline at the first stamped day; the DM gets Mark played, Cancel or Restore, End session, Rename (played sessions only), the day-stamp editor and the recap editor. Players see the recap as plain text.
+  - The timeline gives the days a played session covers a gold left edge, with "Session · title · Days 19–22" (or "· in play") on the band's first day on the page; `SESSION_PLAYED` entries link to their session. The board has a next-game-night card with the last recap snippet.
+  - An NPC's page shows "First met" (the session's title and date, players included). The DM's First met picker lists played sessions and saves on its own, like visibility; the server refuses a session that isn't played (422 on `sessionId`).
+  - The event location is under Settings → Discord; the calendar link card (Copy for everyone, New link… for the DM after a confirmation) is on both `/sessions` and `/settings`.
 
 ### 6.3 Live at the table
 
@@ -1011,7 +1033,7 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
 - **One shared bot, many servers (F8).** Each DM invites Beny Bot to their own server with the URL on Settings, and links that server to their campaign: Settings → **Get a link code** (`BENY-XXXXX-XXXXX`, 15 minutes, kept in memory, used up only by the `/link` that succeeds), then `/link code:` run in the server by a member with Manage Server. One server per campaign and one campaign per server. `/unlink`, Settings → Unlink…, or removing the bot (GuildDelete without Unavailable, or a server missing from a Ready that lists other servers; a Ready that lists none unlinks nothing) unlinks. Invite:
   - scopes `bot applications.commands`;
   - permissions: View Channel, Send Messages, Embed Links, Manage Events (8589954048). No Read Message History: no feature reads messages.
-- **Commands are global** (`ApplicationCommandBulkOverwrite(app, "", ...)` on Ready). M1's guild-scoped commands are cleared once while the legacy `DISCORD_GUILD_ID` is still set; then it is deleted.
+- **Commands are global** (`ApplicationCommandBulkOverwrite(app, "", ...)` on Ready). M1.5 cleared M1's guild-scoped commands once while the legacy `DISCORD_GUILD_ID` was still set; M5 removed that clean-up (the author confirmed `/beny` appears only once), and nothing reads `DISCORD_GUILD_ID` any more.
 - **Routing.** Every interaction goes guild → linked campaign → membership (`core.ViewerForGuild`): a direct message, an unlinked server, a suspended campaign, a non-member and a not-yet-let-in member each get their own ephemeral line. Settings lists the linked server's text channels (`core.DiscordDirectory`), and every post goes through one function that checks the channel belongs to the linked server.
 - **Intents:** `Guilds | GuildScheduledEvents`.
 
@@ -1021,7 +1043,7 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
 |---|---|---|
 | Bot core, interaction routing (`internal/bot/bot.go`) | **Port** | Simplified; every interaction resolves guild → linked campaign → membership (`core.ViewerForGuild`, §7.1), and commands receive that `Viewer`. |
 | Per-user rate limiter (`ratelimit.go`) | **Port as is** | Burst 3, one token every 2 s. |
-| Command registration | **Fix** | Since M1.5: global `ApplicationCommandBulkOverwrite` on Ready, and a one-time clear of the legacy guild's commands (§7.1). M1 did: guild-scoped `ApplicationCommandBulkOverwrite`, **plus** a global overwrite with an empty list, so the application never carries stale global commands. The old application's global `/schedule`, `/registercampaign` and `/available` leave the real guild at M6, when that application is removed from it after the old bot is stopped for good. If the author keeps the existing application instead (Open Question 19), the empty global overwrite removes them, and nothing re-adds them because the old bot no longer runs. |
+| Command registration | **Fix** | Since M1.5: global `ApplicationCommandBulkOverwrite` on Ready (the one-time clear of the legacy guild's commands was removed in M5, §7.1). M1 did: guild-scoped `ApplicationCommandBulkOverwrite`, **plus** a global overwrite with an empty list, so the application never carries stale global commands. The old application's global `/schedule`, `/registercampaign` and `/available` leave the real guild at M6, when that application is removed from it after the old bot is stopped for good. If the author keeps the existing application instead (Open Question 19), the empty global overwrite removes them, and nothing re-adds them because the old bot no longer runs. |
 | Caller identity | **Add** | Commands answer only ACTIVE members of the server's linked campaign; others get an ephemeral line saying why (§7.1). |
 | `/beny` | **Port** | "Boy!" |
 | `/colony` | **Add** | Ephemeral embed: day, resources, colonists (with Unassigned), next shipment, next session, site link. Built from the player projection. |
@@ -1074,6 +1096,17 @@ The palette comes from the Eldari map: dark teal sea, parchment land, gilt lette
 - **Delete a series.** Delete its event.
 - **ACTIVE / COMPLETED** updates on events the bot created drive the played stamps (§5.11). Other events are ignored.
 - **Why single events.** Through the API, a WEEKLY recurring event can use only one weekday, and apps can't set its end. Single events avoid both limits, make cancel, restore and edit exact, and allow series on several weekdays.
+
+- **As built in M5** (§7.3 and §7.4; multi-campaign design §6.3–6.4):
+  - **One planner for every campaign** (`internal/bot/planner.go`). `core.PlanSessions` reads only ACTIVE campaigns linked to a server, through the one query marked `-- unscoped: planner` (`ListPlannerCampaigns`); the scope lint requires such a query to join `discord_guild_link`, filter `campaign.status = 'ACTIVE'` and use no OR or outer join. The rules (what is due, the next wake) are `game.PlanSessions`. Core sends the in-process re-plan signal (`core.SessionPlanner.SessionsChanged`) after every series, session and settings write, after link and unlink and after an event status update, never after a released claim, so a failing Discord can't make it spin. The bot also plans at Ready and on each server's GuildCreate (a server not in gateway state yet is skipped until then).
+  - The one timer is capped at a minute and then only rechecks the wall clock, with no database read, because a sleeping Mac stops Go's monotonic clock. A job Discord refuses backs off from 1 minute up to 1 hour.
+  - **Leases and claims:** a reminder is claimed by setting `reminded_at`, and released only when the post failed: Discord refused the send, or the campaign's server couldn't be read (a post skipped because no channel is picked keeps its claim). The release gets its own short deadline, since the plan's may be what ran out. An event create takes the 5-minute lease; the plan and the claim agree that a lease is over exactly 5 minutes after it was taken. If the DM deletes the series while Discord makes the event, the date's row goes with it, so the bot deletes the event it just made; if the DM cancels the date meanwhile, the event is recorded but not announced, and the next plan removes it. A remove that Discord answers 404 counts as done, and an update that 404s forgets the event so the next plan makes a new one.
+  - Events are EXTERNAL, `GuildOnly`, located at `settings.discord_event_location`, and adopted when Beny Bot already made one with the same name and start that no other date of the campaign holds (two dates with one title and start get one event each). An event isn't made or edited for a date that has started (Discord refuses events in the past); a started date without an event doesn't hold the series back, so the date after it keeps or gets its event (a date restored mid-game leaves the next date's event alone).
+  - Editing a series edits its existing event (§7.4), keeping its "interested" list: a change on the same date (time, title, length) edits it in place, and when the next date moves to a day the series no longer meets on (new weekdays or dates), the old date's event moves to the new next date. A later date that is still one of the series' dates, such as the one that stood in while an earlier date was cancelled, isn't moved: restoring the earlier date makes it a new event and removes the later one. A changed event location reaches the existing event too (an update, like a time change).
+  - The event claim and its record hold only while the campaign is ACTIVE and linked to the server the plan read, so a campaign unlinked or paused meanwhile gets no event there (one made in that moment is deleted). Unlinking (Settings, `/unlink`, or the bot removed) forgets the events and leases of the campaign's unplayed dates in the same transaction and hands Beny Bot the upcoming ones to delete in the old server, best effort (a removed bot can't, and those stay); a server linked later gets new events.
+  - Reminders go to the reminder channel, falling back to the announce channel, like the cancellation notice. The notice is posted only for dates still ahead, whatever the series' Announce and Remind switches. Reminder, announcement and cancellation texts are the old bot's, the ❌ included.
+  - ACTIVE writes PLAYED with the start stamp and `SESSION_PLAYED`; COMPLETED writes the end stamp and also marks the session played if ACTIVE was missed. Core matches only events stored on that server's campaign, so other servers' events, events people made by hand and other statuses change nothing.
+  - **Not handled yet:** an event someone deletes or cancels by hand in Discord keeps its ID on the row, so that date gets no new event until the series is edited or the date ends; and Beny Bot's events stay in a server that removed it (it can't delete them there). Both need the author's decision.
 
 ### 7.5 Grant and Decline buttons
 
@@ -1455,7 +1488,7 @@ There is no importer (F2). The old app holds only throwaway test data, so nothin
 | M2 | Headcounts across the eight roles, with some Unassigned; NPCs, including hidden ones, one whom players know by a different name, and named colonists such as Brannoc the farmer; a few places. |
 | M3 | Quests: active, completed, failed, one hidden, and one from Lady Vex with a favor reward. Patrons: Lady Vex (revealed, with favor), one hidden and one archived, with actions such as the Grain Barge. Requests: pending, granted, and declined with a note. |
 | M4 | A small charted area on the hex map with a few labels; pins for the sample places on the Eldari map. As built: the Eldari bytes uploaded as Sample Colony's Mainland "Eldari" (1920×1080, visible) with all five sample places pinned (players see four: The Drowned Chapel is hidden), and 19 hexes around Port Eldari painted by Ana with 4 labels (Port Eldari, Saltmarsh, Wolf Den, Grey Tor). Second Sample gets 7 hexes, 2 labels (Ridgehold, The Old Mine) and no map. `--hexes N` (0 to 50,000) paints N hexes in a spiral instead, with a "Survey mark" label every 100. |
-| M5 | A weekly series with one cancelled date; two played sessions with recaps and colony-day stamps, so the timeline shows session bands. |
+| M5 | A weekly series with one cancelled date; two played sessions with recaps and colony-day stamps, so the timeline shows session bands. As built: Sample Colony gets "Port Eldari Fridays", weekly on Friday at 8:00 PM New York; its last three Fridays are played between the existing advances (bands over Days 0–7, 14–19 and 19–22, each with its own title and recap), the Friday after next is cancelled, and Brannoc was first met at "The Landing". Second Sample (time zone Europe/London) gets "Ridgehold Saturdays", every other Saturday at 7:00 PM, with Announce on and Remind off; its first Saturday is played over Days 0–9. The dates follow the day `colony seed` runs. |
 
 ---
 
@@ -1582,6 +1615,7 @@ For phone items, run `mise run dev:phone` instead of `mise run dev` and open the
   - rolling Discord events; timer-driven reminders; played auto-log with day stamps and timeline bands;
   - recaps; ICS;
   - the NPC first-encountered session (`npc.first_session_id`, Open Question 10), which M2 left out;
+  - remove Beny Bot's one-time legacy guild-command cleanup (`DISCORD_GUILD_ID` / `LegacyGuildID`): the author confirmed on 2026-10-12 that `/beny` appears only once, so the old guild command is gone;
   - `/colony` and `/nextsession`;
   - a sample series and played sessions in `colony seed`.
 - **Acceptance:**
@@ -1692,8 +1726,8 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
     - Is "Forge + Discord Voice" still the right event location? It suggests Foundry on The Forge, but that is an inference.
     - Do you want a "Join the game" link?
 
-    *Default: you enter the slot and timezone when you create the series and on `/settings`; the location is editable; no link.*
-16. **Google Calendar.** The ICS feed puts sessions in anyone's calendar. It loses the old conflict warning (checking members' calendars for clashes while you schedule) and per-user calendar sync. Is ICS enough? *Default: ICS only.*
+    **Resolved (2026-10-12):** a fixed weekly or every-other-week slot, entered as a series (one-off sessions still possible); the timezone is set on `/settings`; the Discord event is an external event whose text location the DM edits on `/settings`, "Online" by default for every campaign; no "Join the game" link.
+16. **Google Calendar.** The ICS feed puts sessions in anyone's calendar. It loses the old conflict warning (checking members' calendars for clashes while you schedule) and per-user calendar sync. Is ICS enough? **Resolved (2026-10-12):** ICS only, and the feed keeps played dates; only cancelled ones leave it.
 
 **Later**
 

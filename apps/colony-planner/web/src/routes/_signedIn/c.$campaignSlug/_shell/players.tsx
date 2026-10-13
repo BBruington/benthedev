@@ -593,7 +593,7 @@ const confirmationCopy: Record<
 	remove: {
 		action: "Remove",
 		description:
-			"They lose access to this campaign at once and can't ask again with the invite link. Their other campaigns aren't affected. You can re-admit them later.",
+			"They lose access to this campaign at once and can't ask again with the invite link. Their other campaigns aren't affected. You can re-admit them later. A calendar link they copied keeps working until you make a new one on Settings.",
 		destructive: true,
 		title: (name) => `Remove ${name} from the campaign?`,
 	},

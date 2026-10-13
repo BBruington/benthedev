@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,21 +19,21 @@ import (
 	"github.com/BBruington/colony-planner/internal/core"
 )
 
-// Discord IDs of the test world. Tests never read SITE_OWNER_DISCORD_ID or DISCORD_GUILD_ID: every
-// value comes from here.
+// Discord IDs of the test world. Tests never read SITE_OWNER_DISCORD_ID: every value comes from here.
 const (
 	testPublicURL = "http://localhost:5173"
 
-	ownerDiscordID    = "200000000000000009"
-	dmUserID          = "200000000000000001" // DM of campaign A
-	activeUserID      = "200000000000000002" // Ana: a player in A and in B
-	pendingUserID     = "200000000000000003" // waiting to join A
-	removedUserID     = "200000000000000004" // removed from A
-	strangerUserID    = "200000000000000005" // signed in, in no campaign
-	unknownUserID     = "200000000000000006" // never signed in
-	otherDmUserID     = "200000000000000007" // DM of campaign B
-	otherOnlyUserID   = "200000000000000008" // a player in B only
-	legacyTestGuildID = "100000000000000099"
+	ownerDiscordID  = "200000000000000009"
+	dmUserID        = "200000000000000001" // DM of campaign A
+	activeUserID    = "200000000000000002" // Ana: a player in A and in B
+	pendingUserID   = "200000000000000003" // waiting to join A
+	removedUserID   = "200000000000000004" // removed from A
+	strangerUserID  = "200000000000000005" // signed in, in no campaign
+	unknownUserID   = "200000000000000006" // never signed in
+	otherDmUserID   = "200000000000000007" // DM of campaign B
+	otherOnlyUserID = "200000000000000008" // a player in B only
+	benyBotUserID   = "500000000000000001" // Beny Bot's own user, the creator of its events
+	someoneElsesID  = "500000000000000009" // a server member who makes their own events
 
 	guildX = "100000000000000001" // linked to A in most tests
 	guildY = "100000000000000002" // linked to B in some tests
@@ -108,12 +107,23 @@ type fakeDiscordClient struct {
 	readError        error
 	openedSignal     chan struct{}
 	openedSignalOnce sync.Once
+	// scheduledEvents are each server's events, as Discord keeps them for every process on the token.
+	scheduledEvents map[string][]*discordgo.GuildScheduledEvent
+	eventsMade      int
+	eventCreates    int
+	eventEdits      int
+	eventDeletes    int
+	eventError      error
+	// duringEventCreate runs after Discord made an event and before the bot hears back, so a test can
+	// change the date in between.
+	duringEventCreate func()
 }
 
 func newFakeDiscordClient() *fakeDiscordClient {
 	return &fakeDiscordClient{
-		openedSignal: make(chan struct{}),
-		posted:       map[string]*discordgo.Message{},
+		openedSignal:    make(chan struct{}),
+		posted:          map[string]*discordgo.Message{},
+		scheduledEvents: map[string][]*discordgo.GuildScheduledEvent{},
 	}
 }
 
@@ -226,6 +236,111 @@ func (fake *fakeDiscordClient) UserChannelCreate(recipientID string, _ ...discor
 	defer fake.mutex.Unlock()
 	fake.directChannels = append(fake.directChannels, recipientID)
 	return &discordgo.Channel{ID: directChannelID(recipientID), Type: discordgo.ChannelTypeDM}, nil
+}
+
+var errUnknownScheduledEvent = &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownGuildScheduledEvent, Message: "Unknown Guild Scheduled Event"}}
+
+func (fake *fakeDiscordClient) GuildScheduledEvents(guildID string, _ bool, _ ...discordgo.RequestOption) ([]*discordgo.GuildScheduledEvent, error) {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	if fake.eventError != nil {
+		return nil, fake.eventError
+	}
+	listed := make([]*discordgo.GuildScheduledEvent, 0, len(fake.scheduledEvents[guildID]))
+	for _, event := range fake.scheduledEvents[guildID] {
+		copied := *event
+		listed = append(listed, &copied)
+	}
+	return listed, nil
+}
+
+func (fake *fakeDiscordClient) GuildScheduledEventCreate(guildID string, params *discordgo.GuildScheduledEventParams, _ ...discordgo.RequestOption) (*discordgo.GuildScheduledEvent, error) {
+	fake.mutex.Lock()
+	if fake.eventError != nil {
+		fake.mutex.Unlock()
+		return nil, fake.eventError
+	}
+	fake.eventCreates++
+	event := fake.addEventLocked(guildID, benyBotUserID, params.Name, *params.ScheduledStartTime)
+	event.ScheduledEndTime = params.ScheduledEndTime
+	event.PrivacyLevel = params.PrivacyLevel
+	event.EntityType = params.EntityType
+	if params.EntityMetadata != nil {
+		event.EntityMetadata = *params.EntityMetadata
+	}
+	copied := *event
+	duringEventCreate := fake.duringEventCreate
+	fake.mutex.Unlock()
+	if duringEventCreate != nil {
+		duringEventCreate()
+	}
+	return &copied, nil
+}
+
+// addEventLocked stores a scheduled event in the server, as Discord would after a create.
+func (fake *fakeDiscordClient) addEventLocked(guildID string, creatorID string, name string, startsAt time.Time) *discordgo.GuildScheduledEvent {
+	fake.eventsMade++
+	event := &discordgo.GuildScheduledEvent{
+		ID:                 fmt.Sprintf("6%017d", fake.eventsMade),
+		GuildID:            guildID,
+		CreatorID:          creatorID,
+		Name:               name,
+		ScheduledStartTime: startsAt,
+		Status:             discordgo.GuildScheduledEventStatusScheduled,
+	}
+	fake.scheduledEvents[guildID] = append(fake.scheduledEvents[guildID], event)
+	return event
+}
+
+func (fake *fakeDiscordClient) GuildScheduledEventEdit(guildID string, eventID string, params *discordgo.GuildScheduledEventParams, _ ...discordgo.RequestOption) (*discordgo.GuildScheduledEvent, error) {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	if fake.eventError != nil {
+		return nil, fake.eventError
+	}
+	for _, event := range fake.scheduledEvents[guildID] {
+		if event.ID != eventID {
+			continue
+		}
+		fake.eventEdits++
+		event.Name = params.Name
+		event.ScheduledStartTime = *params.ScheduledStartTime
+		event.ScheduledEndTime = params.ScheduledEndTime
+		if params.EntityMetadata != nil {
+			event.EntityMetadata = *params.EntityMetadata
+		}
+		copied := *event
+		return &copied, nil
+	}
+	return nil, errUnknownScheduledEvent
+}
+
+func (fake *fakeDiscordClient) GuildScheduledEventDelete(guildID string, eventID string, _ ...discordgo.RequestOption) error {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	if fake.eventError != nil {
+		return fake.eventError
+	}
+	events := fake.scheduledEvents[guildID]
+	for index, event := range events {
+		if event.ID == eventID {
+			fake.eventDeletes++
+			fake.scheduledEvents[guildID] = slices.Delete(slices.Clone(events), index, index+1)
+			return nil
+		}
+	}
+	return errUnknownScheduledEvent
+}
+
+// eventsIn is a copy of the server's scheduled events.
+func (fake *fakeDiscordClient) eventsIn(guildID string) []discordgo.GuildScheduledEvent {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	events := make([]discordgo.GuildScheduledEvent, 0, len(fake.scheduledEvents[guildID]))
+	for _, event := range fake.scheduledEvents[guildID] {
+		events = append(events, *event)
+	}
+	return events
 }
 
 func directChannelID(recipientID string) string {
@@ -392,11 +507,13 @@ func newWorld(t *testing.T) *world {
 		Logger:             quietLogger(),
 		SiteOwnerDiscordID: ownerDiscordID,
 		Directory:          test.bot.Directory(),
+		SessionPlanner:     test.bot.SessionPlanner(),
 		Now:                test.clock.now,
 	})
 	if err := test.bot.start(test.service); err != nil {
 		t.Fatalf("start: %v", err)
 	}
+	test.bot.botUserID = benyBotUserID
 	t.Cleanup(test.bot.stop)
 
 	test.owner = test.signIn(ownerDiscordID, "owner")
@@ -700,6 +817,50 @@ func (failingService) DecideRequestFromDiscord(context.Context, core.Viewer, uui
 	return core.RequestOutcome{}, errDatabaseDown
 }
 
+func (failingService) GetColonyBoard(context.Context, core.Viewer) (core.ColonyBoard, error) {
+	return core.ColonyBoard{}, errDatabaseDown
+}
+
+func (failingService) NextSession(context.Context, core.Viewer) (*core.Session, error) {
+	return nil, errDatabaseDown
+}
+
+func (failingService) PlanSessions(context.Context) ([]core.CampaignSessionPlan, error) {
+	return nil, errDatabaseDown
+}
+
+func (failingService) ClaimSessionReminder(context.Context, core.SessionJob) (*core.ClaimedSession, error) {
+	return nil, errDatabaseDown
+}
+
+func (failingService) ReleaseSessionReminder(context.Context, uuid.UUID, uuid.UUID) error {
+	return errDatabaseDown
+}
+
+func (failingService) ClaimSessionDiscordEvent(context.Context, core.SessionJob) (*core.ClaimedSession, error) {
+	return nil, errDatabaseDown
+}
+
+func (failingService) ReleaseSessionDiscordClaim(context.Context, uuid.UUID, uuid.UUID) error {
+	return errDatabaseDown
+}
+
+func (failingService) MoveSessionDiscordEvent(context.Context, core.SessionJob, core.DiscordEventRecord) (bool, error) {
+	return false, errDatabaseDown
+}
+
+func (failingService) RecordSessionDiscordEvent(context.Context, uuid.UUID, uuid.UUID, core.DiscordEventRecord) (bool, error) {
+	return false, errDatabaseDown
+}
+
+func (failingService) ForgetSessionDiscordEvent(context.Context, uuid.UUID, uuid.UUID, string) error {
+	return errDatabaseDown
+}
+
+func (failingService) RecordDiscordEventStatus(context.Context, string, string, core.DiscordEventStatus) error {
+	return errDatabaseDown
+}
+
 func (failingService) GetRequest(context.Context, core.Viewer, uuid.UUID) (core.Request, error) {
 	return core.Request{}, errDatabaseDown
 }
@@ -781,44 +942,39 @@ func commandNames(definitions []*discordgo.ApplicationCommand) []string {
 	return names
 }
 
-func TestReadyRegistersCommandsGloballyAndClearsTheLegacyGuild(t *testing.T) {
+// Commands are registered once, globally; M1's one-time clean-up of a guild's commands is gone, so no
+// server-scoped overwrite is ever sent.
+func TestReadyRegistersCommandsGlobally(t *testing.T) {
 	for _, testCase := range []struct {
 		name                  string
-		legacyGuildID         string
 		ready                 *discordgo.Ready
 		expectedApplicationID string
 	}{
 		{
-			"application ID from the ready event, legacy guild still set",
-			legacyTestGuildID,
-			&discordgo.Ready{User: &discordgo.User{ID: "500000000000000001"}, Application: &discordgo.Application{ID: "500000000000000002"}},
+			"application ID from the ready event",
+			&discordgo.Ready{User: &discordgo.User{ID: benyBotUserID}, Application: &discordgo.Application{ID: "500000000000000002"}},
 			"500000000000000002",
 		},
 		{
-			"bot user ID when the event names no application, legacy guild deleted",
-			"",
-			&discordgo.Ready{User: &discordgo.User{ID: "500000000000000001"}},
-			"500000000000000001",
+			"bot user ID when the event names no application",
+			&discordgo.Ready{User: &discordgo.User{ID: benyBotUserID}},
+			benyBotUserID,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			client := newFakeDiscordClient()
-			benyBot := newBot(Options{Token: "test-token", LegacyGuildID: testCase.legacyGuildID, Logger: quietLogger()}, client, newFakeGatewayState(), newFakeClock().now)
+			benyBot := newBot(Options{Token: "test-token", Logger: quietLogger()}, client, newFakeGatewayState(), newFakeClock().now)
 			benyBot.handleReady(t.Context(), testCase.ready)
 
 			overwrites := client.recordedOverwrites()
-			expectedOverwrites := 1
-			if testCase.legacyGuildID != "" {
-				expectedOverwrites = 2
-			}
-			if len(overwrites) != expectedOverwrites {
-				t.Fatalf("got %d overwrites, want %d", len(overwrites), expectedOverwrites)
+			if len(overwrites) != 1 {
+				t.Fatalf("got %d overwrites, want only the global one", len(overwrites))
 			}
 			global := overwrites[0]
 			if global.guildID != "" || global.applicationID != testCase.expectedApplicationID {
 				t.Errorf("command registration went to application %q, guild %q; want global", global.applicationID, global.guildID)
 			}
-			if names := commandNames(global.commands); !slices.Equal(names, []string{"beny", "link", "unlink", "npc"}) {
+			if names := commandNames(global.commands); !slices.Equal(names, []string{"beny", "link", "unlink", "npc", "colony", "nextsession"}) {
 				t.Errorf("global commands = %v", names)
 			}
 			for _, definition := range global.commands {
@@ -833,19 +989,8 @@ func TestReadyRegistersCommandsGloballyAndClearsTheLegacyGuild(t *testing.T) {
 					t.Errorf("/%s is hidden from players", definition.Name)
 				}
 			}
-			if testCase.legacyGuildID == "" {
-				return
-			}
-			legacy := overwrites[1]
-			if legacy.guildID != testCase.legacyGuildID || legacy.applicationID != testCase.expectedApplicationID {
-				t.Errorf("legacy clean-up went to application %q, guild %q", legacy.applicationID, legacy.guildID)
-			}
-			encoded, err := json.Marshal(legacy.commands)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(encoded) != "[]" {
-				t.Errorf("legacy guild commands encode as %s, want []", encoded)
+			if benyBot.botUserID != benyBotUserID {
+				t.Errorf("Beny Bot's own user = %q, want %q from Ready", benyBot.botUserID, benyBotUserID)
 			}
 		})
 	}
@@ -875,14 +1020,16 @@ func TestRunConnectsServesAndDisconnects(t *testing.T) {
 	client.mutex.Lock()
 	handlers := append([]any(nil), client.handlers...)
 	client.mutex.Unlock()
-	if len(handlers) != 3 {
-		t.Fatalf("registered %d handlers, want 3", len(handlers))
+	if len(handlers) != 5 {
+		t.Fatalf("registered %d handlers, want 5", len(handlers))
 	}
 	readyHandler, isReadyHandler := handlers[0].(func(*discordgo.Session, *discordgo.Ready))
 	interactionHandler, isInteractionHandler := handlers[1].(func(*discordgo.Session, *discordgo.InteractionCreate))
 	_, isGuildDeleteHandler := handlers[2].(func(*discordgo.Session, *discordgo.GuildDelete))
-	if !isReadyHandler || !isInteractionHandler || !isGuildDeleteHandler {
-		t.Fatalf("handlers have the wrong shapes for discordgo: %T, %T, %T", handlers[0], handlers[1], handlers[2])
+	_, isGuildCreateHandler := handlers[3].(func(*discordgo.Session, *discordgo.GuildCreate))
+	_, isScheduledEventHandler := handlers[4].(func(*discordgo.Session, *discordgo.GuildScheduledEventUpdate))
+	if !isReadyHandler || !isInteractionHandler || !isGuildDeleteHandler || !isGuildCreateHandler || !isScheduledEventHandler {
+		t.Fatalf("handlers have the wrong shapes for discordgo: %T, %T, %T, %T, %T", handlers[0], handlers[1], handlers[2], handlers[3], handlers[4])
 	}
 	readyHandler(nil, &discordgo.Ready{User: &discordgo.User{ID: "500000000000000001"}, Guilds: []*discordgo.Guild{{ID: guildX}}})
 	interactionHandler(nil, slashCommand(guildX, activeUserID, "beny"))
@@ -900,8 +1047,8 @@ func TestRunConnectsServesAndDisconnects(t *testing.T) {
 	if client.openCalls != 1 || client.closeCalls != 1 {
 		t.Errorf("open %d times and close %d times, want 1 and 1", client.openCalls, client.closeCalls)
 	}
-	if client.removedHandlers != 3 {
-		t.Errorf("removed %d handlers, want 3", client.removedHandlers)
+	if client.removedHandlers != 5 {
+		t.Errorf("removed %d handlers, want 5", client.removedHandlers)
 	}
 	if len(client.overwrites) != 1 {
 		t.Errorf("got %d overwrites, want 1", len(client.overwrites))
@@ -942,7 +1089,7 @@ func TestNewWithATokenNeedsNoGuild(t *testing.T) {
 }
 
 func TestBenyBotIsOffWithoutAToken(t *testing.T) {
-	benyBot, err := New(Options{LegacyGuildID: legacyTestGuildID, SiteOwnerDiscordID: ownerDiscordID, Logger: quietLogger()})
+	benyBot, err := New(Options{SiteOwnerDiscordID: ownerDiscordID, Logger: quietLogger()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -951,6 +1098,9 @@ func TestBenyBotIsOffWithoutAToken(t *testing.T) {
 	}
 	if benyBot.Directory() != nil {
 		t.Error("an off Beny Bot offers a channel directory, so core can't tell it is off")
+	}
+	if benyBot.SessionPlanner() != nil {
+		t.Error("an off Beny Bot offers a session planner, so core would signal a planner that never runs")
 	}
 	benyBot.MemberWaiting(t.Context(), core.WaitingMember{CampaignID: uuid.New(), MemberID: uuid.New(), DisplayName: "Ana", DiscordUsername: "ana"})
 	benyBot.CampaignRequested(t.Context(), core.RequestedCampaign{CampaignRequestID: uuid.New(), CampaignName: "Sky Isles", DisplayName: "Mira", DiscordUsername: "mira"})
