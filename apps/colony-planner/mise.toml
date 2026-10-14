@@ -57,6 +57,23 @@ run = [
   "cd web && bun run test",
 ]
 
+[tasks.lint]
+description = "Lint: the build-tag check, golangci-lint for both builds, then Biome"
+run = [
+  "scripts/check-build-tags.sh",
+  "golangci-lint run --build-tags=devauth ./...",
+  "golangci-lint run ./...",
+  "cd web && bun x biome ci .",
+]
+
+[tasks.typecheck]
+description = "Typecheck: go vet for both builds, then the web's tsc"
+run = [
+  "go vet ./...",
+  "go vet -tags devauth ./...",
+  "cd web && bun run typecheck",
+]
+
 [tasks.check]
 description = "Run every check; ends with \"All checks passed\" or the first failure"
 run = "scripts/check.sh"
