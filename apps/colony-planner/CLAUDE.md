@@ -17,6 +17,8 @@ Run `mise run setup` once (pinned tools, `bun install`, and a `.env` with a rand
 | `mise run dev:phone` | the same, with Vite also on this Mac's Wi-Fi address |
 | `mise run gen` | sqlc, then `web/src/api/openapi.json`, then `web/src/api/schema.d.ts` |
 | `mise run test` | Go tests against the `colony_test` database, then web unit tests |
+| `mise run lint` | the build-tag check, golangci-lint for both builds, then Biome (CI runs it as its own job) |
+| `mise run typecheck` | go vet for both builds, then the web's tsc (CI runs it as its own job) |
 | `mise run check` | every check; it must end with "All checks passed" |
 | `mise run seed` / `reset` / `fresh` | load the two sample campaigns / wipe and re-migrate / both |
 | `mise run build` | the SPA into web/dist/spa and bin/colony (no devauth); then bin/colony serve is the one-origin shape |
