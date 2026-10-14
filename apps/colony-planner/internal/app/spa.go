@@ -42,7 +42,7 @@ func spaHandler() http.Handler {
 		requestedPath := strings.TrimPrefix(request.URL.Path, "/")
 		for _, prefix := range serverPrefixes {
 			if strings.HasPrefix(requestedPath, prefix) {
-				auth.WriteProblem(writer, http.StatusNotFound, "No such route.")
+				writeMissingRoute(writer)
 				return
 			}
 		}
@@ -63,6 +63,11 @@ func spaHandler() http.Handler {
 		}
 		writeHTML(writer, "no-cache", indexPage)
 	})
+}
+
+// writeMissingRoute is the answer to an unknown path under a server prefix.
+func writeMissingRoute(writer http.ResponseWriter) {
+	auth.WriteProblem(writer, http.StatusNotFound, "No such route.")
 }
 
 func embeddedBuild() (fs.FS, []byte, bool) {

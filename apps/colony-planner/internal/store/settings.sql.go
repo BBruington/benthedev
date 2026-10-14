@@ -25,8 +25,29 @@ func (q *Queries) ClearSettingsChannels(ctx context.Context, campaignID uuid.UUI
 	return err
 }
 
+const getBoardHeader = `-- name: GetBoardHeader :one
+SELECT campaign.name AS campaign_name, settings.timezone
+FROM campaign
+JOIN settings ON settings.campaign_id = campaign.id
+WHERE campaign.id = $1 AND settings.campaign_id = $1
+`
+
+type GetBoardHeaderRow struct {
+	CampaignName string
+	Timezone     string
+}
+
+// The board's header: every member reads the campaign's name and the table's time zone, which has no
+// secret, so players see "8:00 PM New York time" rather than a UTC offset.
+func (q *Queries) GetBoardHeader(ctx context.Context, campaignID uuid.UUID) (GetBoardHeaderRow, error) {
+	row := q.db.QueryRow(ctx, getBoardHeader, campaignID)
+	var i GetBoardHeaderRow
+	err := row.Scan(&i.CampaignName, &i.Timezone)
+	return i, err
+}
+
 const getSettings = `-- name: GetSettings :one
-SELECT timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id FROM settings WHERE campaign_id = $1
+SELECT timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token FROM settings WHERE campaign_id = $1
 `
 
 func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settings, error) {
@@ -38,6 +59,8 @@ func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settin
 		&i.DiscordReminderChannelID,
 		&i.DiscordDmChannelID,
 		&i.CampaignID,
+		&i.DiscordEventLocation,
+		&i.IcsToken,
 	)
 	return i, err
 }
@@ -45,15 +68,17 @@ func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settin
 const updateSettings = `-- name: UpdateSettings :one
 UPDATE settings
 SET timezone = $1,
-    discord_announce_channel_id = $2,
-    discord_reminder_channel_id = $3,
-    discord_dm_channel_id = $4
-WHERE campaign_id = $5
-RETURNING timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id
+    discord_event_location = $2,
+    discord_announce_channel_id = $3,
+    discord_reminder_channel_id = $4,
+    discord_dm_channel_id = $5
+WHERE campaign_id = $6
+RETURNING timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token
 `
 
 type UpdateSettingsParams struct {
 	Timezone                 string
+	DiscordEventLocation     string
 	DiscordAnnounceChannelID *string
 	DiscordReminderChannelID *string
 	DiscordDmChannelID       *string
@@ -63,6 +88,7 @@ type UpdateSettingsParams struct {
 func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) (Settings, error) {
 	row := q.db.QueryRow(ctx, updateSettings,
 		arg.Timezone,
+		arg.DiscordEventLocation,
 		arg.DiscordAnnounceChannelID,
 		arg.DiscordReminderChannelID,
 		arg.DiscordDmChannelID,
@@ -75,6 +101,8 @@ func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) 
 		&i.DiscordReminderChannelID,
 		&i.DiscordDmChannelID,
 		&i.CampaignID,
+		&i.DiscordEventLocation,
+		&i.IcsToken,
 	)
 	return i, err
 }

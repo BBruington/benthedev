@@ -4,6 +4,7 @@ import {
 	CalendarClockIcon,
 	CircleXIcon,
 	CrownIcon,
+	DicesIcon,
 	EyeOffIcon,
 	FeatherIcon,
 	HandCoinsIcon,
@@ -69,6 +70,11 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 		label: "Quest reopened",
 		tone: "bg-muted text-muted-foreground",
 	},
+	SESSION_PLAYED: {
+		icon: DicesIcon,
+		label: "Session played",
+		tone: "bg-gilt/12 text-gilt-ink",
+	},
 	SHIPMENT_ARRIVED: {
 		icon: ShipIcon,
 		label: "Ship arrived",
@@ -92,7 +98,7 @@ const entryLinkClasses =
 	"underline decoration-gilt-ink/50 underline-offset-4 hover:decoration-gilt-ink";
 
 /**
- * The entry's title, linking to the NPC, quest or patron it is about. The server sends those IDs to a
+ * The entry's title, linking to the NPC, quest, patron or session it is about. The server sends those IDs to a
  * player only while the row is visible to them, so a link never points at something hidden.
  */
 function EntryTitle({ entry, slug }: { entry: Entry; slug: string }) {
@@ -129,13 +135,24 @@ function EntryTitle({ entry, slug }: { entry: Entry; slug: string }) {
 			</Link>
 		);
 	}
+	if (entry.sessionId) {
+		return (
+			<Link
+				className={entryLinkClasses}
+				params={{ campaignSlug: slug, sessionId: entry.sessionId }}
+				to="/c/$campaignSlug/sessions/$sessionId"
+			>
+				{entry.title}
+			</Link>
+		);
+	}
 	return entry.title;
 }
 
 /**
  * One timeline entry with its glyph, title and narration. For the DM, a DM-only entry carries an
  * eye-slash and an undone one is struck through (spec §5.8); players never receive either. An
- * entry about an NPC, a quest or a patron links its title to that page.
+ * entry about an NPC, a quest, a patron or a session links its title to that page.
  */
 export function TimelineEntry({
 	entry,

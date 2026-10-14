@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/BBruington/colony-planner/db/dbtest"
 	"github.com/BBruington/colony-planner/internal/core"
@@ -277,9 +278,83 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatalf("Second Sample's hexes = %d (%v)", len(secondHexes.Hexes), err)
 	}
 
+	// M5: a weekly Friday game whose last three Fridays were played between the advances, so the
+	// timeline shows bands over Days 0–7, 14–19 and 19–22, with one cancelled date ahead; Brannoc was
+	// met at the first; Second Sample played its first Saturday over Days 0–9.
+	history, err := service.ListPlayedSessions(testContext, player)
+	if err != nil || len(history) != 3 {
+		t.Fatalf("Sample Colony's played sessions = %+v, %v", history, err)
+	}
+	wantBands := []struct {
+		title      string
+		start, end int64
+	}{{"The Saltmarsh Survey", 19, 22}, {"Wolves on the Coast Road", 14, 19}, {"The Landing", 0, 7}}
+	for index, want := range wantBands {
+		session := history[index]
+		if session.Title != want.title || session.Recap == "" || session.ColonyDayStart == nil || *session.ColonyDayStart != want.start ||
+			session.ColonyDayEnd == nil || *session.ColonyDayEnd != want.end {
+			t.Fatalf("played session %d = %+v, want %s over Days %d–%d", index, session, want.title, want.start, want.end)
+		}
+	}
+	bands, err := service.ListSessionBands(testContext, player, core.TimelineRangeInput{FromDay: 0, ToDay: 22})
+	if err != nil || len(bands) != 3 {
+		t.Fatalf("session bands = %+v, %v", bands, err)
+	}
+	sessionEntries := 0
+	for _, entry := range playerTimeline.Entries {
+		if entry.Kind == core.TimelineKindSessionPlayed && entry.SessionID != nil {
+			sessionEntries++
+		}
+	}
+	if sessionEntries != 3 {
+		t.Fatalf("the player sees %d SESSION_PLAYED entries, want 3", sessionEntries)
+	}
+	upcoming, err := service.ListUpcomingSessions(testContext, player)
+	if err != nil || len(upcoming) == 0 {
+		t.Fatalf("upcoming = %+v, %v", upcoming, err)
+	}
+	cancelledDates := 0
+	for _, session := range upcoming {
+		local := session.StartsAt.In(newYork(t))
+		if local.Weekday() != time.Friday || local.Hour() != 20 || local.Minute() != 0 {
+			t.Fatalf("an upcoming date isn't Friday 8:00 PM in New York: %+v", session)
+		}
+		if session.Status == core.SessionStatusCancelled {
+			cancelledDates++
+		}
+	}
+	if cancelledDates != 1 || upcoming[0].Status == core.SessionStatusCancelled {
+		t.Fatalf("upcoming = %+v; want the Friday after next cancelled", upcoming)
+	}
+	brannoc, err := service.ListNpcs(testContext, player, core.NpcFilter{Search: "Brannoc"})
+	if err != nil || len(brannoc.Npcs) != 1 {
+		t.Fatalf("Brannoc = %+v, %v", brannoc, err)
+	}
+	met, err := service.GetNpc(testContext, player, brannoc.Npcs[0].ID)
+	if err != nil || met.FirstSession == nil || met.FirstSession.Title != "The Landing" {
+		t.Fatalf("Brannoc's first session = %+v, %v", met.FirstSession, err)
+	}
+	secondHistory, err := service.ListPlayedSessions(testContext, secondDm)
+	if err != nil || len(secondHistory) != 1 || *secondHistory[0].ColonyDayStart != 0 || *secondHistory[0].ColonyDayEnd != 9 {
+		t.Fatalf("Second Sample's played sessions = %+v, %v", secondHistory, err)
+	}
+	secondSeries, err := service.ListSessionSeries(testContext, secondDm)
+	if err != nil || len(secondSeries) != 1 || secondSeries[0].EveryWeeks == nil || *secondSeries[0].EveryWeeks != 2 {
+		t.Fatalf("Second Sample's series = %+v, %v", secondSeries, err)
+	}
+
 	if err := Run(testContext, options); !errors.Is(err, ErrDatabaseInUse) {
 		t.Fatalf("seeding twice = %v, want ErrDatabaseInUse", err)
 	}
+}
+
+func newYork(t *testing.T) *time.Location {
+	t.Helper()
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return location
 }
 
 func TestSeedUsesTheConfiguredOwner(t *testing.T) {

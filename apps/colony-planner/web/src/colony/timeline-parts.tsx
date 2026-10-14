@@ -1,6 +1,8 @@
+import { Link } from "@tanstack/react-router";
 import {
 	ChevronLeftIcon,
 	ChevronRightIcon,
+	DicesIcon,
 	EllipsisVerticalIcon,
 	PackageOpenIcon,
 	PenLineIcon,
@@ -20,10 +22,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useCampaign } from "@/hooks/use-campaign";
 import { type DayPage, dayName, daysOfPage, pageLabel, parseWholeNumber } from "@/lib/colony";
+import { colonyDaysLabel } from "@/lib/sessions";
 import { cn } from "@/lib/utils";
 
 type Entry = Schemas["TimelineEntry"];
+type Session = Schemas["Session"];
 
 export const timelinePageHeadingId = "timeline-page-heading";
 
@@ -192,16 +197,60 @@ export function dayHeadingId(day: number): string {
 	return `timeline-day-${day}`;
 }
 
-/** Every day of the page in order, today ringed, with its entries (spec §5.8). */
+/** The days a played session covers; one still in play runs through today (spec §6.2 session bands). */
+function bandCovers(band: Session, day: number, today: number): boolean {
+	if (band.colonyDayStart === null) {
+		return false;
+	}
+	const lastDay = band.colonyDayEnd ?? Math.max(band.colonyDayStart, today);
+	return band.colonyDayStart <= day && day <= lastDay;
+}
+
+function SessionBandLink({ band }: { band: Session }) {
+	const { slug } = useCampaign();
+	const days = colonyDaysLabel(band.colonyDayStart, band.colonyDayEnd);
+	const label = (
+		<>
+			<DicesIcon aria-hidden="true" className="size-4 shrink-0" />
+			<span className="[overflow-wrap:anywhere]">
+				Session · {band.title}
+				{days ? <span className="text-muted-foreground"> · {days}</span> : null}
+				{band.colonyDayEnd === null ? (
+					<span className="text-muted-foreground"> · in play</span>
+				) : null}
+			</span>
+		</>
+	);
+	if (band.id === null) {
+		return <span className="inline-flex items-center gap-2 text-gilt-ink text-sm">{label}</span>;
+	}
+	return (
+		<Link
+			className="inline-flex min-h-11 items-center gap-2 text-gilt-ink text-sm underline-offset-4 hover:underline"
+			params={{ campaignSlug: slug, sessionId: band.id }}
+			to="/c/$campaignSlug/sessions/$sessionId"
+		>
+			{label}
+		</Link>
+	);
+}
+
+/**
+ * Every day of the page in order, today ringed, with its entries (spec §5.8). Days a played session
+ * covers carry its band: a gilt edge, and on its first day on the page, a link to the session.
+ */
 export function TimelineDays({
 	page,
 	today,
 	entries,
+	bands,
 	actions,
 }: {
 	page: DayPage;
 	today: number;
 	entries: readonly Entry[];
+	/** Played sessions whose colony days meet this page. */
+	bands: readonly Session[];
 	/** The DM's controls; absent for players. */
 	actions: EntryActions | null;
 }) {
@@ -216,6 +265,10 @@ export function TimelineDays({
 			{daysOfPage(page).map((day) => {
 				const dayEntries = byDay.get(day) ?? [];
 				const isToday = day === today;
+				const dayBands = bands.filter((band) => bandCovers(band, day, today));
+				const bandsStartingHere = dayBands.filter(
+					(band) => day === page.fromDay || !bandCovers(band, day - 1, today),
+				);
 				return (
 					<li
 						aria-current={isToday ? "date" : undefined}
@@ -223,6 +276,7 @@ export function TimelineDays({
 							"rounded-xl border bg-card shadow-card",
 							isToday ? "border-gilt ring-2 ring-gilt/45" : "border-border",
 							dayEntries.length === 0 && !isToday && "bg-card/50 shadow-none",
+							dayBands.length > 0 && "border-l-4 border-l-gilt",
 						)}
 						key={day}
 					>
@@ -259,6 +313,15 @@ export function TimelineDays({
 								</Button>
 							) : null}
 						</div>
+						{bandsStartingHere.length > 0 ? (
+							<ul className="flex flex-col border-border border-t px-4 py-1">
+								{bandsStartingHere.map((band) => (
+									<li key={band.id ?? band.localDate}>
+										<SessionBandLink band={band} />
+									</li>
+								))}
+							</ul>
+						) : null}
 						{dayEntries.length > 0 ? (
 							<ul className="grid gap-4 border-border border-t px-4 py-4">
 								{dayEntries.map((entry) => (

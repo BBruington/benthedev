@@ -42,9 +42,11 @@ type TimelineEntry struct {
 	NpcID *uuid.UUID `json:"npcId" format:"uuid" nullable:"true" doc:"The NPC this entry is about; null for none, or once that NPC is deleted"`
 	// QuestID, PatronID and RequestID link an entry to what it is about. Players only get entries whose
 	// linked rows they can see, so a link never names a hidden quest, patron or action to them.
-	QuestID   *uuid.UUID       `json:"questId" format:"uuid" nullable:"true" doc:"The quest this entry is about; null for none, or once that quest is deleted"`
-	PatronID  *uuid.UUID       `json:"patronId" format:"uuid" nullable:"true" doc:"The patron this entry names; null for none"`
-	RequestID *uuid.UUID       `json:"requestId" format:"uuid" nullable:"true" doc:"The request this entry granted; null for none"`
+	QuestID   *uuid.UUID `json:"questId" format:"uuid" nullable:"true" doc:"The quest this entry is about; null for none, or once that quest is deleted"`
+	PatronID  *uuid.UUID `json:"patronId" format:"uuid" nullable:"true" doc:"The patron this entry names; null for none"`
+	RequestID *uuid.UUID `json:"requestId" format:"uuid" nullable:"true" doc:"The request this entry granted; null for none"`
+	// SessionID links SESSION_PLAYED to its session; sessions have no secrets.
+	SessionID *uuid.UUID       `json:"sessionId" format:"uuid" nullable:"true" doc:"The session this entry is about; null for none"`
 	CreatedAt time.Time        `json:"createdAt"`
 	Dm        *TimelineEntryDm `json:"dm,omitempty"`
 }
@@ -118,10 +120,8 @@ type cargoData struct {
 	ArrivalEntryID uuid.UUID `json:"arrivalEntryId"`
 }
 
-func (service *Service) ListTimeline(requestContext context.Context, viewer Viewer, input TimelineRangeInput) (TimelinePage, error) {
-	if err := requireActive(viewer); err != nil {
-		return TimelinePage{}, err
-	}
+// validateTimelineRange checks a page of days, for the timeline and its session bands alike.
+func validateTimelineRange(input TimelineRangeInput) error {
 	var fieldErrors []FieldError
 	if input.FromDay < 0 || input.FromDay > game.MaxStored {
 		fieldErrors = append(fieldErrors, FieldError{Field: "fromDay", Message: "Pick a day from 0 up."})
@@ -133,7 +133,17 @@ func (service *Service) ListTimeline(requestContext context.Context, viewer View
 		fieldErrors = append(fieldErrors, FieldError{Field: "toDay", Message: fmt.Sprintf("Show at most %d days at once.", maxTimelineRangeDays)})
 	}
 	if len(fieldErrors) > 0 {
-		return TimelinePage{}, Invalid("That range of days can't be shown.", fieldErrors...)
+		return Invalid("That range of days can't be shown.", fieldErrors...)
+	}
+	return nil
+}
+
+func (service *Service) ListTimeline(requestContext context.Context, viewer Viewer, input TimelineRangeInput) (TimelinePage, error) {
+	if err := requireActive(viewer); err != nil {
+		return TimelinePage{}, err
+	}
+	if err := validateTimelineRange(input); err != nil {
+		return TimelinePage{}, err
 	}
 	// Clamped after validation so a range ending past the last storable day still reads.
 	toDay := min(input.ToDay, int64(game.MaxStored))
@@ -477,6 +487,7 @@ func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 		QuestID:   row.QuestID,
 		PatronID:  row.PatronID,
 		RequestID: row.RequestID,
+		SessionID: row.SessionID,
 		CreatedAt: row.CreatedAt.UTC(),
 		Dm: &TimelineEntryDm{
 			Visibility:     row.Visibility,

@@ -13,10 +13,10 @@ import (
 
 const createTimelineEvent = `-- name: CreateTimelineEvent :one
 INSERT INTO timeline_event (campaign_id, group_id, day, kind, title, body, visibility, deltas, data, created_by, npc_id, npc_name,
-    quest_id, patron_id, request_id, created_at)
+    quest_id, patron_id, request_id, session_id, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-    $13, $14, $15, clock_timestamp())
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id
+    $13, $14, $15, $16, clock_timestamp())
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id
 `
 
 type CreateTimelineEventParams struct {
@@ -35,6 +35,7 @@ type CreateTimelineEventParams struct {
 	QuestID    *uuid.UUID
 	PatronID   *uuid.UUID
 	RequestID  *uuid.UUID
+	SessionID  *uuid.UUID
 }
 
 // created_at is read when the row is written, not when its transaction began (now()). Every insert
@@ -57,6 +58,7 @@ func (q *Queries) CreateTimelineEvent(ctx context.Context, arg CreateTimelineEve
 		arg.QuestID,
 		arg.PatronID,
 		arg.RequestID,
+		arg.SessionID,
 	)
 	var i TimelineEvent
 	err := row.Scan(
@@ -80,6 +82,7 @@ func (q *Queries) CreateTimelineEvent(ctx context.Context, arg CreateTimelineEve
 		&i.QuestID,
 		&i.PatronID,
 		&i.RequestID,
+		&i.SessionID,
 	)
 	return i, err
 }
@@ -103,7 +106,7 @@ func (q *Queries) DeleteCustomTimelineEvent(ctx context.Context, arg DeleteCusto
 }
 
 const getTimelineEvent = `-- name: GetTimelineEvent :one
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id FROM timeline_event WHERE campaign_id = $1 AND id = $2
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event WHERE campaign_id = $1 AND id = $2
 `
 
 type GetTimelineEventParams struct {
@@ -137,6 +140,7 @@ func (q *Queries) GetTimelineEvent(ctx context.Context, arg GetTimelineEventPara
 		&i.QuestID,
 		&i.PatronID,
 		&i.RequestID,
+		&i.SessionID,
 	)
 	return i, err
 }
@@ -172,7 +176,7 @@ func (q *Queries) HideTimelineEvent(ctx context.Context, arg HideTimelineEventPa
 }
 
 const listPublicNpcTimelineEvents = `-- name: ListPublicNpcTimelineEvents :many
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id FROM timeline_event
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event
 WHERE campaign_id = $1 AND npc_id = $2 AND visibility = 'PUBLIC'
 ORDER BY sequence
 `
@@ -213,6 +217,7 @@ func (q *Queries) ListPublicNpcTimelineEvents(ctx context.Context, arg ListPubli
 			&i.QuestID,
 			&i.PatronID,
 			&i.RequestID,
+			&i.SessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -225,7 +230,7 @@ func (q *Queries) ListPublicNpcTimelineEvents(ctx context.Context, arg ListPubli
 }
 
 const listRecentTimelineEvents = `-- name: ListRecentTimelineEvents :many
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id FROM timeline_event
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event
 WHERE timeline_event.campaign_id = $1
   AND ($2::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
        AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = $1 AND npc.id = timeline_event.npc_id AND npc.revealed))
@@ -276,6 +281,7 @@ func (q *Queries) ListRecentTimelineEvents(ctx context.Context, arg ListRecentTi
 			&i.QuestID,
 			&i.PatronID,
 			&i.RequestID,
+			&i.SessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -289,7 +295,7 @@ func (q *Queries) ListRecentTimelineEvents(ctx context.Context, arg ListRecentTi
 
 const listTimelineEvents = `-- name: ListTimelineEvents :many
 
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id FROM timeline_event
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event
 WHERE timeline_event.campaign_id = $1
   AND day BETWEEN $2 AND $3
   AND ($4::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
@@ -350,6 +356,7 @@ func (q *Queries) ListTimelineEvents(ctx context.Context, arg ListTimelineEvents
 			&i.QuestID,
 			&i.PatronID,
 			&i.RequestID,
+			&i.SessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -365,7 +372,7 @@ const markTimelineGroupUndone = `-- name: MarkTimelineGroupUndone :many
 UPDATE timeline_event
 SET undone_at = now()
 WHERE campaign_id = $1 AND group_id = $2::uuid AND undone_at IS NULL
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id
 `
 
 type MarkTimelineGroupUndoneParams struct {
@@ -404,6 +411,7 @@ func (q *Queries) MarkTimelineGroupUndone(ctx context.Context, arg MarkTimelineG
 			&i.QuestID,
 			&i.PatronID,
 			&i.RequestID,
+			&i.SessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -508,7 +516,7 @@ SET day = $1,
     visibility = $4,
     edited_at = now()
 WHERE campaign_id = $5 AND id = $6
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id
 `
 
 type UpdateTimelineEventParams struct {
@@ -553,6 +561,7 @@ func (q *Queries) UpdateTimelineEvent(ctx context.Context, arg UpdateTimelineEve
 		&i.QuestID,
 		&i.PatronID,
 		&i.RequestID,
+		&i.SessionID,
 	)
 	return i, err
 }

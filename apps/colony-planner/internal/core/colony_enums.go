@@ -92,6 +92,7 @@ const (
 	TimelineKindQuestReopened           TimelineKind = "QUEST_REOPENED"
 	TimelineKindPatronAction            TimelineKind = "PATRON_ACTION"
 	TimelineKindFavorAdjusted           TimelineKind = "FAVOR_ADJUSTED"
+	TimelineKindSessionPlayed           TimelineKind = "SESSION_PLAYED"
 )
 
 // AllTimelineKinds lists every kind, for the API's enum schema and the DM's filter chips.
@@ -114,6 +115,7 @@ func AllTimelineKinds() []TimelineKind {
 		TimelineKindQuestReopened,
 		TimelineKindPatronAction,
 		TimelineKindFavorAdjusted,
+		TimelineKindSessionPlayed,
 	}
 }
 

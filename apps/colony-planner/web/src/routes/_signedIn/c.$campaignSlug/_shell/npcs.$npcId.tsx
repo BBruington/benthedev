@@ -18,11 +18,13 @@ import {
 	npcQueryKeyPrefix,
 	npcsQueryKeyPrefix,
 	placeQueryKeyPrefix,
+	playedSessionsQuery,
 	workforceQuery,
 } from "@/api/queries";
 import { useColonyChanges } from "@/colony/use-colony-changes";
 import { ColonyIcon } from "@/components/colony-icon";
-import { SwitchRow } from "@/components/form-controls";
+import { Field, fieldInputProps } from "@/components/field";
+import { NativeSelect, SwitchRow } from "@/components/form-controls";
 import { StatusPanel } from "@/components/status-panel";
 import {
 	AlertDialog,
@@ -49,6 +51,7 @@ import { useSheetState } from "@/hooks/use-sheet-state";
 import { cachedMe, canUseDmTools } from "@/lib/access";
 import { focusFirstVisible } from "@/lib/focus";
 import { hiddenTrueName } from "@/lib/people";
+import { localDateLabel } from "@/lib/sessions";
 import { npcHeadingId, npcsPageHeadingId } from "@/npcs/npc-ids";
 import { NpcFacts, ProseBlock } from "@/npcs/npc-profile";
 import { NpcBadges } from "@/npcs/npc-roster";
@@ -62,6 +65,7 @@ import {
 import { HiddenBadge, NpcAvatar } from "@/people/people-sections";
 
 type Npc = Schemas["Npc"];
+type SessionReference = Schemas["SessionReference"];
 
 export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/npcs/$npcId")({
 	component: NpcPage,
@@ -73,6 +77,7 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/npcs/$np
 		const me = cachedMe(queryClient, campaignId);
 		if (me && canUseDmTools(me)) {
 			queryClient.prefetchQuery(workforceQuery(campaignId));
+			queryClient.prefetchQuery(playedSessionsQuery(campaignId));
 		}
 	},
 });
@@ -176,6 +181,7 @@ function NpcDetail({ npc, isDm }: { npc: Npc; isDm: boolean }) {
 				) : null}
 			</header>
 			{isDm && npc.dm ? <RevealSwitch npc={npc} revealed={npc.dm.revealed} /> : null}
+			{isDm ? <FirstSessionPicker npc={npc} /> : null}
 			<section className="grid gap-6 rounded-2xl border border-border bg-card p-5 shadow-card md:p-7">
 				<NpcFacts npc={npc} />
 				<ProseBlock text={npc.appearance} title="Appearance" />
@@ -248,6 +254,77 @@ function RevealSwitch({ npc, revealed }: { npc: Npc; revealed: boolean }) {
 				});
 			}}
 		/>
+	);
+}
+
+/**
+ * Where the party first met them (Open Question 10): a played session, saved at once through its own
+ * endpoint like visibility, so an open edit sheet can't overwrite it.
+ */
+function FirstSessionPicker({ npc }: { npc: Npc }) {
+	const campaignId = useCampaignId();
+	const settle = useNpcSettled();
+	const played = useQuery(playedSessionsQuery(campaignId));
+	const current: SessionReference | null = npc.firstSession;
+	const mutation = api.useMutation(
+		"put",
+		"/api/campaigns/{campaignId}/npcs/{npcId}/first-session",
+		{
+			onError: (error) => {
+				toast.error(problemMessage(error, "The first session couldn't be saved."));
+			},
+			onSettled: settle,
+			onSuccess: (saved) => {
+				const savedSession: SessionReference | null = saved.firstSession;
+				toast.success(
+					savedSession
+						? `${saved.displayName} was first met at ${savedSession.title}.`
+						: `${saved.displayName}'s first session was cleared.`,
+				);
+			},
+		},
+	);
+	const shownId = mutation.isPending
+		? (mutation.variables?.body?.sessionId ?? "")
+		: (current?.id ?? "");
+	const choices = played.data ?? [];
+	const isListed = choices.some((session) => session.id === current?.id);
+	return (
+		<Field
+			description={
+				played.data && choices.length === 0
+					? "No sessions played yet. Mark one played on Sessions first."
+					: "Players see it as a link to that session's page."
+			}
+			id="npc-first-session"
+			label="First met"
+		>
+			<NativeSelect
+				{...fieldInputProps("npc-first-session", undefined, true)}
+				disabled={mutation.isPending || !played.data}
+				onChange={(event) => {
+					mutation.mutate({
+						body: { sessionId: event.target.value === "" ? null : event.target.value },
+						params: { path: { campaignId, npcId: npc.id } },
+					});
+				}}
+				value={shownId}
+			>
+				<option value="">Not set</option>
+				{current && !isListed ? (
+					<option value={current.id}>
+						{current.title} · {localDateLabel(current.localDate)}
+					</option>
+				) : null}
+				{choices.map((session) =>
+					session.id ? (
+						<option key={session.id} value={session.id}>
+							{session.title} · {localDateLabel(session.localDate)}
+						</option>
+					) : null,
+				)}
+			</NativeSelect>
+		</Field>
 	);
 }
 

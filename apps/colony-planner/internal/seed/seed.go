@@ -164,7 +164,7 @@ func Run(requestContext context.Context, options Options) error {
 	enterSampleColony := func(discordUserID string) (core.Viewer, error) {
 		return options.Core.EnterCampaign(requestContext, callerOf(discordUserID), sampleColony)
 	}
-	if err := seedColony(requestContext, options.Core, queries, dm, enterSampleColony); err != nil {
+	if err := seedColony(requestContext, options.Core, queries, dm, enterSampleColony, now); err != nil {
 		return fmt.Errorf("seed the colony: %w", err)
 	}
 	if err := seedMainland(requestContext, options.Core, dm, options.MainlandArt); err != nil {
@@ -199,7 +199,7 @@ func Run(requestContext context.Context, options Options) error {
 	enterSecondSample := func(discordUserID string) (core.Viewer, error) {
 		return options.Core.EnterCampaign(requestContext, callerOf(discordUserID), secondSample)
 	}
-	if err := seedSecondColony(requestContext, options.Core, queries, secondDm, enterSecondSample); err != nil {
+	if err := seedSecondColony(requestContext, options.Core, queries, secondDm, enterSecondSample, now); err != nil {
 		return fmt.Errorf("seed the second colony: %w", err)
 	}
 	// Second Sample has a few hexes and no map: its DM hasn't uploaded any art.
@@ -289,8 +289,9 @@ var sampleHeadcounts = map[string]int32{
 // seedColony plays a colony some weeks in through the same core operations the API uses: founding
 // stores, a 7-day shipment schedule, three weeks of advances, cargo recorded on the first arrival and a
 // DM-only adjustment. It ends on Day 22 with 63 food for 19 colonists and the next ship on Day 28, and
-// the last advance still in the undo slot.
-func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs) error {
+// the last advance still in the undo slot. The weekly game's last three Fridays are played between the
+// advances, so their bands cover Days 0–7, 14–19 and 19–22.
+func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs, now time.Time) error {
 	for key, count := range sampleHeadcounts {
 		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{CampaignID: dm.CampaignID(), Key: key, UnnamedCount: count}); err != nil {
 			return fmt.Errorf("headcount %s: %w", key, err)
@@ -307,6 +308,14 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 	// M2's cast arrives with the founders; the named colonists are promoted from the founders' own
 	// headcounts, so upkeep and every M1 number stay as they were.
 	if err := seedPeople(requestContext, service, dm, sampleColonyPlaces, sampleColonyNpcs); err != nil {
+		return err
+	}
+	dates, err := sampleColonyTableDates(now)
+	if err != nil {
+		return err
+	}
+	table, err := newSampleTable(requestContext, service, dm, sampleColonySeries(dates))
+	if err != nil {
 		return err
 	}
 	version := func() (int64, error) {
@@ -330,6 +339,7 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 		{"shipment schedule", func(expectedVersion int64) (core.ColonyChange, error) {
 			return service.SetShipmentSchedule(requestContext, dm, core.ShipmentScheduleInput{ExpectedVersion: expectedVersion, IntervalDays: 7})
 		}},
+		{"the first session", table.play(requestContext, dates.first)},
 		{"first week", advanceBy(requestContext, service, dm, 7)},
 	}
 	// The last of these steps is the first week, whose arrival the cargo names.
@@ -366,8 +376,13 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 				Public:          true,
 			})
 		}},
+		{"the first session ends", table.end(requestContext, dates.first, "The Landing",
+			"The founders came ashore and raised the first storehouse. Brannoc staked out the fields by the river, and the first ship from the mainland brought grain, timber and three more settlers.")},
 		{"second week", advanceBy(requestContext, service, dm, 7)},
+		{"the second session", table.play(requestContext, dates.second)},
 		{"five days", advanceBy(requestContext, service, dm, 5)},
+		{"the second session ends", table.end(requestContext, dates.second, "Wolves on the Coast Road",
+			"The party scouted the coast road and counted wolves near the den. Thorin marked the way on the map.")},
 		{"quests, patrons and requests", func(int64) (core.ColonyChange, error) {
 			return core.ColonyChange{}, seedQuestsAndPatrons(requestContext, service, dm, enter)
 		}},
@@ -380,7 +395,10 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 				Reason:          "Paid the smuggler at the north cove to keep quiet",
 			})
 		}},
+		{"the third session", table.play(requestContext, dates.third)},
 		{"three days", advanceBy(requestContext, service, dm, 3)},
+		{"the third session ends", table.end(requestContext, dates.third, "The Saltmarsh Survey",
+			"The party mapped the saltmarsh and haggled with Lady Vex's factor at the docks.")},
 	}
 	for _, step := range later {
 		expectedVersion, err := version()
@@ -391,7 +409,7 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 			return fmt.Errorf("%s: %w", step.name, err)
 		}
 	}
-	return nil
+	return finishSampleColonyTable(requestContext, table, dates)
 }
 
 func advanceBy(requestContext context.Context, service *core.Service, dm core.Viewer, days int64) func(int64) (core.ColonyChange, error) {
@@ -425,7 +443,7 @@ var secondSampleHeadcounts = map[string]int32{
 
 // seedSecondColony gives Second Sample its own short history on different numbers, so isolation is
 // easy to see: Ridgehold, Day 9, Food 140, an extra Timber resource and one DM-only adjustment.
-func seedSecondColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs) error {
+func seedSecondColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs, now time.Time) error {
 	if _, err := service.UpdateSettings(requestContext, dm, core.SettingsInput{
 		CampaignName: "Second Sample",
 		ColonyName:   "Ridgehold",
@@ -452,6 +470,14 @@ func seedSecondColony(requestContext context.Context, service *core.Service, que
 	if err := seedPeople(requestContext, service, dm, secondSamplePlaces, secondSampleNpcs); err != nil {
 		return err
 	}
+	seriesInput, err := secondSampleSeries(now)
+	if err != nil {
+		return err
+	}
+	table, err := newSampleTable(requestContext, service, dm, seriesInput)
+	if err != nil {
+		return err
+	}
 	steps := []struct {
 		name string
 		run  func(expectedVersion int64) (core.ColonyChange, error)
@@ -466,7 +492,10 @@ func seedSecondColony(requestContext context.Context, service *core.Service, que
 				Public:          true,
 			})
 		}},
+		{"the first session", table.play(requestContext, seriesInput.FirstDate)},
 		{"nine days", advanceBy(requestContext, service, dm, 9)},
+		{"the first session ends", table.end(requestContext, seriesInput.FirstDate, "Up the Mule Track",
+			"Six settlers and a mule train reached the ridge. The old mine was empty, as the stories said.")},
 		{"DM-only adjustment", func(expectedVersion int64) (core.ColonyChange, error) {
 			return service.AdjustStock(requestContext, dm, core.AdjustInput{
 				ExpectedVersion: expectedVersion,

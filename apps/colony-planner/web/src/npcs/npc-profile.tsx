@@ -5,9 +5,11 @@ import type { Schemas } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { useCampaign } from "@/hooks/use-campaign";
 import { npcHealthLabels, npcRelationLabels, npcStatusLabels } from "@/lib/people";
+import { SessionLink } from "@/sessions/session-parts";
 
 type Npc = Schemas["Npc"];
 type PlaceReference = Schemas["PlaceReference"];
+type SessionReference = Schemas["SessionReference"];
 
 /** A titled block of free text; empty text shows nothing, so a sparse record stays short. */
 export function ProseBlock({
@@ -74,6 +76,11 @@ export function NpcFacts({ npc }: { npc: Npc }) {
 	add("Relation", npcRelationLabels[npc.relation], true);
 	add("Where they are", <PlaceLink place={npc.currentPlace} />, npc.currentPlace !== null);
 	add("Where they're from", <PlaceLink place={npc.originPlace} />, npc.originPlace !== null);
+	// The API sends null while unset, although the generated type doesn't say so.
+	const firstSession: SessionReference | null = npc.firstSession;
+	if (firstSession) {
+		add("First met", <SessionLink session={firstSession} />, true);
+	}
 	add("Aliases", npc.aliases.join(", "), npc.aliases.length > 0);
 	return (
 		<dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">

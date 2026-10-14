@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type CampaignRequestStatus string
@@ -800,6 +801,67 @@ func AllRequestStatusValues() []RequestStatus {
 	}
 }
 
+type SessionStatus string
+
+const (
+	SessionStatusSCHEDULED SessionStatus = "SCHEDULED"
+	SessionStatusCANCELLED SessionStatus = "CANCELLED"
+	SessionStatusPLAYED    SessionStatus = "PLAYED"
+)
+
+func (e *SessionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SessionStatus(s)
+	case string:
+		*e = SessionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SessionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSessionStatus struct {
+	SessionStatus SessionStatus
+	Valid         bool // Valid is true if SessionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSessionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SessionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SessionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSessionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SessionStatus), nil
+}
+
+func (e SessionStatus) Valid() bool {
+	switch e {
+	case SessionStatusSCHEDULED,
+		SessionStatusCANCELLED,
+		SessionStatusPLAYED:
+		return true
+	}
+	return false
+}
+
+func AllSessionStatusValues() []SessionStatus {
+	return []SessionStatus{
+		SessionStatusSCHEDULED,
+		SessionStatusCANCELLED,
+		SessionStatusPLAYED,
+	}
+}
+
 type Terrain string
 
 const (
@@ -1060,6 +1122,7 @@ type Npc struct {
 	UpdatedAt       time.Time
 	CampaignID      uuid.UUID
 	PortraitImageID *uuid.UUID
+	FirstSessionID  *uuid.UUID
 }
 
 type Patron struct {
@@ -1178,12 +1241,51 @@ type Role struct {
 	CampaignID   uuid.UUID
 }
 
+type Session struct {
+	ID                   uuid.UUID
+	SeriesID             *uuid.UUID
+	LocalDate            pgtype.Date
+	StartsAt             time.Time
+	DurationMinutes      int16
+	Title                string
+	Status               SessionStatus
+	DiscordEventID       *string
+	DiscordEventLocation *string
+	DiscordClaimedAt     *time.Time
+	RemindedAt           *time.Time
+	Recap                string
+	ColonyDayStart       *int32
+	ColonyDayEnd         *int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	CampaignID           uuid.UUID
+}
+
+type SessionSeries struct {
+	ID              uuid.UUID
+	Title           string
+	Description     string
+	Weekdays        []int16
+	EveryWeeks      *int16
+	FirstDate       pgtype.Date
+	LastDate        pgtype.Date
+	StartLocal      pgtype.Time
+	DurationMinutes int16
+	Announce        bool
+	Remind          bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CampaignID      uuid.UUID
+}
+
 type Settings struct {
 	Timezone                 string
 	DiscordAnnounceChannelID *string
 	DiscordReminderChannelID *string
 	DiscordDmChannelID       *string
 	CampaignID               uuid.UUID
+	DiscordEventLocation     string
+	IcsToken                 string
 }
 
 type TimelineEvent struct {
@@ -1207,6 +1309,7 @@ type TimelineEvent struct {
 	QuestID    *uuid.UUID
 	PatronID   *uuid.UUID
 	RequestID  *uuid.UUID
+	SessionID  *uuid.UUID
 }
 
 type WebSession struct {

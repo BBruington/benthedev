@@ -157,6 +157,8 @@ func (service *Service) LinkGuild(requestContext context.Context, input LinkGuil
 	}
 	service.logger.InfoContext(requestContext, "discord server linked", slog.String("campaignId", campaignID.String()), slog.String("guildId", input.GuildID))
 	service.broker.Publish(campaignID, TopicSettings)
+	// Linking brings the campaign into the session planner's reads; unlinking takes it out.
+	service.sessionPlanner.SessionsChanged(campaignID)
 	return linked, nil
 }
 
@@ -169,30 +171,61 @@ func (service *Service) UnlinkGuild(requestContext context.Context, viewer Viewe
 }
 
 func (service *Service) unlinkCampaign(requestContext context.Context, campaignID uuid.UUID) error {
+	abandoned := AbandonedDiscordEvents{CampaignID: campaignID}
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		link, err := optionalGuildLink(queries.GetGuildLink(requestContext, campaignID))
+		if err != nil || link == nil {
+			return err
+		}
+		abandoned.GuildID = link.GuildID
 		if _, err := queries.DeleteGuildLink(requestContext, campaignID); err != nil {
 			return err
 		}
-		return queries.ClearSettingsChannels(requestContext, campaignID)
+		return service.forgetServer(requestContext, queries, &abandoned)
 	})
 	if err != nil {
 		return err
 	}
-	service.broker.Publish(campaignID, TopicSettings)
+	service.afterUnlink(requestContext, abandoned)
 	return nil
+}
+
+// forgetServer clears what belonged to the server being unlinked: the channels, and the events and
+// leases of every unplayed date, so a server linked later gets its own events. It notes the upcoming
+// events for afterUnlink to delete.
+func (service *Service) forgetServer(requestContext context.Context, queries *store.Queries, abandoned *AbandonedDiscordEvents) error {
+	if err := queries.ClearSettingsChannels(requestContext, abandoned.CampaignID); err != nil {
+		return err
+	}
+	eventIDs, err := queries.ListUpcomingSessionDiscordEvents(requestContext, store.ListUpcomingSessionDiscordEventsParams{CampaignID: abandoned.CampaignID, Now: service.now()})
+	if err != nil {
+		return err
+	}
+	abandoned.DiscordEventIDs = eventIDs
+	return queries.ClearSessionDiscordEvents(requestContext, abandoned.CampaignID)
+}
+
+// afterUnlink publishes, re-plans and asks Beny Bot to delete the events left in the old server; a
+// kicked bot can't, which is fine.
+func (service *Service) afterUnlink(requestContext context.Context, abandoned AbandonedDiscordEvents) {
+	service.broker.Publish(abandoned.CampaignID, TopicSettings, TopicSessions)
+	service.sessionPlanner.SessionsChanged(abandoned.CampaignID)
+	if len(abandoned.DiscordEventIDs) > 0 {
+		service.sessionPlanner.DiscordEventsAbandoned(requestContext, abandoned)
+	}
 }
 
 // UnlinkGuildByID unlinks a server from whatever campaign it is linked to: /unlink run there by a
 // Manage Server member, or Beny Bot removed from it (GuildDelete). Unknown servers are ignored.
 func (service *Service) UnlinkGuildByID(requestContext context.Context, guildID string) (bool, error) {
-	var campaignID uuid.UUID
+	abandoned := AbandonedDiscordEvents{GuildID: guildID}
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		var err error
-		campaignID, err = queries.DeleteGuildLinkByGuild(requestContext, guildID)
+		abandoned.CampaignID, err = queries.DeleteGuildLinkByGuild(requestContext, guildID)
 		if err != nil {
 			return err
 		}
-		return queries.ClearSettingsChannels(requestContext, campaignID)
+		return service.forgetServer(requestContext, queries, &abandoned)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -200,8 +233,8 @@ func (service *Service) UnlinkGuildByID(requestContext context.Context, guildID 
 	if err != nil {
 		return false, err
 	}
-	service.logger.InfoContext(requestContext, "discord server unlinked", slog.String("campaignId", campaignID.String()), slog.String("guildId", guildID))
-	service.broker.Publish(campaignID, TopicSettings)
+	service.logger.InfoContext(requestContext, "discord server unlinked", slog.String("campaignId", abandoned.CampaignID.String()), slog.String("guildId", guildID))
+	service.afterUnlink(requestContext, abandoned)
 	return true, nil
 }
 

@@ -433,7 +433,7 @@ func TestPlayersSeeOnlyTheirCampaignsPlayerData(t *testing.T) {
 	routes, document := sweepRoutes(t, testHarness.server)
 	campaignA, campaignB := testHarness.campaignA, testHarness.campaignB
 	secretA, secretB := testHarness.dmOnlyValues(campaignA), testHarness.dmOnlyValues(campaignB)
-	everything := joinValues(secretA, secretB, []string{canaryB})
+	everything := joinValues(secretA, secretB, testHarness.visibleValuesOfB())
 	active, pending, removed := core.MemberStatusActive, core.MemberStatusPending, core.MemberStatusRemoved
 
 	t.Run("pass 1: players of A", func(t *testing.T) {
@@ -448,6 +448,10 @@ func TestPlayersSeeOnlyTheirCampaignsPlayerData(t *testing.T) {
 			{name: "visitor"},
 		} {
 			caller.forbidden = everything
+			if caller.status != active {
+				// Only active members may read the campaign's calendar link.
+				caller.forbidden = joinValues(everything, []string{campaignA.icsToken})
+			}
 			testHarness.sweepCampaign(t, routes, document, campaignA, caller, true)
 		}
 	})
@@ -469,14 +473,21 @@ func TestPlayersSeeOnlyTheirCampaignsPlayerData(t *testing.T) {
 			"campaignId":        campaignA.id.String(),
 			"campaignRequestId": campaignA.requestID.String(),
 			"inviteCode":        "no-such-invite-code-0000000",
+			// A's feed: whoever holds the token reads A's schedule, and nothing of B.
+			calendarFileParameter: campaignA.icsToken + ".ics",
 		}
 		inB := []string{"dmA", "ana", "dmB", "bOnly"}
+		// Active members of A only: a pending or removed member may not read A's calendar link.
+		activeInA := []string{"dmA", "ana", "otherA", "dmB"}
 		usernames := map[string]string{"otherA": "bram." + canaryA, "pendingA": "emil." + canaryA, "removedA": "gus." + canaryA, "bOnly": "iko." + canaryBdm}
 		for _, who := range []account{testHarness.owner, testHarness.dmA, testHarness.ana, testHarness.otherA, testHarness.pendingA, testHarness.removedA, testHarness.dmB, testHarness.bOnly, testHarness.outsider} {
 			forbidden := everything
 			if slices.Contains(inB, who.name) {
 				// B's members see B's player-visible values on their own picker.
 				forbidden = joinValues(secretA, secretB)
+			}
+			if !slices.Contains(activeInA, who.name) {
+				forbidden = append(slices.Clone(forbidden), campaignA.icsToken)
 			}
 			for _, route := range routes {
 				if route.inCampaign() {
@@ -510,8 +521,8 @@ func TestCampaignsStaySealed(t *testing.T) {
 	routes, document := sweepRoutes(t, testHarness.server)
 	campaignA, campaignB := testHarness.campaignA, testHarness.campaignB
 	secretA, secretB := testHarness.dmOnlyValues(campaignA), testHarness.dmOnlyValues(campaignB)
-	everything := joinValues(secretA, secretB, []string{canaryB})
-	notB := joinValues(secretB, []string{canaryB})
+	everything := joinValues(secretA, secretB, testHarness.visibleValuesOfB())
+	notB := joinValues(secretB, testHarness.visibleValuesOfB())
 	// B-only accounts' sessions are fingerprinted, so they are made before and reused.
 	bOnlyToken := testHarness.signIn(testHarness.bOnly)
 	before := testHarness.fingerprint(campaignB, testHarness.bOnly)
@@ -645,6 +656,8 @@ var mixedIDFields = map[string]string{
 	"mapId":          "uuid",
 	"imageId":        "uuid",
 	"mapIds":         "uuids",
+	"seriesId":       "uuid",
+	"sessionId":      "uuid",
 	// Every Effects (rewardEffects, failureEffects, effects, appliedEffects) keys resources here.
 	"resources": "map",
 }
@@ -724,6 +737,8 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"mapId":          campaignB.pathIDs["mapId"],
 		"imageId":        campaignB.pathIDs["imageId"],
 		"mapIds":         []string{campaignB.pathIDs["mapId"]},
+		"seriesId":       campaignB.pathIDs["seriesId"],
+		"sessionId":      campaignB.pathIDs["sessionId"],
 	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
@@ -865,6 +880,28 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	validBodies["/npcs/{npcId}/portrait"] = func() map[string]any {
 		return map[string]any{"imageId": passFourImage.ID.String()}
 	}
+	// Pass 3 deleted A's {seriesId} series, so dates get a live series of A's own: its first date is
+	// played, and a later one is cancelled and then restored.
+	seriesStart := time.Now().UTC().AddDate(0, 0, -14)
+	weekly := int64(1)
+	passFourSeries, err := testHarness.core.CreateSessionSeries(testHarness.context, dmViewerA, core.SessionSeriesInput{
+		Title: "Pass Four", Weekdays: []int64{int64(seriesStart.Weekday())}, EveryWeeks: &weekly,
+		FirstDate: seriesStart.Format(time.DateOnly), StartLocal: "19:00", DurationMinutes: 180,
+	})
+	if err != nil {
+		t.Fatalf("add A's pass 4 series: %v", err)
+	}
+	dateOfA := func(localDate time.Time) func() map[string]any {
+		return func() map[string]any {
+			return map[string]any{"seriesId": passFourSeries.ID.String(), "localDate": localDate.Format(time.DateOnly)}
+		}
+	}
+	validBodies["/sessions/mark-played"] = dateOfA(seriesStart)
+	validBodies["/sessions/cancel"] = dateOfA(seriesStart.AddDate(0, 0, 21))
+	validBodies["/sessions/restore"] = dateOfA(seriesStart.AddDate(0, 0, 21))
+	validBodies["/npcs/{npcId}/first-session"] = func() map[string]any {
+		return map[string]any{"sessionId": campaignA.pathIDs["sessionId"]}
+	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
 		build, found := validBodies[suffix]
@@ -977,7 +1014,7 @@ func (testHarness *harness) fingerprint(campaign *campaignFixture, onlyThere ...
 		tables = append(tables, table)
 	}
 	rows.Close()
-	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request", "map", "hex", "image"} {
+	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request", "map", "hex", "image", "session_series", "session"} {
 		if !slices.Contains(tables, required) {
 			testHarness.t.Fatalf("found only %v with a campaign_id column; %s is missing", tables, required)
 		}

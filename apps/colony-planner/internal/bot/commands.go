@@ -44,7 +44,8 @@ type serverInvocation struct {
 	data          discordgo.ApplicationCommandInteractionData
 }
 
-func slashCommands() []command {
+// slashCommands are Beny Bot's commands; publicURL builds /colony's link to the site.
+func slashCommands(publicURL string) []command {
 	// Discord shows these to members with Manage Server; Administrator implies it.
 	serverManagersOnly := int64(discordgo.PermissionManageGuild)
 	// Commands work only in servers. Direct messages still get an answer if a client sends one anyway.
@@ -100,6 +101,14 @@ func slashCommands() []command {
 			},
 			handle:  viewNpc,
 			suggest: suggestNpcs,
+		},
+		{
+			definition: &discordgo.ApplicationCommand{Name: "colony", Description: "Show the colony at a glance", Contexts: &inServersOnly},
+			handle:     colonySummary(publicURL),
+		},
+		{
+			definition: &discordgo.ApplicationCommand{Name: "nextsession", Description: "Check when the next session is", Contexts: &inServersOnly},
+			handle:     nextSession,
 		},
 	}
 }

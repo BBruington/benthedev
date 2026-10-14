@@ -676,8 +676,9 @@ Every command, autocomplete (M2), button (M3) and scheduled-event update (M5):
 ### 6.5 Unlinking
 
 The DM's **Unlink…** on Settings, `/unlink` by a Manage Server member in the server, or the bot being
-removed (§6.1) each delete the link row and clear the channels. Discord events the bot already created stay
-in Discord (M5 decides their clean-up).
+removed (§6.1) each delete the link row and clear the channels. As built in M5, it also forgets the events
+of the campaign's unplayed dates, and Beny Bot deletes, best effort, the ones for dates still ahead in the
+old server (a bot that was removed can't, so those stay); a server linked later gets its own events.
 
 ---
 

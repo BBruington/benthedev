@@ -38,9 +38,6 @@ const (
 
 type Options struct {
 	Token string
-	// LegacyGuildID is M1's DISCORD_GUILD_ID, read only for the one-time clean-up of the guild-scoped
-	// commands M1 registered there; empty once the author has deleted it from .env.
-	LegacyGuildID string
 	// SiteOwnerDiscordID is the effective site owner, who gets a direct message when someone asks to run
 	// a campaign. It decides nothing inside a campaign.
 	SiteOwnerDiscordID string
@@ -62,6 +59,10 @@ type discordClient interface {
 	ChannelMessageEditComplex(edit *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	FollowupMessageCreate(interaction *discordgo.Interaction, wait bool, data *discordgo.WebhookParams, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	UserChannelCreate(recipientID string, options ...discordgo.RequestOption) (*discordgo.Channel, error)
+	GuildScheduledEvents(guildID string, userCount bool, options ...discordgo.RequestOption) ([]*discordgo.GuildScheduledEvent, error)
+	GuildScheduledEventCreate(guildID string, event *discordgo.GuildScheduledEventParams, options ...discordgo.RequestOption) (*discordgo.GuildScheduledEvent, error)
+	GuildScheduledEventEdit(guildID string, eventID string, event *discordgo.GuildScheduledEventParams, options ...discordgo.RequestOption) (*discordgo.GuildScheduledEvent, error)
+	GuildScheduledEventDelete(guildID string, eventID string, options ...discordgo.RequestOption) error
 }
 
 // colonyService is what Beny Bot asks of core. *core.Service satisfies it; the bot's tests run it
@@ -76,6 +77,17 @@ type colonyService interface {
 	FindRevealedNpc(requestContext context.Context, viewer core.Viewer, displayName string) (core.Npc, error)
 	DecideRequestFromDiscord(requestContext context.Context, viewer core.Viewer, requestID uuid.UUID, grant bool) (core.RequestOutcome, error)
 	GetRequest(requestContext context.Context, viewer core.Viewer, requestID uuid.UUID) (core.Request, error)
+	GetColonyBoard(requestContext context.Context, viewer core.Viewer) (core.ColonyBoard, error)
+	NextSession(requestContext context.Context, viewer core.Viewer) (*core.Session, error)
+	PlanSessions(requestContext context.Context) ([]core.CampaignSessionPlan, error)
+	ClaimSessionReminder(requestContext context.Context, job core.SessionJob) (*core.ClaimedSession, error)
+	ReleaseSessionReminder(requestContext context.Context, campaignID uuid.UUID, sessionID uuid.UUID) error
+	ClaimSessionDiscordEvent(requestContext context.Context, job core.SessionJob) (*core.ClaimedSession, error)
+	ReleaseSessionDiscordClaim(requestContext context.Context, campaignID uuid.UUID, sessionID uuid.UUID) error
+	RecordSessionDiscordEvent(requestContext context.Context, campaignID uuid.UUID, sessionID uuid.UUID, record core.DiscordEventRecord) (stillScheduled bool, err error)
+	MoveSessionDiscordEvent(requestContext context.Context, job core.SessionJob, record core.DiscordEventRecord) (moved bool, err error)
+	ForgetSessionDiscordEvent(requestContext context.Context, campaignID uuid.UUID, sessionID uuid.UUID, discordEventID string) error
+	RecordDiscordEventStatus(requestContext context.Context, guildID string, discordEventID string, status core.DiscordEventStatus) error
 }
 
 var (
@@ -84,6 +96,7 @@ var (
 	_ core.Notifier         = (*Bot)(nil)
 	_ core.RequestNotifier  = (*Bot)(nil)
 	_ core.DiscordDirectory = (*Bot)(nil)
+	_ core.SessionPlanner   = (*Bot)(nil)
 )
 
 type Bot struct {
@@ -96,14 +109,21 @@ type Bot struct {
 	suggestionLimiter *userRateLimiter
 	waitingPings      *slidingWindowLimiter
 	ownerPings        *slidingWindowLimiter
+	now               func() time.Time
+	// replan asks the planner goroutine to plan again; it holds one request, so signals coalesce.
+	replan chan struct{}
+	// retries is the planner's back-off for jobs Discord refused; only the planner goroutine uses it.
+	retries map[plannedJobKey]jobRetry
 
-	// mutex guards service, running and stopping. The notifier methods can be called from any request
-	// goroutine, before Run starts or while it shuts down.
+	// mutex guards service, running, stopping and botUserID. The notifier methods can be called from
+	// any request goroutine, before Run starts or while it shuts down.
 	mutex    sync.Mutex
 	service  colonyService
 	running  bool
 	stopping bool
-	posts    sync.WaitGroup
+	// botUserID is Beny Bot's own Discord user, from Ready: the creator of the events it adopts.
+	botUserID string
+	posts     sync.WaitGroup
 }
 
 // New prepares Beny Bot without connecting. Without a bot token it returns a Bot that is off: Run only
@@ -114,14 +134,21 @@ func New(options Options) (*Bot, error) {
 		options.Logger = slog.Default()
 	}
 	if options.Token == "" {
-		return newBot(options, nil, nil, time.Now), nil
+		return newBot(options, nil, nil, wallClock), nil
 	}
 	session, err := discordgo.New("Bot " + options.Token)
 	if err != nil {
 		return nil, fmt.Errorf("bot: %w", err)
 	}
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildScheduledEvents
-	return newBot(options, session, session.State, time.Now), nil
+	return newBot(options, session, session.State, wallClock), nil
+}
+
+// wallClock is the time without Go's monotonic reading, which stops while a Mac sleeps: the planner's
+// back-off and retry instants must compare by the wall clock, or a retry due during sleep would wait
+// out its whole delay again after waking.
+func wallClock() time.Time {
+	return time.Now().Round(0)
 }
 
 func newBot(options Options, client discordClient, state gatewayState, now func() time.Time) *Bot {
@@ -133,11 +160,14 @@ func newBot(options Options, client discordClient, state gatewayState, now func(
 		options:           options,
 		client:            client,
 		state:             state,
-		commands:          slashCommands(),
+		commands:          slashCommands(options.PublicURL),
 		commandLimiter:    newUserRateLimiter(now, commandBurst, commandRefillInterval),
 		suggestionLimiter: newUserRateLimiter(now, suggestionBurst, suggestionRefillInterval),
 		waitingPings:      newSlidingWindowLimiter(core.WaitingPingsPerHour, pingWindow, now),
 		ownerPings:        newSlidingWindowLimiter(core.OwnerRequestPingsPerHour, pingWindow, now),
+		now:               now,
+		replan:            make(chan struct{}, 1),
+		retries:           map[plannedJobKey]jobRetry{},
 	}
 }
 
@@ -149,6 +179,15 @@ func (benyBot *Bot) Enabled() bool {
 // Directory is the channel directory core checks Settings against, or nil while Beny Bot is off, so
 // core can tell "off" from "no channels".
 func (benyBot *Bot) Directory() core.DiscordDirectory {
+	if !benyBot.Enabled() {
+		return nil
+	}
+	return benyBot
+}
+
+// SessionPlanner is the timer planner core signals after session writes, or nil while Beny Bot is off,
+// so core falls back to its no-op planner.
+func (benyBot *Bot) SessionPlanner() core.SessionPlanner {
 	if !benyBot.Enabled() {
 		return nil
 	}
@@ -184,12 +223,25 @@ func (benyBot *Bot) run(lifetimeContext context.Context, service colonyService) 
 		benyBot.handleGuildDelete(lifetimeContext, event)
 	})
 	defer removeGuildDeleteHandler()
+	// A server's channels reach the gateway state only with its GuildCreate, so the planner, which
+	// skips a server it can't see yet, plans again then.
+	removeGuildCreateHandler := benyBot.client.AddHandler(func(_ *discordgo.Session, _ *discordgo.GuildCreate) {
+		benyBot.requestPlan()
+	})
+	defer removeGuildCreateHandler()
+	removeScheduledEventHandler := benyBot.client.AddHandler(func(_ *discordgo.Session, event *discordgo.GuildScheduledEventUpdate) {
+		benyBot.handleScheduledEventUpdate(lifetimeContext, event)
+	})
+	defer removeScheduledEventHandler()
 
 	if err := benyBot.client.Open(); err != nil {
 		benyBot.stop()
 		return fmt.Errorf("bot: connect to Discord: %w", err)
 	}
+	var planner sync.WaitGroup
+	planner.Go(func() { benyBot.runPlanner(lifetimeContext) })
 	<-lifetimeContext.Done()
+	planner.Wait()
 	benyBot.stop()
 	if err := benyBot.client.Close(); err != nil {
 		return fmt.Errorf("bot: disconnect from Discord: %w", err)
@@ -223,16 +275,21 @@ func (benyBot *Bot) currentService() colonyService {
 }
 
 // handleReady runs on every fresh gateway session. It registers the commands globally (idempotent),
-// clears M1's guild-scoped commands while LegacyGuildID is still set, and unlinks every linked server
-// that removed Beny Bot while it was offline.
+// unlinks every linked server that removed Beny Bot while it was offline, then asks the planner to plan.
 func (benyBot *Bot) handleReady(lifetimeContext context.Context, ready *discordgo.Ready) {
 	if ready == nil {
 		return
 	}
 	logger := benyBot.options.Logger
 	logger.Info("Beny Bot is online", slog.Int("guilds", len(ready.Guilds)))
+	if ready.User != nil && ready.User.ID != "" {
+		benyBot.mutex.Lock()
+		benyBot.botUserID = ready.User.ID
+		benyBot.mutex.Unlock()
+	}
 	benyBot.registerCommands(lifetimeContext, readyApplicationID(ready))
 	benyBot.reconcileGuilds(lifetimeContext, ready.Guilds)
+	benyBot.requestPlan()
 }
 
 func (benyBot *Bot) registerCommands(lifetimeContext context.Context, applicationID string) {
@@ -249,16 +306,6 @@ func (benyBot *Bot) registerCommands(lifetimeContext context.Context, applicatio
 	if _, err := benyBot.client.ApplicationCommandBulkOverwrite(applicationID, "", definitions, discordgo.WithContext(lifetimeContext)); err != nil {
 		logger.Error("Beny Bot couldn't register its commands", slog.Any("error", err))
 	}
-	if benyBot.options.LegacyGuildID == "" {
-		return
-	}
-	// M1 registered /beny in one guild. Left there, that server would show /beny twice. An empty list
-	// (sent as [], not null) clears it.
-	if _, err := benyBot.client.ApplicationCommandBulkOverwrite(applicationID, benyBot.options.LegacyGuildID, []*discordgo.ApplicationCommand{}, discordgo.WithContext(lifetimeContext)); err != nil {
-		logger.Warn("Beny Bot couldn't clear the old guild commands; it tries again on its next start", slog.String("guild_id", benyBot.options.LegacyGuildID), slog.Any("error", err))
-		return
-	}
-	logger.Info("old guild commands cleared; delete DISCORD_GUILD_ID from .env", slog.String("guild_id", benyBot.options.LegacyGuildID))
 }
 
 // reconcileGuilds unlinks every linked server missing from Ready's guild list: the bot was removed

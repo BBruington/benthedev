@@ -135,6 +135,31 @@ func scopeProblems(sql string, campaignOwned map[string]bool) []string {
 	return problems
 }
 
+// plannerReason is the one reason Beny Bot's planner may read across campaigns (design §9.3).
+const plannerReason = "planner"
+
+// plannerProblems keeps a `-- unscoped: planner` query to what the planner may read: only ACTIVE
+// campaigns that are linked to a Discord server.
+func plannerProblems(sql string) []string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(sql), " "))
+	var problems []string
+	if !strings.Contains(normalized, "join discord_guild_link on discord_guild_link.campaign_id = campaign.id") {
+		problems = append(problems, "it must join discord_guild_link on the campaign, so unlinked campaigns stay out")
+	}
+	if !strings.Contains(normalized, "campaign.status = 'active'") {
+		problems = append(problems, "it must keep to campaign.status = 'ACTIVE', so paused campaigns stay out")
+	}
+	if strings.Contains(normalized, " or ") {
+		problems = append(problems, "it may not use OR, which could widen either condition")
+	}
+	for _, outer := range []string{"left join", "right join", "full join", "outer join"} {
+		if strings.Contains(normalized, outer) {
+			problems = append(problems, "it may not use an outer join, which keeps unlinked campaigns")
+		}
+	}
+	return problems
+}
+
 // campaignOwnedTables reads, from a freshly migrated schema, every table with a campaign_id column,
 // so a table added later is covered without editing this test.
 func campaignOwnedTables(t *testing.T) map[string]bool {
@@ -186,6 +211,11 @@ func TestEveryQueryIsCampaignScoped(t *testing.T) {
 					t.Errorf("%s %s: `-- unscoped:` needs a reason", block.location, block.name)
 				}
 				unscopedNames = append(unscopedNames, block.name)
+				if block.unscopedReason == plannerReason {
+					for _, problem := range plannerProblems(block.sql) {
+						t.Errorf("%s %s: %s", block.location, block.name, problem)
+					}
+				}
 				continue
 			}
 			for _, problem := range scopeProblems(block.sql, owned) {
@@ -194,7 +224,7 @@ func TestEveryQueryIsCampaignScoped(t *testing.T) {
 		}
 	}
 	slices.Sort(unscopedNames)
-	expected := []string{"CampaignByInviteCode", "ListCampaignsForOwner", "ListMembershipsForAccount", "ViewerForGuild"}
+	expected := []string{"CampaignByIcsToken", "CampaignByInviteCode", "ListCampaignsForOwner", "ListMembershipsForAccount", "ListPlannerCampaigns", "ViewerForGuild"}
 	if !slices.Equal(unscopedNames, expected) {
 		t.Errorf("unscoped queries = %v, want %v; a new one needs a reviewed reason and a line here", unscopedNames, expected)
 	}
@@ -235,6 +265,22 @@ func TestScopeLintCatchesBadQueries(t *testing.T) {
 	for name, sql := range good {
 		if problems := scopeProblems(sql, owned); len(problems) > 0 {
 			t.Errorf("%s: the lint refused %q: %v", name, sql, problems)
+		}
+	}
+	plannerGood := `SELECT campaign.id FROM campaign
+		JOIN discord_guild_link ON discord_guild_link.campaign_id = campaign.id
+		WHERE campaign.status = 'ACTIVE';`
+	if problems := plannerProblems(plannerGood); len(problems) > 0 {
+		t.Errorf("the planner lint refused %q: %v", plannerGood, problems)
+	}
+	for name, sql := range map[string]string{
+		"every campaign":        `SELECT campaign.id FROM campaign WHERE campaign.status = 'ACTIVE';`,
+		"suspended ones too":    `SELECT campaign.id FROM campaign JOIN discord_guild_link ON discord_guild_link.campaign_id = campaign.id;`,
+		"widened with OR":       `SELECT campaign.id FROM campaign JOIN discord_guild_link ON discord_guild_link.campaign_id = campaign.id WHERE campaign.status = 'ACTIVE' OR true;`,
+		"a left join keeps all": `SELECT campaign.id FROM campaign LEFT JOIN discord_guild_link ON discord_guild_link.campaign_id = campaign.id WHERE campaign.status = 'ACTIVE';`,
+	} {
+		if problems := plannerProblems(sql); len(problems) == 0 {
+			t.Errorf("%s: the planner lint accepted %q", name, sql)
 		}
 	}
 	blocks := parseQueryBlocks("example.sql", "-- why\n-- unscoped: the owner's counts\n-- name: Counts :many\nSELECT * FROM role;\n\n-- name: Scoped :one\nSELECT 1;\n")

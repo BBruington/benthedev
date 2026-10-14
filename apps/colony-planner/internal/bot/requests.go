@@ -27,7 +27,7 @@ const (
 // in the background, and a failure is only logged.
 func (benyBot *Bot) RequestCreated(requestContext context.Context, prompt core.RequestPrompt) {
 	benyBot.inBackground(requestContext, "request prompt", func(postContext context.Context, service colonyService) {
-		posted := benyBot.postToCampaign(postContext, service, prompt.CampaignID, dmChannel, &discordgo.MessageSend{
+		posted, _ := benyBot.postToCampaign(postContext, service, prompt.CampaignID, dmChannel, &discordgo.MessageSend{
 			Content:    requestPromptText(prompt),
 			Components: benyBot.requestButtons(postContext, service, prompt.CampaignID, prompt.RequestID),
 		}, nil)
@@ -67,8 +67,8 @@ func (benyBot *Bot) RequestDecided(requestContext context.Context, outcome core.
 			slog.String("request_id", outcome.RequestID.String()),
 			slog.String("status", string(outcome.Status)),
 		)
-		channelID, found := benyBot.campaignChannel(postContext, logger, service, outcome.CampaignID, dmChannel)
-		if !found {
+		channelID, found, err := benyBot.campaignChannel(postContext, logger, service, outcome.CampaignID, dmChannel)
+		if err != nil || !found {
 			return
 		}
 		prompt, err := benyBot.client.ChannelMessage(channelID, outcome.DiscordMessageID, discordgo.WithContext(postContext))

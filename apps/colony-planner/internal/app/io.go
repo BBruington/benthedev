@@ -177,3 +177,25 @@ type hexLabelBodyInput struct {
 	R          int64     `path:"r" doc:"The hex's axial r coordinate"`
 	Body       core.HexLabelInput
 }
+
+type seriesPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	SeriesID   uuid.UUID `path:"seriesId" format:"uuid"`
+}
+
+type seriesBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	SeriesID   uuid.UUID `path:"seriesId" format:"uuid"`
+	Body       Body
+}
+
+type sessionPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	SessionID  uuid.UUID `path:"sessionId" format:"uuid"`
+}
+
+type sessionBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	SessionID  uuid.UUID `path:"sessionId" format:"uuid"`
+	Body       Body
+}

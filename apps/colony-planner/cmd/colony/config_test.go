@@ -57,13 +57,31 @@ func TestSiteOwnerDiscordIDMustBeADiscordID(t *testing.T) {
 	}
 
 	environment["SITE_OWNER_DISCORD_ID"] = text("123456789012345678")
-	environment["DISCORD_GUILD_ID"] = text("123456789012345679")
 	setEnvironment(t, environment)
 	loaded, err := loadConfig()
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if loaded.siteOwnerDiscordID != "123456789012345678" || loaded.legacyDiscordGuildID != "123456789012345679" || loaded.port != "8080" {
+	if loaded.siteOwnerDiscordID != "123456789012345678" || loaded.port != "8080" {
 		t.Fatalf("loaded = %+v", loaded)
+	}
+}
+
+// M1's DISCORD_GUILD_ID is no longer read, so an .env that still has it starts the same as one without.
+func TestAnOldDiscordGuildIDIsIgnored(t *testing.T) {
+	environment := baseEnvironment()
+	setEnvironment(t, environment)
+	without, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig without DISCORD_GUILD_ID: %v", err)
+	}
+	environment["DISCORD_GUILD_ID"] = text("123456789012345679")
+	setEnvironment(t, environment)
+	with, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig with DISCORD_GUILD_ID: %v", err)
+	}
+	if with != without {
+		t.Fatalf("DISCORD_GUILD_ID changed the configuration: %+v, want %+v", with, without)
 	}
 }

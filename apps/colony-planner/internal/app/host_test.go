@@ -28,7 +28,7 @@ func TestUnknownHostsAreRefused(t *testing.T) {
 		settings := testHarness.do(http.MethodPut, settingsPath, requestOptions{
 			token: dmToken, host: host,
 			headers: map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "http://" + host},
-			body:    `{"campaignName":"Owned","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`,
+			body:    `{"campaignName":"Owned","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null,"discordEventLocation":"Online"}`,
 		})
 		testHarness.expectStatus(settings, http.StatusMisdirectedRequest)
 	}

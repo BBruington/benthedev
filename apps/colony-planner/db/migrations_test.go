@@ -375,17 +375,98 @@ func TestTheSchemaKeepsCampaignsApart(t *testing.T) {
 		t.Fatalf("the place of a deleted map = %d rows, want 1 with no map", count)
 	}
 
+	// Sessions (M5): series, dates and their links stay inside one campaign.
+	insertSeries := func(campaignID uuid.UUID, title string) uuid.UUID {
+		t.Helper()
+		return insertRow(`INSERT INTO session_series (campaign_id, title, weekdays, every_weeks, first_date, start_local, duration_minutes)
+			VALUES ($1, $2, '{5}', 1, '2026-10-02', '20:00', 240) RETURNING id`, campaignID, title)
+	}
+	firstSeries := insertSeries(firstCampaign, "Friday game")
+	secondSeries := insertSeries(secondCampaign, "Ridge nights")
+	insertSeriesWith := func(columns string, values string) error {
+		return execute(`INSERT INTO session_series (campaign_id, title, first_date, start_local, duration_minutes, `+columns+`)
+			VALUES ($1, 'Bad', '2026-10-02', '20:00', 240, `+values+`)`, firstCampaign)
+	}
+	requireConstraintViolation(t, insertSeriesWith("weekdays, every_weeks", "'{5}', NULL"), "session_series_repeats_on_weekdays")
+	requireConstraintViolation(t, insertSeriesWith("weekdays, every_weeks", "'{}', 1"), "session_series_repeats_on_weekdays")
+	requireConstraintViolation(t, insertSeriesWith("weekdays, every_weeks", "'{7}', 1"), "session_series_weekdays_check")
+	requireConstraintViolation(t, insertSeriesWith("weekdays, every_weeks", "'{5}', 3"), "session_series_every_weeks_check")
+	requireConstraintViolation(t, insertSeriesWith("last_date", "'2026-12-01'"), "session_series_one_off_has_no_end")
+	requireConstraintViolation(t, insertSeriesWith("weekdays, every_weeks, last_date", "'{5}', 2, '2026-10-01'"), "session_series_dates_in_order")
+	requireConstraintViolation(t, execute(`INSERT INTO session_series (campaign_id, title, first_date, start_local, duration_minutes)
+		VALUES ($1, 'Short', '2026-10-02', '20:00', 10)`, firstCampaign), "session_series_duration_minutes_check")
+	if err := execute(`INSERT INTO session_series (campaign_id, title, first_date, start_local, duration_minutes)
+		VALUES ($1, 'One-off', '2026-10-09', '19:30', 180)`, firstCampaign); err != nil {
+		t.Fatalf("insert a one-off: %v", err)
+	}
+	insertSession := func(campaignID uuid.UUID, seriesID any, localDate string) uuid.UUID {
+		t.Helper()
+		return insertRow(`INSERT INTO session (campaign_id, series_id, local_date, starts_at, duration_minutes, title)
+			VALUES ($1, $2, $3::date, '2026-10-03T00:00:00Z', 240, 'Friday game') RETURNING id`, campaignID, seriesID, localDate)
+	}
+	firstSession := insertSession(firstCampaign, firstSeries, "2026-10-02")
+	secondSession := insertSession(secondCampaign, secondSeries, "2026-10-02")
+	requireConstraintViolation(t, execute(`INSERT INTO session (campaign_id, series_id, local_date, starts_at, duration_minutes, title)
+		VALUES ($1, $2, '2026-10-09', now(), 240, 'Cross')`, firstCampaign, secondSeries), "session_series_fkey")
+	requireConstraintViolation(t, execute(`INSERT INTO session (campaign_id, series_id, local_date, starts_at, duration_minutes, title)
+		VALUES ($1, $2, '2026-10-02', now(), 240, 'Twice')`, firstCampaign, firstSeries), "session_series_local_date_key")
+	requireConstraintViolation(t, execute(`UPDATE session SET colony_day_start = 3 WHERE id = $1`, firstSession), "session_stamps_when_played")
+	requireConstraintViolation(t, execute(`UPDATE session SET status = 'PLAYED', colony_day_start = 5, colony_day_end = 4 WHERE id = $1`, firstSession), "session_end_after_start")
+	requireConstraintViolation(t, execute(`UPDATE session SET discord_event_id = 'not-a-snowflake' WHERE id = $1`, firstSession), "session_discord_event_id_check")
+	if err := execute(`UPDATE session SET status = 'PLAYED', colony_day_start = 5, colony_day_end = 7 WHERE id = $1`, firstSession); err != nil {
+		t.Fatalf("stamp a played session: %v", err)
+	}
+	metNpc := insertNpc(secondCampaign, "Met at the Ridge")
+	requireConstraintViolation(t, execute(`UPDATE npc SET first_session_id = $1 WHERE id = $2`, firstSession, metNpc), "npc_first_session_fkey")
+	requireConstraintViolation(t, execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, session_id)
+		VALUES ($1, 5, 'SESSION_PLAYED', 'Session played', 'PUBLIC', $2)`, secondCampaign, firstSession), "timeline_event_session_fkey")
+	requireConstraintViolation(t, execute(`UPDATE settings SET ics_token = (SELECT ics_token FROM settings WHERE campaign_id = $1)
+		WHERE campaign_id = $2`, firstCampaign, secondCampaign), "settings_ics_token_key")
+	requireConstraintViolation(t, execute(`UPDATE settings SET ics_token = 'short' WHERE campaign_id = $1`, firstCampaign), "settings_ics_token_check")
+	if tokens := countRows(t, database, `SELECT count(DISTINCT ics_token) FROM settings WHERE ics_token ~ '^[0-9a-f]{64}$'`); tokens != 2 {
+		t.Fatalf("distinct generated ICS tokens = %d, want 2", tokens)
+	}
+	if location := queryText(t, database, `SELECT discord_event_location FROM settings WHERE campaign_id = $1`, firstCampaign); location != "Online" {
+		t.Fatalf("default event location = %q", location)
+	}
+	// Deleting a session clears only the NPC's and the entry's link; deleting a series keeps its dates.
+	metSession := insertSession(secondCampaign, secondSeries, "2026-10-09")
+	if err := execute(`UPDATE npc SET first_session_id = $1 WHERE id = $2`, metSession, metNpc); err != nil {
+		t.Fatalf("set a first session: %v", err)
+	}
+	if err := execute(`INSERT INTO timeline_event (campaign_id, day, kind, title, visibility, session_id)
+		VALUES ($1, 5, 'SESSION_PLAYED', 'Session played', 'PUBLIC', $2)`, secondCampaign, metSession); err != nil {
+		t.Fatalf("insert a session entry: %v", err)
+	}
+	if err := execute(`DELETE FROM session WHERE id = $1`, metSession); err != nil {
+		t.Fatalf("delete a session: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM npc WHERE id = $1 AND campaign_id = $2 AND first_session_id IS NULL`, metNpc, secondCampaign); count != 1 {
+		t.Fatalf("the NPC of a deleted session = %d rows, want 1 with no first session", count)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM timeline_event WHERE campaign_id = $1 AND kind = 'SESSION_PLAYED' AND session_id IS NULL`, secondCampaign); count != 1 {
+		t.Fatalf("the entry of a deleted session = %d rows, want 1 with no session", count)
+	}
+	if err := execute(`DELETE FROM session_series WHERE id = $1`, firstSeries); err != nil {
+		t.Fatalf("delete a series: %v", err)
+	}
+	if count := countRows(t, database, `SELECT count(*) FROM session WHERE id = $1 AND campaign_id = $2 AND series_id IS NULL AND status = 'PLAYED'`, firstSession, firstCampaign); count != 1 {
+		t.Fatalf("the played date of a deleted series = %d rows, want 1 with no series", count)
+	}
 	// Deleting a campaign takes every campaign-owned row with it and leaves the other campaign alone.
 	if err := execute(`DELETE FROM campaign WHERE id = $1`, firstCampaign); err != nil {
 		t.Fatalf("delete campaign: %v", err)
 	}
 	for _, table := range []string{"settings", "colony", "resource", "role", "timeline_event", "campaign_member", "npc", "place",
-		"patron", "patron_action", "quest", "request", "image", "map", "hex"} {
+		"patron", "patron_action", "quest", "request", "image", "map", "hex", "session_series", "session"} {
 		if left := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, firstCampaign); left != 0 {
 			t.Errorf("%s kept %d rows of the deleted campaign", table, left)
 		}
 		if kept := countRows(t, database, `SELECT count(*) FROM `+table+` WHERE campaign_id = $1`, secondCampaign); kept == 0 && table != "timeline_event" && table != "quest" && table != "map" {
 			t.Errorf("%s lost the other campaign's rows", table)
 		}
+	}
+	if kept := countRows(t, database, `SELECT count(*) FROM session WHERE id = $1 AND series_id = $2`, secondSession, secondSeries); kept != 1 {
+		t.Errorf("the other campaign's dated session = %d rows, want 1", kept)
 	}
 }

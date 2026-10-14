@@ -156,9 +156,6 @@ function MoreLink({
 					<span className="sr-only"> waiting</span>
 				</span>
 			) : null}
-			{item.arrivesIn ? (
-				<span className="text-muted-foreground text-xs tracking-wider">{item.arrivesIn}</span>
-			) : null}
 			<ChevronRightIcon aria-hidden="true" className="size-4 text-muted-foreground" />
 		</Link>
 	);

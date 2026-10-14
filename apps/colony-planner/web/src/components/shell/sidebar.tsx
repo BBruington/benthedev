@@ -77,11 +77,6 @@ function SidebarLink({ item, badge }: { item: NavigationItem; badge: number }) {
 					<span className="sr-only"> waiting</span>
 				</span>
 			) : null}
-			{item.arrivesIn ? (
-				<span className="font-medium text-[0.7rem] text-muted-foreground/80 tracking-wider">
-					{item.arrivesIn}
-				</span>
-			) : null}
 		</Link>
 	);
 }

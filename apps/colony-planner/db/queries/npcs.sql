@@ -11,8 +11,12 @@ SELECT sqlc.embed(npc),
        current_place.name AS current_place_name,
        origin_place.name AS origin_place_name,
        role.label AS colony_role_label,
-       role.icon AS colony_role_icon
+       role.icon AS colony_role_icon,
+       first_session.title AS first_session_title,
+       first_session.local_date AS first_session_local_date,
+       first_session.starts_at AS first_session_starts_at
 FROM npc
+LEFT JOIN session AS first_session ON first_session.campaign_id = npc.campaign_id AND first_session.id = npc.first_session_id
 LEFT JOIN place AS current_place ON current_place.campaign_id = npc.campaign_id
     AND current_place.id = npc.current_place_id AND (@dm_projection::boolean OR current_place.revealed)
 LEFT JOIN place AS origin_place ON origin_place.campaign_id = npc.campaign_id
@@ -42,8 +46,12 @@ SELECT sqlc.embed(npc),
        current_place.name AS current_place_name,
        origin_place.name AS origin_place_name,
        role.label AS colony_role_label,
-       role.icon AS colony_role_icon
+       role.icon AS colony_role_icon,
+       first_session.title AS first_session_title,
+       first_session.local_date AS first_session_local_date,
+       first_session.starts_at AS first_session_starts_at
 FROM npc
+LEFT JOIN session AS first_session ON first_session.campaign_id = npc.campaign_id AND first_session.id = npc.first_session_id
 LEFT JOIN place AS current_place ON current_place.campaign_id = npc.campaign_id
     AND current_place.id = npc.current_place_id AND (@dm_projection::boolean OR current_place.revealed)
 LEFT JOIN place AS origin_place ON origin_place.campaign_id = npc.campaign_id

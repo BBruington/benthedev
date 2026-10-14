@@ -27,7 +27,7 @@ func memberActionPath(campaign *campaignFixture, accountName string, action stri
 	return campaignPathOf(campaign, "/members/"+campaign.members[accountName].String()+"/"+action)
 }
 
-const settingsBodyA = `{"campaignName":"Campaign Alpha","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`
+const settingsBodyA = `{"campaignName":"Campaign Alpha","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null,"discordEventLocation":"Online"}`
 
 // Removal is per campaign (docs/design/multi-campaign.md §1.2): Ana removed from B loses B at once, her
 // B tab drops to the no-access screen live, and her session and her campaign A keep working.
@@ -426,8 +426,8 @@ func TestValidationMessagesComeFromCore(t *testing.T) {
 	for _, testCase := range []struct {
 		method, path, body, want string
 	}{
-		{http.MethodPut, campaignPathOf(campaignA, "/settings"), `{"campaignName":"","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null}`, "Give the campaign a name."},
-		{http.MethodPut, campaignPathOf(campaignA, "/settings"), `{"campaignName":"Colony","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":"12ab","discordReminderChannelId":null,"discordDmChannelId":null}`, "Pick a text channel of the linked server."},
+		{http.MethodPut, campaignPathOf(campaignA, "/settings"), `{"campaignName":"","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null,"discordEventLocation":"Online"}`, "Give the campaign a name."},
+		{http.MethodPut, campaignPathOf(campaignA, "/settings"), `{"campaignName":"Colony","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":"12ab","discordReminderChannelId":null,"discordDmChannelId":null,"discordEventLocation":"Online"}`, "Pick a text channel of the linked server."},
 		{http.MethodPut, campaignPathOf(campaignA, "/me/profile"), `{"characterName":"x\u0000y"}`, "Remove the tabs, line breaks or other control characters."},
 		{http.MethodPost, "/api/campaign-requests", `{"campaignName":"Sky Isles","slug":"Sky Isles","note":""}`, "slug"},
 	} {
