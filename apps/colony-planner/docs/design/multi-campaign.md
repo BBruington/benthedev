@@ -337,6 +337,11 @@ func (service *Service) ViewerForGuild(ctx context.Context, guildID, discordUser
   handling); with no membership cache there is nothing else to flush.
 - Beny Bot gets a Viewer only from `ViewerForGuild` (one read joining guild link, campaign, account and
   membership). The seed gets one from `EnterCampaign` with a Caller for the sample DM's account.
+- **As built in M6: still no cache.** Counted per path, the membership read is the only query of a request
+  only on a live-stream connect; elsewhere it rides beside the operation's own reads, so a cache would save
+  a round trip but never a Neon wake-up. Hidden tabs close their stream, so only a tab visible on a screen
+  that stays on wakes Neon, once per 10-minute stream rotation (about 1 CU-hour a night per such tab). The
+  trigger to add a cache for stream reconnects is in SPEC.md §10 "As built in M6".
 
 ### 3.3 The structural guarantees
 
@@ -382,6 +387,10 @@ RLS would not cover jsonb or body IDs either (§2.3 rule 5). The lint, the compo
 fingerprinted sweep cover the same failures at no runtime cost. **Revisit at M6** if friends' campaigns go
 on the hosted database: a `colony_app` role without BYPASSRLS, policies `USING (campaign_id =
 current_setting('app.campaign_id')::uuid)`, and core's `inTransaction` setting it. Nothing in M1.5 blocks it.
+
+**As built in M6: not now.** The hosted database holds a handful of friends' campaigns, and every reason
+above still holds on Neon (the app connects as the role that owns the tables). SPEC.md §10 "As built in
+M6" records the decision and when to revisit it.
 
 ---
 
@@ -829,7 +838,9 @@ CLAUDE.md is 170 lines; there is no length target. Each addition is one bullet, 
 - **M6:** one production application shared by every DM; `SITE_OWNER_DISCORD_ID` in Railway; budget for
   several campaigns on Neon; decide RLS (§3.4) and whether a membership cache is worth it (§3.2); a short
   privacy page now that friends' data is hosted (the bot stays under Discord's 100-server verification
-  line).
+  line). As built: the live site uses Beny Bot Dev for now (SPEC.md §11, question 19), RLS and the
+  membership cache are not now (§3.2, §3.4), and the privacy page is `/privacy`; `docs/cutover.md` is the
+  author's runbook.
 
 ### 9.4 File-by-file change list for M1.5
 

@@ -1,0 +1,17 @@
+# The Railway service's settings (spec §10, M6). Railway now reads this file only for services that
+# already used it, and only until 2026-12-01, so the runbook sets the same values on the service by hand;
+# keep the two in step. "Wait for CI" (deploy main only after GitHub CI passes) has no key here: it is a
+# switch in the service's settings.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Railway calls it only while a deploy starts; a failed migration exits first, so the old version keeps serving.
+healthcheckPath = "/healthz"
+healthcheckTimeout = 120
+# Exactly one: Beny Bot, the session planner, the session cache and the live-update broker live in the process.
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

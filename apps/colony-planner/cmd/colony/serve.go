@@ -22,7 +22,7 @@ func serve(commandContext context.Context) error {
 		return err
 	}
 	if loaded.publicURL == "" {
-		return errors.New("PUBLIC_URL is not set (run `mise run setup` to create .env)")
+		return errors.New("PUBLIC_URL is not set (locally, `mise run setup` creates .env)")
 	}
 	if err := auth.CheckBuild(loaded.appEnvironment); err != nil {
 		return err

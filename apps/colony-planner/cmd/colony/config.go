@@ -7,6 +7,8 @@ import (
 	"os"
 	"regexp"
 	"slices"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // config is every environment variable the binary reads; .env.example lists the same names. mise
@@ -41,15 +43,37 @@ func loadConfig() (config, error) {
 		return config{}, errors.New("SITE_OWNER_DISCORD_ID must be a Discord user ID: 17 to 20 digits")
 	}
 	if !slices.Contains(appEnvironments, loaded.appEnvironment) {
-		return config{}, fmt.Errorf("APP_ENV must be one of %v (run `mise run setup` to create .env)", appEnvironments)
+		return config{}, fmt.Errorf("APP_ENV must be one of %v (locally, `mise run setup` creates .env)", appEnvironments)
 	}
 	if loaded.databaseURL == "" {
-		return config{}, errors.New("DATABASE_URL is not set (run `mise run setup` to create .env)")
+		return config{}, errors.New("DATABASE_URL is not set (locally, `mise run setup` creates .env)")
+	}
+	if loaded.appEnvironment == "production" {
+		if err := requireVerifiedDatabaseTLS(loaded.databaseURL); err != nil {
+			return config{}, err
+		}
 	}
 	if loaded.port == "" {
 		loaded.port = "8080"
 	}
 	return loaded, nil
+}
+
+// requireVerifiedDatabaseTLS refuses a production DATABASE_URL that would reach the database without
+// checking its certificate. In pgx, sslmode=require (like prefer, allow and verify-ca) skips the check or
+// the host name, so anyone on the path from Railway to Neon could pose as the database and read the
+// password and every query; only verify-full checks both.
+func requireVerifiedDatabaseTLS(databaseURL string) error {
+	connectionConfig, err := pgconn.ParseConfig(databaseURL)
+	if err != nil {
+		return fmt.Errorf("DATABASE_URL: %w", err)
+	}
+	tlsConfig := connectionConfig.TLSConfig
+	if tlsConfig == nil || tlsConfig.InsecureSkipVerify {
+		return errors.New("DATABASE_URL must check the database's certificate in production: " +
+			"change sslmode=require to sslmode=verify-full (docs/cutover.md Part 1)")
+	}
+	return nil
 }
 
 // listenAddress keeps development servers on the loopback interface: a devauth build lets anyone

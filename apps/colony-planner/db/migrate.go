@@ -92,7 +92,8 @@ func CheckMigrationHistory(checkContext context.Context, database *sql.DB) error
 		versionNames = append(versionNames, strconv.FormatInt(version, 10))
 	}
 	return fmt.Errorf("%w (%s; the newest here is %d). Migrating it could skip a later migration, so nothing ran: "+
-		"run `mise run fresh` to rebuild the local database (it erases the local data)",
+		"a hosted database needs a build that has those migrations; locally, `mise run fresh` rebuilds the "+
+		"database (it erases the local data)",
 		ErrUnknownMigrationHistory, strings.Join(versionNames, ", "), newestEmbeddedVersion)
 }
 

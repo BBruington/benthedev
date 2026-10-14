@@ -109,6 +109,11 @@ func New(options Options) (*Service, error) {
 	return service, nil
 }
 
+// HTTPSOnly reports whether PUBLIC_URL is https, which production requires.
+func (service *Service) HTTPSOnly() bool {
+	return service.secureCookies
+}
+
 // parsePublicURL accepts an http or https address with a host. Production must use https: over plain
 // http the session cookie would lose its Secure flag and __Host- prefix without a word (spec §8.5). An
 // empty PUBLIC_URL is allowed outside production for `colony openapi`, which serves nothing; serve
