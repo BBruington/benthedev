@@ -33,7 +33,7 @@ func openDatabase(commandContext context.Context, databaseURL string, applicatio
 	}
 	if err := pool.Ping(commandContext); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("connect to the database (is it running? try `mise run db:up`): %w", err)
+		return nil, fmt.Errorf("connect to the database (locally, is it running? try `mise run db:up`): %w", err)
 	}
 	return pool, nil
 }

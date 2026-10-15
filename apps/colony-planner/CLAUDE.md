@@ -29,7 +29,8 @@ Ports: Vite 5173; Go 8080 (bound to 127.0.0.1 outside production); DbGate 54330;
 `colony-planner-db`, databases `colony` and `colony_test`). Vite proxies /api, /auth, /img, /calendar
 and /healthz to Go and keeps the Host header. Web edits hot-reload; restart `mise run dev` after Go edits.
 `reset`/`fresh` may run while dev runs: the server reconnects and everyone signs in again. Outside
-production Go answers only a Host that is localhost, an IP address or PUBLIC_URL's host (DNS rebinding).
+production Go answers only a Host that is localhost, an IP address or PUBLIC_URL's host (DNS rebinding);
+production answers only PUBLIC_URL's host, plus Railway's health check on /healthz.
 The author's PATH has a Homebrew Go first: mise tasks use the pinned Go (`mise.toml` sets
 activate_aggressive); in a bare shell use `mise exec -- go ...`.
 
@@ -40,7 +41,7 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `cmd/colony/main.go` | subcommands serve, migrate up/status, openapi, seed, reset; `cmd/colony/config.go` reads every env var |
 | `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`) |
 | `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go` |
-| `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
+| `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table, security headers), `internal/app/compress.go` (gzip for JSON, html, css, js and svg; never the event stream, images, fonts or the ICS feed), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
 | `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, `internal/bot/requests.go` is the request prompts with Grant and Decline, `internal/bot/planner.go` is the one timer planner (Discord events, reminders, the cancellation notice, event status updates) and `internal/bot/colony.go` is `/colony` and `/nextsession` |
@@ -50,8 +51,37 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
 | `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it), `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue) and `web/src/sessions/` (the series sheet, session times, the calendar link card, the board's next game night; helpers in `web/src/lib/sessions.ts`) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
-| `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (govulncheck, with the triaged advisories) |
-| `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the private test bot) and `docs/checklists/` |
+| `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (plain govulncheck: it fails only on a vulnerability our code reaches, and accepts none) |
+| `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the test bot that also serves the live site for now), `docs/cutover.md` (the author's M6 runbook) and `docs/checklists/` |
+
+## Deployment (M6)
+
+- `Dockerfile` builds the one production image: Bun builds the SPA, Go builds `colony` without devauth
+  (static, with the SPA and migrations embedded), and distroless runs it as non-root with
+  `APP_ENV=production`. `.dockerignore` is an allow-list, so `.env` and key files never reach a build.
+- `railway.toml` records the service's settings: the Dockerfile builder, the `/healthz` health check,
+  1 replica, restart on failure. Railway applies it only to services that already used it, so
+  `docs/cutover.md` sets the same values by hand; change both together.
+- **1 replica, always** (Invariant 8): Beny Bot, the planner, the session cache and the SSE broker live
+  in the process, and a second replica would run a second bot and split the cache and the broker. Railway's
+  app sleeping stays off. The few seconds of deploy overlap are safe because every side effect is
+  idempotent, so there is no leader lock.
+- Production variables, entered in Railway by the author only: `DATABASE_URL` (Neon's direct endpoint,
+  never a `-pooler` host: goose's migration lock needs a session; `sslmode=verify-full`, because pgx's
+  `require` accepts any certificate, and serve refuses anything less in production), `PUBLIC_URL`
+  (https; production answers only its host, `internal/auth/host.go`, and sends HSTS), `PORT`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`,
+  `DISCORD_BOT_TOKEN` and `SITE_OWNER_DISCORD_ID` (serve refuses production without it). The image sets
+  `APP_ENV`.
+- **The same-token rule.** The live site runs as Beny Bot Dev (SPEC §11, question 19), so its bot token
+  runs in exactly one place: two processes on one token both answer every command and both run planners.
+  While Railway has the token, the author's `.env` has `DISCORD_BOT_TOKEN=` blank, set in `.env` itself
+  because mise's `.env` values win over a variable typed before `mise run dev`; local Discord testing
+  removes Railway's first (`docs/cutover.md` Part 4). Sandboxes and agent servers always blank every
+  Discord value.
+- Railway's own HTTP logs record every request's full path, IP address and browser, outside the app's
+  redaction, so they show invite codes and ICS tokens: never share them (the app's Deploy Logs are safe).
+- `/privacy` (`web/src/routes/privacy.tsx`) states what the migrations store and who sees it. A new
+  column or table holding personal data, or a new outside service, updates it in the same change.
 
 ## Boundaries (enforced by `mise run check`)
 
@@ -99,8 +129,10 @@ web/src/** -> web/src/api -> the Go API
 7. Instants are UTC. Local-time schedules are expanded only by occurrences() in `internal/game`.
 8. Single replica: Beny Bot, the planner, the session cache and the SSE broker live in-process.
 9. No timer polls the database and no ordinary request writes bookkeeping (last_seen_at at most daily).
-10. Local only until the author approves M6: no deploy work, no production credential, and never read,
-    print or copy a secret value from any .env or .pem file, here or in the old party-planner repo.
+   A visible tab's stream still reconnects every 10 minutes, one membership read each (SPEC §10, M6).
+10. Agents never touch production: no production credential, no deploy, and no Railway, Neon or Discord
+    Developer Portal action (the author runs `docs/cutover.md`); and never read, print or copy a secret
+    value from any .env or .pem file, here or in the old party-planner repo.
 11. Every campaign-owned table carries `campaign_id NOT NULL REFERENCES campaign ON DELETE CASCADE` (first
     in its primary key or in `UNIQUE (campaign_id, id)`, and first in every index); text keys are unique
     per campaign; column references between campaign rows are composite foreign keys. Every query on a
@@ -203,7 +235,8 @@ API details that keep the contract single-sourced:
   parameters in embedded structs).
 - `serve`, `migrate` (up and status) and `seed` refuse a database whose goose_db_version records a
   migration this build doesn't embed (`CheckMigrationHistory` in `db/migrate.go`), because goose would
-  skip a later migration that reuses its version; the message says to run `mise run fresh`. `reset` drops
+  skip a later migration that reuses its version; the message says a hosted database needs a build with
+  those migrations and a local one `mise run fresh`. `reset` drops
   the schema before migrating, so `mise run reset` and `fresh` rebuild such a database. Never renumber or
   delete a migration once it is merged.
 - Mutations accept JSON bodies only, behind stdlib http.CrossOriginProtection. The one exception is the

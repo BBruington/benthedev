@@ -22,7 +22,9 @@ It takes about 15 minutes. Coming from M1? Read "Coming from M1" first. Already 
 > **Never use the real Beny Bot here.** Don't use the production Beny Bot application, its bot token or its
 > client secret, and don't copy anything from the old party-planner `.env` files. The old Beny Bot keeps
 > serving your real table, untouched. If two running programs share one bot token, both answer every
-> command. Beny Bot Dev is only for testing and never becomes the production bot.
+> command. Since M6, Beny Bot Dev also serves the live site for now (SPEC.md §11, question 19), so its
+> values are live credentials, and while Railway has its token your `.env` keeps `DISCORD_BOT_TOKEN`
+> blank (the same-token rule, `docs/cutover.md` Part 4).
 
 ## What you'll collect
 

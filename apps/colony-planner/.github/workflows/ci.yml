@@ -1,5 +1,6 @@
-# Runs lint and typecheck as their own fast jobs, and `mise run check` (every check, tests included)
-# alongside them. It deploys nothing; deployment is designed only in M6.
+# Runs lint and typecheck as their own fast jobs, `mise run check` (every check, tests included) and
+# the production image build alongside them. It deploys nothing itself: Railway deploys main only after
+# these jobs pass (the service's "Wait for CI" switch).
 name: ci
 
 on:
@@ -37,6 +38,15 @@ jobs:
         run: cd web && bun install --frozen-lockfile
       - name: mise run typecheck
         run: mise run typecheck
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image Railway builds, so a Dockerfile or .dockerignore mistake fails here, not in a deploy.
+      - name: docker build (no push)
+        run: docker build --tag colony-planner:ci .
 
   check:
     # Pinned: move to the next Ubuntu on purpose, not when GitHub moves the latest label.

@@ -9,6 +9,7 @@ import {
 	MonitorIcon,
 	MoonIcon,
 	PenLineIcon,
+	ScrollTextIcon,
 	ShieldCheckIcon,
 	SunIcon,
 	UsersRoundIcon,
@@ -141,6 +142,12 @@ export function ProfileMenu({ account, me }: { account: AccountMe; me?: Me }) {
 							</Link>
 						</DropdownMenuItem>
 						{account.isSiteOwner ? <SiteAdminItem /> : null}
+						<DropdownMenuItem asChild>
+							<Link to="/privacy">
+								<ScrollTextIcon />
+								Privacy
+							</Link>
+						</DropdownMenuItem>
 					</DropdownMenuGroup>
 					<DropdownMenuSeparator />
 					<DropdownMenuLabel>Theme</DropdownMenuLabel>

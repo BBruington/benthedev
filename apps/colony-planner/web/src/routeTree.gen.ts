@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as SignedInRouteImport } from "./routes/_signedIn"
 import { Route as LoginRouteImport } from "./routes/login"
+import { Route as PrivacyRouteImport } from "./routes/privacy"
 import { Route as SignedInAccountRouteImport } from "./routes/_signedIn/_account"
 import { Route as SignedInAccountIndexRouteImport } from "./routes/_signedIn/_account/index"
 import { Route as SignedInAccountAdminRouteImport } from "./routes/_signedIn/_account/admin"
@@ -46,6 +47,11 @@ const SignedInRoute = SignedInRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: "/login",
   path: "/login",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: "/privacy",
+  path: "/privacy",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignedInAccountRoute = SignedInAccountRouteImport.update({
@@ -207,6 +213,7 @@ const SignedInCCampaignSlugShellSessionsSessionIdRoute =
 export interface FileRoutesByFullPath {
   "/": typeof SignedInAccountIndexRoute
   "/login": typeof LoginRoute
+  "/privacy": typeof PrivacyRoute
   "/admin": typeof SignedInAccountAdminRoute
   "/request": typeof SignedInAccountRequestRoute
   "/c/$campaignSlug": typeof SignedInCCampaignSlugRouteWithChildren
@@ -235,6 +242,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof SignedInAccountIndexRoute
   "/login": typeof LoginRoute
+  "/privacy": typeof PrivacyRoute
   "/admin": typeof SignedInAccountAdminRoute
   "/request": typeof SignedInAccountRequestRoute
   "/c/$campaignSlug": typeof SignedInCCampaignSlugShellIndexRoute
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/_signedIn": typeof SignedInRouteWithChildren
   "/login": typeof LoginRoute
+  "/privacy": typeof PrivacyRoute
   "/_signedIn/_account": typeof SignedInAccountRouteWithChildren
   "/_signedIn/_account/admin": typeof SignedInAccountAdminRoute
   "/_signedIn/_account/request": typeof SignedInAccountRequestRoute
@@ -296,6 +305,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/login"
+    | "/privacy"
     | "/admin"
     | "/request"
     | "/c/$campaignSlug"
@@ -324,6 +334,7 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/login"
+    | "/privacy"
     | "/admin"
     | "/request"
     | "/c/$campaignSlug"
@@ -351,6 +362,7 @@ export interface FileRouteTypes {
     | "__root__"
     | "/_signedIn"
     | "/login"
+    | "/privacy"
     | "/_signedIn/_account"
     | "/_signedIn/_account/admin"
     | "/_signedIn/_account/request"
@@ -383,6 +395,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   SignedInRoute: typeof SignedInRouteWithChildren
   LoginRoute: typeof LoginRoute
+  PrivacyRoute: typeof PrivacyRoute
 }
 
 declare module "@tanstack/react-router" {
@@ -399,6 +412,13 @@ declare module "@tanstack/react-router" {
       path: "/login"
       fullPath: "/login"
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/privacy": {
+      id: "/privacy"
+      path: "/privacy"
+      fullPath: "/privacy"
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/_signedIn/_account": {
@@ -711,6 +731,7 @@ const SignedInRouteWithChildren = SignedInRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   SignedInRoute: SignedInRouteWithChildren,
   LoginRoute: LoginRoute,
+  PrivacyRoute: PrivacyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

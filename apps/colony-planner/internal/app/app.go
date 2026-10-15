@@ -150,7 +150,8 @@ func New(options Options) (*Server, error) {
 	handler = options.Auth.Middleware(handler)
 	handler = http.NewCrossOriginProtection().Handler(handler)
 	handler = options.Auth.RequireKnownHost(handler)
-	handler = securityHeaders(handler)
+	handler = securityHeaders(handler, options.Auth.HTTPSOnly())
+	handler = compressResponses(handler)
 	handler = logRequests(handler, logger)
 	requestReadTimeout := options.RequestReadTimeout
 	if requestReadTimeout <= 0 {
@@ -232,11 +233,16 @@ func requireJSONBodies(next http.Handler) http.Handler {
 	})
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func securityHeaders(next http.Handler, httpsOnly bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("Referrer-Policy", "same-origin")
 		writer.Header().Set("X-Frame-Options", "DENY")
+		// A typed http:// address or a first visit could otherwise be served a fake page on a hostile
+		// network. No includeSubDomains: other names under the author's domain may still be plain http.
+		if httpsOnly {
+			writer.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		// API and sign-in answers are per viewer, so no browser or proxy may keep one: a stored DM
 		// projection could be served to a player who asks for the same URL. Set before the handler runs,
 		// so huma's own error responses carry it and a handler may still choose another policy.

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import {
 	CircleAlertIcon,
 	CrownIcon,
@@ -94,8 +94,14 @@ function LoginPage() {
 						loadError={loginOptions.error}
 					/>
 					<p className="mt-6 text-center text-muted-foreground text-sm">
-						Discord shares only your username and avatar with this site. Nothing is ever posted as
-						you.
+						Discord shares your ID, name and avatar with this site, nothing else. Nothing is ever
+						posted as you.{" "}
+						<Link
+							className="text-gilt-ink underline decoration-gilt-ink/50 underline-offset-4 hover:decoration-gilt-ink"
+							to="/privacy"
+						>
+							Privacy
+						</Link>
 					</p>
 					<p className="mt-3 text-center font-flavor text-muted-foreground italic">
 						Run your own colony campaign? Sign in and ask.
