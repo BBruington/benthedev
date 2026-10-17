@@ -1,6 +1,7 @@
 # Colony's CI: lint and typecheck as their own fast jobs, `mise run check` (every check, tests included)
 # and the production image build alongside them. It deploys nothing itself: Railway deploys main only
-# after these jobs pass (the service's "Wait for CI" switch). The paths match the service's watch path.
+# after these jobs pass (the service's "Wait for CI" switch). The paths match the service's watch path,
+# plus the root mise.toml, which colony's tasks run through.
 name: colony-planner
 
 on:
@@ -8,10 +9,12 @@ on:
     paths:
       - apps/colony-planner/**
       - .github/workflows/colony-planner.yml
+      - mise.toml
   pull_request:
     paths:
       - apps/colony-planner/**
       - .github/workflows/colony-planner.yml
+      - mise.toml
 
 permissions:
   contents: read
