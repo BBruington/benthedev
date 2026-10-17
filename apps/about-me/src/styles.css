@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@theme {
+	--color-background: hsl(30 8% 7%);
+	--color-foreground: hsl(36 22% 90%);
+	--color-card: hsl(30 8% 10%);
+	--color-muted-foreground: hsl(32 7% 62%);
+	--color-border: hsl(30 7% 19%);
+	--color-primary: hsl(18 55% 62%);
+	--color-primary-foreground: hsl(30 8% 7%);
+	--font-sans: "IBM Plex Sans", system-ui, sans-serif;
+	--font-serif: "Newsreader Variable", Georgia, serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@layer base {
+	:root {
+		color-scheme: dark;
+	}
+
+	::selection {
+		background-color: var(--color-primary);
+		color: var(--color-primary-foreground);
+	}
+}
+
+@utility link {
+	@apply rounded-sm transition-colors duration-200 hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary;
+}
+
+@utility link-underlined {
+	@apply link underline decoration-border underline-offset-4 hover:decoration-primary;
+}

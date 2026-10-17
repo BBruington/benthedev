@@ -1,0 +1,6 @@
+# Run package binaries (vite, tsc) on Bun instead of Node, so the app needs no Node install.
+[run]
+bun = true
+
+[install]
+exact = true

@@ -1,0 +1,31 @@
+{
+	"dependencies": {
+		"@fontsource-variable/newsreader": "5.3.0",
+		"@fontsource/ibm-plex-mono": "5.3.0",
+		"@fontsource/ibm-plex-sans": "5.3.0",
+		"react": "19.3.0",
+		"react-dom": "19.3.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@tailwindcss/vite": "4.3.3",
+		"@types/bun": "1.4.2",
+		"@types/react": "19.3.0",
+		"@types/react-dom": "19.3.0",
+		"@vitejs/plugin-react": "6.1.1",
+		"tailwindcss": "4.3.3",
+		"typescript": "7.0.2",
+		"vite": "8.3.2"
+	},
+	"name": "about-me",
+	"private": true,
+	"scripts": {
+		"build": "vite build && bun scripts/prerender.tsx",
+		"dev": "vite",
+		"lint": "biome ci .",
+		"preview": "vite preview",
+		"typecheck": "tsc --noEmit"
+	},
+	"type": "module",
+	"version": "0.0.0"
+}

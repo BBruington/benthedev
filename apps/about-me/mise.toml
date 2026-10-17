@@ -1,0 +1,23 @@
+[tools]
+bun = "1.4.2"
+
+[tasks.dev]
+description = "Run the Vite dev server (the prerender runs only in build, so dev renders client-side)"
+run = "bun run dev"
+
+[tasks.build]
+description = "Build the static site into dist/, then prerender the page into dist/index.html"
+run = "bun run build"
+
+[tasks.lint]
+description = "Lint and format check with Biome"
+run = "bun run lint"
+
+[tasks.typecheck]
+description = "Typecheck with tsc"
+run = "bun run typecheck"
+
+[tasks.check]
+description = "Lint and typecheck, then build"
+depends = ["lint", "typecheck"]
+run = "bun run build"

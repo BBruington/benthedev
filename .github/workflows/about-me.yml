@@ -1,0 +1,50 @@
+# About-me's CI: `mise run check` and the image Railway builds. It deploys nothing itself: Railway deploys
+# main only after it passes. The two root files are here because the app extends the root Biome config and
+# runs its tasks through the root mise.toml.
+name: about-me
+
+on:
+  push:
+    paths:
+      - apps/about-me/**
+      - .github/workflows/about-me.yml
+      - biome.json
+      - mise.toml
+  pull_request:
+    paths:
+      - apps/about-me/**
+      - .github/workflows/about-me.yml
+      - biome.json
+      - mise.toml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/about-me
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: true
+          cache: true
+          working_directory: apps/about-me
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: mise run check
+        run: mise run check
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image Railway builds (root directory apps/about-me), so a Dockerfile mistake fails here, not in a deploy.
+      - name: docker build (no push)
+        run: docker build --tag about-me:ci .
