@@ -1,0 +1,100 @@
+# Colony's CI: lint and typecheck as their own fast jobs, `mise run check` (every check, tests included)
+# and the production image build alongside them. It deploys nothing itself: Railway deploys main only
+# after these jobs pass (the service's "Wait for CI" switch). The paths match the service's watch path.
+name: colony-planner
+
+on:
+  push:
+    paths:
+      - apps/colony-planner/**
+      - .github/workflows/colony-planner.yml
+  pull_request:
+    paths:
+      - apps/colony-planner/**
+      - .github/workflows/colony-planner.yml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/colony-planner
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: true
+          cache: true
+          working_directory: apps/colony-planner
+      - name: Install web dependencies
+        run: cd web && bun install --frozen-lockfile
+      - name: mise run lint
+        run: mise run lint
+
+  typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: true
+          cache: true
+          working_directory: apps/colony-planner
+      - name: Install web dependencies
+        run: cd web && bun install --frozen-lockfile
+      - name: mise run typecheck
+        run: mise run typecheck
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image Railway builds (root directory apps/colony-planner), so a Dockerfile or .dockerignore
+      # mistake fails here, not in a deploy.
+      - name: docker build (no push)
+        run: docker build --tag colony-planner:ci .
+
+  check:
+    # Pinned: move to the next Ubuntu on purpose, not when GitHub moves the latest label.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.10
+        env:
+          POSTGRES_USER: colony
+          # A throwaway database that exists only for this CI job.
+          POSTGRES_PASSWORD: colony-ci
+          POSTGRES_DB: colony_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U colony -d colony_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      APP_ENV: test
+      PUBLIC_URL: http://localhost:5173
+      DATABASE_URL: postgres://colony:colony-ci@127.0.0.1:5432/colony_test?sslmode=disable
+      TEST_DATABASE_URL: postgres://colony:colony-ci@127.0.0.1:5432/colony_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: true
+          cache: true
+          working_directory: apps/colony-planner
+      - name: mise run check
+        run: mise run check
+      # Untracked files count too: a new sqlc output file that was never added would otherwise be
+      # regenerated here and pass, although a clean checkout doesn't build.
+      - name: Generated code is committed and current
+        run: git diff --exit-code -- . && test -z "$(git status --porcelain -- .)" || { git status --porcelain -- .; exit 1; }

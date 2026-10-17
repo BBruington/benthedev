@@ -1,0 +1,6 @@
+{
+	"name": "benthedev",
+	"packageManager": "bun@1.4.2",
+	"private": true,
+	"workspaces": []
+}

@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build output. The contents only, so an app's own .gitignore can keep a placeholder (colony's web/dist/.gitkeep).
+**/dist/*
+bin/
+
+# Local environment (secrets never committed)
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+
+# Scratch and tooling output
+tmp/
+.nx/
+coverage/
+*.out
+*.test
+.DS_Store
