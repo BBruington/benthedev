@@ -1,0 +1,63 @@
+name: colony-planner
+
+services:
+  postgres:
+    image: postgres:17.10
+    container_name: colony-planner-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: colony
+      POSTGRES_DB: colony
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing; run `mise run setup` to create .env}
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - colony-postgres:/var/lib/postgresql/data
+    configs:
+      - source: create-test-database
+        target: /docker-entrypoint-initdb.d/10-create-test-database.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U colony -d colony"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Database browser (DbGate), like Drizzle Studio: browse, filter and edit rows in a web grid.
+  # Starts only with `mise run db:studio` (the "studio" profile) and listens on this Mac only. The
+  # connection is fixed here, so DbGate offers no way to add or edit connections. Edits made in it skip
+  # the app's rules (colony version, undo, timeline); `mise run fresh` resets the sample data.
+  studio:
+    image: dbgate/dbgate:7.3.1-alpine
+    container_name: colony-planner-studio
+    profiles: ["studio"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CONNECTIONS: colony
+      LABEL_colony: Colony Planner (local)
+      ENGINE_colony: postgres@dbgate-plugin-postgres
+      SERVER_colony: postgres
+      PORT_colony: "5432"
+      USER_colony: colony
+      PASSWORD_colony: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing; run `mise run setup` to create .env}
+      DATABASE_colony: colony
+    ports:
+      - "127.0.0.1:54330:3000"
+    volumes:
+      - colony-studio:/root/.dbgate
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+configs:
+  create-test-database:
+    content: |
+      CREATE DATABASE colony_test;
+
+volumes:
+  colony-postgres:
+  colony-studio:

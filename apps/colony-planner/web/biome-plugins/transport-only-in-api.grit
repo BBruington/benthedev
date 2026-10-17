@@ -1,0 +1,44 @@
+language js
+
+// The bare globals (fetch, EventSource, XMLHttpRequest, WebSocket) are caught by noRestrictedGlobals in
+// biome.json. This catches the same transports reached through window, globalThis or self, plus
+// navigator.sendBeacon. Only src/api/ may talk to the server (CLAUDE.md "Boundaries").
+or {
+	`$object.$property` where {
+		$object <: or {
+			`window`,
+			`globalThis`,
+			`self`
+		},
+		$property <: or {
+			`fetch`,
+			`EventSource`,
+			`XMLHttpRequest`,
+			`WebSocket`
+		}
+	},
+	`$object[$key]` where {
+		$object <: or {
+			`window`,
+			`globalThis`,
+			`self`
+		},
+		$key <: or {
+			`"fetch"`,
+			`"EventSource"`,
+			`"XMLHttpRequest"`,
+			`"WebSocket"`
+		}
+	},
+	`Reflect.get($object, $key)` where {
+		$object <: or {
+			`window`,
+			`globalThis`,
+			`self`
+		}
+	},
+	`navigator.sendBeacon`
+} as $access where {
+	$filename <: not r".*src/api/.*",
+	register_diagnostic(span=$access, message="Talk to the server only through src/api, the one seam to it.")
+}

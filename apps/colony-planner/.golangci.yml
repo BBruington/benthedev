@@ -1,0 +1,151 @@
+version: "2"
+
+# No run.build-tags here: a tag set in this file can't be removed from the command line, and
+# scripts/check.sh lints both builds (`--build-tags=devauth`, then none).
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - forbidigo
+  settings:
+    depguard:
+      rules:
+        game-is-pure:
+          files:
+            - "**/internal/game/**"
+          deny:
+            - pkg: github.com/BBruington/colony-planner/internal/store
+              desc: internal/game holds pure rules; handlers load state and pass it in
+            - pkg: github.com/jackc/pgx
+              desc: internal/game does no database access
+            - pkg: database
+              desc: internal/game does no database access
+            - pkg: net
+              desc: internal/game does no network access
+            - pkg: github.com/bwmarrin/discordgo
+              desc: internal/game does no network access
+            - pkg: os
+              desc: internal/game does no file or process access; handlers load data and pass it in
+            - pkg: os/exec
+              desc: internal/game starts no processes
+            - pkg: syscall
+              desc: internal/game does no system calls
+            - pkg: log
+              desc: internal/game reports through return values, not logs
+            - pkg: math/rand
+              desc: internal/game is deterministic
+            - pkg: crypto/rand
+              desc: internal/game is deterministic
+        # The seams (spec §8.6, CLAUDE.md "Boundaries"). Dependencies point inward:
+        #   cmd/colony -> app -> auth -> core -> store;  cmd/colony -> bot -> core;  seed -> core, store
+        # The first two rules are allow-lists over the whole module, so a package added later is covered
+        # without editing this file. Tests may cross these lines to build fixtures.
+        data-only-in-core:
+          files:
+            - "$all"
+            - "!**/internal/core/**"
+            - "!**/internal/store/**"
+            - "!**/internal/seed/**"
+            - "!**/cmd/colony/**"
+            - "!**/db/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/BBruington/colony-planner/internal/store
+              desc: only internal/core touches data; call a core function instead (the seed, a fixture loader, is the one exception)
+            - pkg: github.com/jackc/pgx
+              desc: only internal/core touches data; call a core function instead
+            - pkg: database/sql
+              desc: only internal/core touches data; call a core function instead
+            - pkg: github.com/BBruington/colony-planner/db
+              desc: migrations and test databases are wired only in cmd/colony and tests
+        huma-only-in-app:
+          files:
+            - "$all"
+            - "!**/internal/app/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/danielgtaylor/huma
+              desc: huma stays in internal/app so the API toolchain can be swapped by rewriting one package (spec §8.6)
+        core-is-transport-neutral:
+          files:
+            - "**/internal/core/**"
+          deny:
+            - pkg: net$
+              desc: internal/core does no networking; it reaches Discord through the Notifier interface
+            - pkg: net/http
+              desc: internal/core is transport-neutral; HTTP belongs in internal/app
+            - pkg: github.com/bwmarrin/discordgo
+              desc: core reaches Discord only through the Notifier interface; discordgo belongs in internal/bot
+            - pkg: golang.org/x/oauth2
+              desc: sign-in mechanics belong in internal/auth; core receives a DiscordIdentity
+            - pkg: github.com/BBruington/colony-planner/internal/app
+              desc: core knows none of its callers; app imports core, never the reverse
+            - pkg: github.com/BBruington/colony-planner/internal/auth
+              desc: core knows none of its callers; it evicts sessions through the SessionEvictor interface
+            - pkg: github.com/BBruington/colony-planner/internal/bot
+              desc: core knows none of its callers; Beny Bot implements core's Notifier interface
+            - pkg: github.com/BBruington/colony-planner/internal/seed
+              desc: core knows none of its callers
+        app-is-transport-only:
+          files:
+            - "**/internal/app/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/bwmarrin/discordgo
+              desc: Discord belongs in internal/bot
+            - pkg: github.com/BBruington/colony-planner/internal/bot
+              desc: the website and Beny Bot meet only in cmd/colony
+            - pkg: github.com/BBruington/colony-planner/internal/seed
+              desc: the seed is a command-line tool, wired in cmd/colony
+        auth-is-sign-in-only:
+          files:
+            - "**/internal/auth/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/bwmarrin/discordgo
+              desc: Discord's bot API belongs in internal/bot; auth only does OAuth2 sign-in
+            - pkg: github.com/BBruington/colony-planner/internal/app
+              desc: app imports auth (for its middleware and sign-in routes), never the reverse
+            - pkg: github.com/BBruington/colony-planner/internal/bot
+              desc: auth and Beny Bot meet only in cmd/colony
+            - pkg: github.com/BBruington/colony-planner/internal/seed
+              desc: the seed is a command-line tool, wired in cmd/colony
+        bot-talks-to-core:
+          files:
+            - "**/internal/bot/**"
+            - "!$test"
+          deny:
+            - pkg: net/http
+              desc: Beny Bot talks to Discord through discordgo and to the colony through core
+            - pkg: github.com/BBruington/colony-planner/internal/app
+              desc: Beny Bot and the website meet only in cmd/colony
+            - pkg: github.com/BBruington/colony-planner/internal/auth
+              desc: Beny Bot resolves callers with core.ViewerByDiscordID, not web sessions
+            - pkg: github.com/BBruington/colony-planner/internal/seed
+              desc: the seed is a command-line tool, wired in cmd/colony
+        seed-uses-core:
+          files:
+            - "**/internal/seed/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/BBruington/colony-planner/internal/app
+              desc: the seed loads data through internal/core and internal/store, never HTTP
+            - pkg: github.com/BBruington/colony-planner/internal/auth
+              desc: the seed loads data through internal/core and internal/store
+            - pkg: github.com/BBruington/colony-planner/internal/bot
+              desc: the seed never talks to Discord
+    forbidigo:
+      forbid:
+        # time itself stays allowed: occurrences() needs time.Date and a *time.Location passed in.
+        - pattern: ^time\.(Now|Since|Until|After|AfterFunc|Tick|NewTicker|NewTimer|Sleep)$
+          msg: internal/game has no clock; pass the time in
+  exclusions:
+    rules:
+      - path-except: internal/game/
+        linters:
+          - forbidigo
+
+formatters:
+  enable:
+    - gofmt

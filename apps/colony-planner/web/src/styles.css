@@ -1,0 +1,325 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+/* Latin subsets only: the binary embeds every font file the build emits. */
+@import "@fontsource/cinzel/latin-400.css";
+@import "@fontsource/cinzel/latin-600.css";
+@import "@fontsource/cinzel/latin-700.css";
+@import "@fontsource/alegreya-sans/latin-400.css";
+@import "@fontsource/alegreya-sans/latin-500.css";
+@import "@fontsource/alegreya-sans/latin-700.css";
+@import "@fontsource/alegreya/latin-400-italic.css";
+
+/* Dark follows the device unless the profile menu forces a theme with data-theme on <html>. */
+@custom-variant dark {
+	@media (prefers-color-scheme: dark) {
+		&:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+			@slot;
+		}
+	}
+	&:where([data-theme="dark"], [data-theme="dark"] *, .theme-night, .theme-night *) {
+		@slot;
+	}
+}
+
+/*
+ * "Night Sea and Parchment" (spec §6.6). Light is "Parchment".
+ * The ten palette tokens come from the spec. The *-ink tokens are the same hues adjusted to reach
+ * AA (4.5:1) as text on every surface, and the on-* tokens are the text colours that reach AA on
+ * each fill; --field-line gives inputs the 3:1 boundary contrast that --umber cannot.
+ */
+:root {
+	--bg: #f3ead6;
+	--surface: #fbf5e8;
+	--surface-raised: #ffffff;
+	--surface-sunken: #ebdfc4;
+	--ink: #2a1e12;
+	--ink-muted: #6b5a44;
+	--gilt: #7a5a1c;
+	--verdigris: #2f6d65;
+	--moss: #4f7a33;
+	--ember: #a0352a;
+	--umber: #d9c7a0;
+
+	--gilt-ink: #7a5a1c;
+	--verdigris-ink: #2f6d65;
+	--moss-ink: #466e2d;
+	--ember-ink: #a0352a;
+	--on-gilt: #fbf5e8;
+	--on-verdigris: #fbf5e8;
+	--on-moss: #ffffff;
+	--on-ember: #fff8ea;
+	--field-line: #857560;
+	--hairline: #d9c7a0;
+	--shadow-tint: 32 22 10;
+	--scrim: rgb(42 30 18 / 0.45);
+	--sea-glow: rgb(47 109 101 / 0.1);
+	--gilt-glow: rgb(122 90 28 / 0.08);
+
+	--radius: 0.625rem;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #0e1a1d;
+		--surface: #15262a;
+		--surface-raised: #1c3136;
+		--surface-sunken: #0a1416;
+		--ink: #ede3cc;
+		--ink-muted: #b9ad92;
+		--gilt: #d4a84b;
+		--verdigris: #4e8f86;
+		--moss: #6e9a4c;
+		--ember: #b5432f;
+		--umber: #3a2614;
+
+		--gilt-ink: #d4a84b;
+		--verdigris-ink: #6fb0a6;
+		--moss-ink: #80ae5c;
+		--ember-ink: #e0806b;
+		--on-gilt: #0e1a1d;
+		--on-verdigris: #0e1a1d;
+		--on-moss: #0e1a1d;
+		--on-ember: #fff8ea;
+		--field-line: #7a7a6a;
+		--hairline: rgb(212 168 75 / 0.16);
+		--shadow-tint: 0 0 0;
+		--scrim: rgb(4 10 12 / 0.7);
+		--sea-glow: rgb(78 143 134 / 0.14);
+		--gilt-glow: rgb(212 168 75 / 0.07);
+	}
+}
+
+/* .theme-night keeps a subtree in the night palette whatever the theme: the screens over the Eldari art. */
+:root[data-theme="dark"],
+.theme-night {
+	--bg: #0e1a1d;
+	--surface: #15262a;
+	--surface-raised: #1c3136;
+	--surface-sunken: #0a1416;
+	--ink: #ede3cc;
+	--ink-muted: #b9ad92;
+	--gilt: #d4a84b;
+	--verdigris: #4e8f86;
+	--moss: #6e9a4c;
+	--ember: #b5432f;
+	--umber: #3a2614;
+
+	--gilt-ink: #d4a84b;
+	--verdigris-ink: #6fb0a6;
+	--moss-ink: #80ae5c;
+	--ember-ink: #e0806b;
+	--on-gilt: #0e1a1d;
+	--on-verdigris: #0e1a1d;
+	--on-moss: #0e1a1d;
+	--on-ember: #fff8ea;
+	--field-line: #7a7a6a;
+	--hairline: rgb(212 168 75 / 0.16);
+	--shadow-tint: 0 0 0;
+	--scrim: rgb(4 10 12 / 0.7);
+	--sea-glow: rgb(78 143 134 / 0.14);
+	--gilt-glow: rgb(212 168 75 / 0.07);
+}
+
+/* shadcn/ui reads these names; they all point at the palette above. They are declared again on
+.theme-night so they resolve against that subtree's palette. */
+:root,
+.theme-night {
+	--background: var(--bg);
+	--foreground: var(--ink);
+	--card: var(--surface);
+	--card-foreground: var(--ink);
+	--popover: var(--surface-raised);
+	--popover-foreground: var(--ink);
+	--primary: var(--gilt);
+	--primary-foreground: var(--on-gilt);
+	--secondary: var(--verdigris);
+	--secondary-foreground: var(--on-verdigris);
+	--muted: var(--surface-sunken);
+	--muted-foreground: var(--ink-muted);
+	--accent: color-mix(in oklab, var(--gilt) 12%, transparent);
+	--accent-foreground: var(--ink);
+	--destructive: var(--ember);
+	--destructive-foreground: var(--on-ember);
+	--border: var(--hairline);
+	--input: var(--field-line);
+	--ring: var(--gilt);
+}
+
+@theme inline {
+	--color-bg: var(--bg);
+	--color-surface: var(--surface);
+	--color-surface-raised: var(--surface-raised);
+	--color-surface-sunken: var(--surface-sunken);
+	--color-ink: var(--ink);
+	--color-ink-muted: var(--ink-muted);
+	--color-gilt: var(--gilt);
+	--color-verdigris: var(--verdigris);
+	--color-moss: var(--moss);
+	--color-ember: var(--ember);
+	--color-umber: var(--umber);
+	--color-gilt-ink: var(--gilt-ink);
+	--color-verdigris-ink: var(--verdigris-ink);
+	--color-moss-ink: var(--moss-ink);
+	--color-ember-ink: var(--ember-ink);
+	--color-on-gilt: var(--on-gilt);
+	--color-on-verdigris: var(--on-verdigris);
+	--color-on-moss: var(--on-moss);
+	--color-on-ember: var(--on-ember);
+	--color-field-line: var(--field-line);
+	--color-hairline: var(--hairline);
+	--color-scrim: var(--scrim);
+
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--radius-2xl: calc(var(--radius) + 8px);
+
+	--shadow-card:
+		0 1px 0 rgb(255 255 255 / 0.04) inset, 0 1px 2px rgb(var(--shadow-tint) / 0.08),
+		0 8px 24px -12px rgb(var(--shadow-tint) / 0.25);
+	--shadow-float:
+		0 1px 0 rgb(255 255 255 / 0.05) inset, 0 12px 40px -12px rgb(var(--shadow-tint) / 0.45),
+		0 2px 6px rgb(var(--shadow-tint) / 0.12);
+
+	--font-display: "Cinzel", "Georgia", serif;
+	--font-sans: "Alegreya Sans", "Helvetica Neue", "Arial", sans-serif;
+	--font-flavor: "Alegreya", "Georgia", serif;
+
+	--animate-live-ring: live-ring 2.4s ease-out infinite;
+	--animate-chip-in: chip-in 240ms ease-out;
+	--animate-hourglass: hourglass 5s ease-in-out infinite;
+
+	@keyframes hourglass {
+		0%,
+		42% {
+			rotate: 0deg;
+		}
+		50%,
+		92% {
+			rotate: 180deg;
+		}
+		100% {
+			rotate: 360deg;
+		}
+	}
+
+	@keyframes live-ring {
+		0% {
+			opacity: 0.55;
+			transform: scale(1);
+		}
+		70%,
+		100% {
+			opacity: 0;
+			transform: scale(2.6);
+		}
+	}
+
+	@keyframes chip-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+
+	html {
+		color-scheme: light;
+		-webkit-tap-highlight-color: transparent;
+		scrollbar-color: color-mix(in oklab, var(--ink-muted) 45%, transparent) transparent;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		html:not([data-theme="light"]) {
+			color-scheme: dark;
+		}
+	}
+
+	html[data-theme="dark"],
+	.theme-night {
+		color-scheme: dark;
+	}
+
+	body {
+		@apply bg-background text-foreground font-sans antialiased;
+		/* Every number lines up in columns (spec §6.6); Alegreya Sans defaults to old-style figures. */
+		font-variant-numeric: lining-nums tabular-nums;
+		background-image:
+			radial-gradient(70rem 36rem at 12% -12%, var(--sea-glow), transparent 70%),
+			radial-gradient(50rem 30rem at 100% 0%, var(--gilt-glow), transparent 70%);
+		background-attachment: fixed;
+		min-height: 100dvh;
+	}
+
+	::selection {
+		background: color-mix(in oklab, var(--gilt) 35%, transparent);
+		color: var(--ink);
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+}
+
+/* A thin gilt rule with a diamond at its centre, used between sections. */
+@utility rule-gilt {
+	background-image: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in oklab, var(--gilt) 55%, transparent) 20%,
+		color-mix(in oklab, var(--gilt) 55%, transparent) 80%,
+		transparent
+	);
+	height: 1px;
+}
+
+@utility pb-safe {
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Reduced motion must beat every component's own transition, which only !important can do. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	::before,
+	::after {
+		/* biome-ignore lint/complexity/noImportantStyles: see above */
+		animation-duration: 0.01ms !important;
+		/* biome-ignore lint/complexity/noImportantStyles: see above */
+		animation-iteration-count: 1 !important;
+		/* biome-ignore lint/complexity/noImportantStyles: see above */
+		transition-duration: 0.01ms !important;
+		/* biome-ignore lint/complexity/noImportantStyles: see above */
+		scroll-behavior: auto !important;
+	}
+}

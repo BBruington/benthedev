@@ -1,0 +1,104 @@
+# Hide secret values in mise's task output; PUBLIC_URL and the rest stay readable.
+redactions = ["POSTGRES_PASSWORD", "DATABASE_URL", "TEST_DATABASE_URL", "DISCORD_CLIENT_SECRET", "DISCORD_BOT_TOKEN"]
+
+[tools]
+go = "1.27.2"
+bun = "1.4.2"
+sqlc = "1.31.1"
+golangci-lint = "2.14.0"
+
+[settings]
+# The author's shell puts a Homebrew Go ahead of mise on PATH; this keeps the pinned tools first.
+activate_aggressive = true
+
+[env]
+_.file = ".env"
+
+[tasks.setup]
+description = "Install pinned tools and dependencies, and create .env if it is missing"
+run = [
+  "mise install",
+  "scripts/setup-env.sh",
+  "go mod download",
+  "cd web && bun install --frozen-lockfile",
+]
+
+[tasks."db:up"]
+description = "Start the local Postgres 17 container (127.0.0.1:54329) and wait until it is ready"
+run = "scripts/db-up.sh"
+
+[tasks."db:down"]
+description = "Stop the local Postgres container and the database browser (data stays in the named volumes)"
+run = "docker compose --profile studio down"
+
+[tasks."db:studio"]
+description = "Open DbGate, a browser for the local database (http://localhost:54330), like Drizzle Studio"
+run = "scripts/db-studio.sh"
+
+[tasks.dev]
+description = "Run Postgres, the Go server (devauth, :8080) and Vite (:5173); open http://localhost:5173"
+depends = ["db:up"]
+run = "scripts/dev.sh local"
+
+[tasks."dev:phone"]
+description = "Like dev, but Vite also listens on this Mac's Wi-Fi address for phone testing"
+depends = ["db:up"]
+run = "scripts/dev.sh phone"
+
+[tasks.gen]
+description = "Regenerate sqlc code, the OpenAPI document and the TypeScript API types"
+run = "scripts/gen.sh"
+
+[tasks.test]
+description = "Run Go tests (against the colony_test database) and web unit tests"
+depends = ["db:up"]
+run = [
+  "go test -tags devauth ./...",
+  "cd web && bun run test",
+]
+
+[tasks.lint]
+description = "Lint: the build-tag check, golangci-lint for both builds, then Biome"
+run = [
+  "scripts/check-build-tags.sh",
+  "golangci-lint run --build-tags=devauth ./...",
+  "golangci-lint run ./...",
+  "cd web && bun x biome ci .",
+]
+
+[tasks.typecheck]
+description = "Typecheck: go vet for both builds, then the web's tsc"
+run = [
+  "go vet ./...",
+  "go vet -tags devauth ./...",
+  "cd web && bun run typecheck",
+]
+
+[tasks.check]
+description = "Run every check; ends with \"All checks passed\" or the first failure"
+run = "scripts/check.sh"
+
+[tasks.build]
+description = "Build the web app and the production binary (no devauth) into bin/colony"
+run = [
+  "cd web && bun run build",
+  "go build -trimpath -o bin/colony ./cmd/colony",
+]
+
+[tasks.seed]
+description = "Load the fictional sample campaign into a freshly migrated local database"
+depends = ["db:up"]
+run = "go run ./cmd/colony seed"
+
+[tasks.reset]
+description = "Drop everything in the local database and re-run the migrations"
+depends = ["db:up"]
+run = "go run ./cmd/colony reset"
+
+[tasks.fresh]
+description = "reset, then seed"
+depends = ["db:up"]
+run = [
+  "go run ./cmd/colony reset",
+  "go run ./cmd/colony seed",
+]

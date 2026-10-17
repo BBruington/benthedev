@@ -1,0 +1,7 @@
+# Run package binaries (vite, tsc, biome's wrapper, openapi-typescript) on Bun instead of Node,
+# so the project needs no Node install.
+[run]
+bun = true
+
+[install]
+exact = true

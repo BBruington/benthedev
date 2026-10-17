@@ -1,0 +1,15 @@
+# An allow-list: only what the Dockerfile builds from reaches the build context, so a new local file
+# (.env, a key, a scratch database dump) never does.
+*
+!go.mod
+!go.sum
+!cmd/
+!db/
+!internal/
+!web/
+web/node_modules/
+web/dist/
+web/.tanstack/
+**/.env*
+**/*.pem
+**/.DS_Store

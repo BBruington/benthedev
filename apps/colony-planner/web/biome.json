@@ -1,0 +1,163 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "on",
+				"useSortedAttributes": "on",
+				"useSortedKeys": "on"
+			}
+		},
+		"enabled": true
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"files": {
+		"ignoreUnknown": true,
+		"includes": [
+			"**",
+			"!dist",
+			"!node_modules",
+			"!src/routeTree.gen.ts",
+			"!src/api/openapi.json",
+			"!src/api/schema.d.ts"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"lineWidth": 100
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"complexity": {
+				"noForEach": "error",
+				"noVoid": "error",
+				"useArrowFunction": "error",
+				"useSimplifiedLogicExpression": "error",
+				"useWhile": "error"
+			},
+			"correctness": {
+				"noUnusedVariables": "error",
+				"useParseIntRadix": "error"
+			},
+			"performance": {
+				"noAwaitInLoops": "error",
+				"noDelete": "error",
+				"noNamespaceImport": "error",
+				"noReExportAll": "error",
+				"useTopLevelRegex": "error"
+			},
+			"preset": "recommended",
+			"style": {
+				"noCommonJs": "error",
+				"noInferrableTypes": "error",
+				"noNamespace": "error",
+				"noNegationElse": "error",
+				"noNestedTernary": "error",
+				"noNonNullAssertion": "error",
+				"noParameterAssign": "error",
+				"noProcessEnv": "error",
+				"noRestrictedGlobals": {
+					"level": "error",
+					"options": {
+						"deniedGlobals": {
+							"EventSource": "Live updates go through src/api/stream.ts, the one seam to the server.",
+							"fetch": "Call the server through src/api (the typed client generated from the Go API), the one seam to it.",
+							"WebSocket": "Talk to the server through src/api, the one seam to it.",
+							"XMLHttpRequest": "Talk to the server through src/api, the one seam to it."
+						}
+					}
+				},
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"paths": {
+							"openapi-fetch": "Only src/api builds the API client; import its hooks and queries instead.",
+							"openapi-react-query": "Only src/api builds the API client; import its hooks and queries instead."
+						}
+					}
+				},
+				"noUselessElse": "error",
+				"noYodaExpression": "error",
+				"useAsConstAssertion": "error",
+				"useAtIndex": "error",
+				"useCollapsedElseIf": "error",
+				"useConsistentArrayType": {
+					"level": "error",
+					"options": {
+						"syntax": "shorthand"
+					}
+				},
+				"useExplicitLengthCheck": "error",
+				"useFilenamingConvention": "error",
+				"useForOf": "error",
+				"useFragmentSyntax": "error",
+				"useNodejsImportProtocol": "error",
+				"useNumberNamespace": "error",
+				"useSelfClosingElements": "error",
+				"useShorthandAssign": "error",
+				"useSingleVarDeclarator": "error",
+				"useTemplate": "error",
+				"useThrowNewError": "error",
+				"useThrowOnlyError": "error"
+			},
+			"suspicious": {
+				"noConsole": "error",
+				"noEmptyBlockStatements": "error",
+				"noEvolvingTypes": "error",
+				"noExplicitAny": "error",
+				"noTsIgnore": "error",
+				"useAwait": "error",
+				"useErrorMessage": "error"
+			}
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["src/api/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedGlobals": "off",
+						"noRestrictedImports": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/routes/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"useFilenamingConvention": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["*.config.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noProcessEnv": "off"
+					}
+				}
+			}
+		}
+	],
+	"plugins": [
+		"./biome-plugins/no-import-meta-env.grit",
+		"./biome-plugins/transport-only-in-api.grit"
+	],
+	"root": true
+}

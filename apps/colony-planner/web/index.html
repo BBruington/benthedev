@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport" />
+		<meta content="light dark" name="color-scheme" />
+		<meta content="#F3EAD6" data-scheme="light" media="(prefers-color-scheme: light)" name="theme-color" />
+		<meta content="#0E1A1D" data-scheme="dark" media="(prefers-color-scheme: dark)" name="theme-color" />
+		<meta content="A private website for one D&amp;D campaign: the colony, its people and its world." name="description" />
+		<link href="/manifest.webmanifest" rel="manifest" />
+		<link href="/favicon.svg" rel="icon" type="image/svg+xml" />
+		<link href="/apple-touch-icon.png" rel="apple-touch-icon" />
+		<title>Colony Planner</title>
+		<script>
+			// Apply a theme forced from the profile menu before first paint, so it never flashes.
+			try {
+				const forcedTheme = localStorage.getItem("colony-planner:theme");
+				if (forcedTheme === "light" || forcedTheme === "dark") {
+					document.documentElement.setAttribute("data-theme", forcedTheme);
+				}
+			} catch {
+				// Storage is blocked here, so the device's own theme applies.
+			}
+		</script>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script src="/src/main.tsx" type="module"></script>
+	</body>
+</html>

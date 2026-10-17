@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build output. web/dist/.gitkeep stays tracked so `//go:embed all:dist` always has a file to embed.
+web/dist/*
+!web/dist/.gitkeep
+bin/
+
+# Local environment (secrets never committed)
+.env
+.env.*
+!.env.example
+*.local
+
+# Scratch and tooling output (web/.tanstack is the router plugin's temporary folder)
+tmp/
+web/.tanstack/
+coverage/
+*.out
+*.test
+.DS_Store
