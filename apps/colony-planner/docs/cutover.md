@@ -1,17 +1,23 @@
 # Cutover runbook: Colony Planner goes live
 
-This is your step-by-step guide for moving the table from party-planner to Colony Planner. Every step
-here touches a production account or a secret, so every step is yours: agents never sign in to Railway,
-Neon or the Discord Developer Portal, and never see a production value.
+This is your step-by-step guide for moving the table from party-planner to Colony Planner. Colony
+Planner lives in the benthedev monorepo (`BBruington/benthedev`, folder `apps/colony-planner`) and goes
+live at its own new address, **https://colony.benthedev.com**, from its very first deploy. It never takes
+over party-planner's address, so nobody signs in twice or re-adds a calendar when party-planner stops.
+Every step here touches a production account, a DNS record or a secret, so every step is yours: agents
+never sign in to Railway, Neon, Cloudflare or the Discord Developer Portal, and never see a production
+value.
 
-**The plan, in order** (SPEC.md §10 "M6", as decided on 2026-10-14):
+**The plan, in order** (SPEC.md §10 "M6", as decided on 2026-10-14, with the address from the benthedev
+monorepo plan):
 
-0. Merge M6 into `main` (Part 0): Railway builds `main`, and only M6 has the `Dockerfile`.
-1. Prepare: a Neon database, a Railway service, its settings, and Beny Bot Dev's redirect (Parts 1–4).
-2. Go live on Railway's own address (`https://<something>.up.railway.app`), set up your campaign there,
-   and run a test session with your private test server (Parts 5–9).
-3. Switch day: move your domain from party-planner to the new service, stop the old site and the old
-   bot, and move Beny Bot to your real Discord server (Parts 10–12).
+0. Push the monorepo's `main` with green checks (Part 0): Railway builds `main`.
+1. Prepare: a Neon database, a Railway project and service with its settings, the colony.benthedev.com
+   records in Cloudflare, the variables, and Beny Bot Dev's redirect (Parts 1–4).
+2. Go live at https://colony.benthedev.com, set up your campaign there, and run a test session with your
+   private test server (Parts 5–9).
+3. Switch day: stop party-planner (production and staging), send its address to colony.benthedev.com,
+   remove the old bot, and move Beny Bot to your real Discord server (Parts 10–12).
 4. Afterwards: retire party-planner over 30 days and keep an eye on Neon's usage (Parts 13–14).
 
 The old party-planner site and the old Beny Bot keep serving your table, untouched, until Part 10.
@@ -29,18 +35,19 @@ Budget about two hours for Parts 1–9 (most of it entering your colony) and an 
 
 ---
 
-## Part 0. Merge M6 into `main`
+## Part 0. The monorepo's `main` on GitHub
 
-Railway builds whatever is on `main`, and the `Dockerfile`, the production checks and Go 1.27.2 arrive
-with M6. Built from an older `main`, Railway would guess how to build the app on its own: no website in
-the binary and no production mode.
+Railway builds whatever is on `main` of `BBruington/benthedev`, from the `apps/colony-planner` folder.
+The old `BBruington/colony-planner` repository is not used for deploys; archive it once this runbook is
+done.
 
-1. On GitHub, merge the M6 pull request into `main`.
-2. Open the repository's **Actions** tab and wait until the run on `main` shows all four checks green
-   (lint, typecheck, docker, check).
+1. On GitHub, create the private repository `BBruington/benthedev` (empty: no README, licence or
+   `.gitignore`) and push `main` from `~/myCodeSpace/benthedev`.
+2. Open the repository's **Actions** tab and wait until the **colony-planner** workflow's run on `main`
+   shows all four jobs green (lint, typecheck, docker, check).
 
-**Success looks like:** `main` on GitHub has a `Dockerfile` at the top, and its latest commit has a green
-tick.
+**Success looks like:** `main` on GitHub has `apps/colony-planner/Dockerfile`, and the colony-planner
+workflow's latest run on it has a green tick.
 
 ## Part 1. The Neon database
 
@@ -77,24 +84,32 @@ You'll create a new Neon project with one database called `colony` on Postgres 1
 **If it fails:** Neon refuses a database named `colony` only if one exists already; use that one. If the
 string contains `-pooler`, the pooling switch is still on.
 
-## Part 2. The Railway service
+## Part 2. The Railway project, its service and its address
+
+The monorepo holds more than one app, so the service must know its folder **before** it builds anything:
+start from an empty project and set the folder before the first deploy.
 
 1. Open https://railway.com and sign in. You're on the **Hobby** plan (one small always-on server).
-2. Click **New Project** → **Deploy from GitHub repo**. If Railway asks, give its GitHub app access to the
-   private repository `BBruington/colony-planner` (only that one is enough).
-3. Pick `BBruington/colony-planner`. Railway finds the `Dockerfile` at the top of the repository and
-   starts a first build at once. **That first deploy fails** (it has no settings yet). That's expected;
-   carry on.
-4. Click the new service (the box on the project's canvas) and open **Settings**. Railway no longer
+2. Give Railway's GitHub app access to the monorepo: on GitHub, **Settings** → **Applications** →
+   **Railway** → **Configure** → **Repository access**, and add `BBruington/benthedev` (only that one is
+   enough). If Railway has never been connected, it asks for this in step 4 instead.
+3. In Railway, click **New Project** → **Empty Project**. Rename it `colony-planner` (its **Settings**).
+4. On the empty canvas, click **Create** (or **+ New**) → **GitHub Repo** → `BBruington/benthedev`.
+   Railway adds the service and shows the change waiting at the top of the canvas. **Don't click Deploy
+   yet**: with no folder set, it would try to build the whole monorepo and fail. (If Railway starts a
+   build on its own anyway, let it fail; nothing is live yet.)
+5. Click the new service (the box on the project's canvas) and open **Settings**. Railway no longer
    reads `railway.toml` for a new service, so set these by hand (the file keeps the same values on record),
    from top to bottom:
+   - **Source → Root Directory:** `apps/colony-planner`. Railway builds only that folder.
    - **Source:** the branch is `main`, and **Wait for CI** is **on**, so a push to `main` deploys only
      after the GitHub checks pass. (The switch appears once GitHub has run the checks on `main` at least
-     once.)
-   - **Networking → Public Networking:** click **Generate Domain**. If Railway asks for a port, type
-     `8080`. Copy the address it shows, such as `https://colony-planner-production.up.railway.app`. This
-     is your **Railway address** until switch day.
-   - **Build → Builder:** **Dockerfile**, with the Dockerfile path `Dockerfile`.
+     once.) Railway waits for every workflow a commit runs, so a commit that also touches another app
+     waits for that app's checks too.
+   - **Build → Watch Paths:** `/apps/colony-planner/**`. A push that changes nothing in colony's folder
+     (an about-me change, say) doesn't redeploy colony.
+   - **Build → Builder:** **Dockerfile**, with the Dockerfile path `Dockerfile` (inside the root
+     directory).
    - **Deploy → Regions:** the region next to your Neon database (Part 1).
    - **Deploy → Replicas:** **1**. Never raise it: Beny Bot, its timers, the sign-in cache and the live
      updates all live inside the one server, and a second copy would run a second Beny Bot.
@@ -103,6 +118,22 @@ string contains `-pooler`, the pooling switch is still on.
    - **Deploy → Restart Policy:** **On Failure**, at most `10` retries.
    - **Serverless** (also called App Sleeping): **off**. A sleeping server can't send reminders or create
      Discord events on time.
+6. **The address.** Still in **Settings** → **Networking** → **Custom Domain**, type
+   `colony.benthedev.com`, port `8080`, **Add**. Don't click **Generate Domain**: the site answers only at
+   its own address, so a `*.up.railway.app` address would show nothing useful. Railway shows two records
+   to create: a **CNAME** named `colony` whose value ends in `.up.railway.app`, and a **TXT** named
+   `_railway-verify.colony`. Keep that panel open.
+7. **Cloudflare.** Open https://dash.cloudflare.com → `benthedev.com` → **DNS** → **Records** →
+   **Add record**, once for each of Railway's two records, copying name and value exactly:
+   - **CNAME** `colony` → Railway's value, **Proxy status: DNS only** (the grey cloud). Railway issues
+     the https certificate itself, and an orange cloud would get in its way.
+   - **TXT** `_railway-verify.colony` → Railway's value (TXT records are always DNS only).
+
+   Change nothing else in the zone: the nameservers stay (DNSSEC is on), and the mail records (MX, SPF,
+   Google verification, `resend._domainkey`, `send.`) and party-planner's records stay as they are.
+
+**Success looks like:** within minutes (sometimes an hour) Railway's domain panel shows
+`colony.benthedev.com` with a green tick. It answers once the first deploy is up (Part 5).
 
 ## Part 3. The environment variables
 
@@ -112,7 +143,7 @@ Railway keeps the server's settings as variables. Open the service → **Variabl
 | Name | Value | Where it comes from |
 |---|---|---|
 | `DATABASE_URL` | the direct connection string, ending `sslmode=verify-full&channel_binding=require` | Neon, Part 1 step 5. **Secret.** |
-| `PUBLIC_URL` | your Railway address, such as `https://colony-planner-production.up.railway.app` | Part 2 step 4. `https://`, no slash at the end. On switch day it becomes your domain. |
+| `PUBLIC_URL` | `https://colony.benthedev.com` | Part 2 step 6. `https://`, no slash at the end. It never changes, switch day included. |
 | `PORT` | `8080` | Type it. The port the server listens on, and the one you gave **Generate Domain**. |
 | `DISCORD_CLIENT_ID` | Beny Bot Dev's Client ID | Developer Portal → Beny Bot Dev → **OAuth2** → **Client ID**. Not a secret. |
 | `DISCORD_CLIENT_SECRET` | Beny Bot Dev's client secret | **Secret.** See below. |
@@ -145,11 +176,11 @@ on your Mac with the bot token.
 2. Under **Redirects**, keep `http://localhost:5173/auth/discord/callback` and click **Add Redirect**:
 
    ```
-   https://<your Railway address without https://>/auth/discord/callback
+   https://colony.benthedev.com/auth/discord/callback
    ```
 
-   For example `https://colony-planner-production.up.railway.app/auth/discord/callback`. Click **Save
-   Changes**. It must match `PUBLIC_URL` character for character, plus `/auth/discord/callback`.
+   Click **Save Changes**. It must match `PUBLIC_URL` character for character, plus
+   `/auth/discord/callback`.
 3. On **Bot**, **Public Bot** can stay off while Beny Bot only joins servers you own. Before another DM
    invites Beny Bot to their own server, switch it **on**, or Discord refuses their invite.
 4. Optional: players will see the bot's name in your real server. On **Bot**, you can change its
@@ -205,7 +236,7 @@ stop `mise run dev` and the duplicates stop.
      deploys apply only new ones);
    - then `"msg":"Colony Planner is listening"` with `"dev_sign_in":false`, `"discord_sign_in":true`
      and `"beny_bot":true`.
-3. Open your Railway address. The sign-in page shows "Sign in with Discord" over the Eldari art, and no
+3. Open https://colony.benthedev.com. The sign-in page shows "Sign in with Discord" over the Eldari art, and no
    Dev sign-in panel.
 
 **If it fails**, the last lines of Deploy Logs say why. Some messages also carry a hint for your Mac,
@@ -222,6 +253,7 @@ such as "locally, `mise run …`": ignore it here, and never run a `mise` comman
 | `records migrations this build doesn't have` (or another line about a migration), then the server stops | Copy the line (it contains no secret) and ask for help. |
 | the deployment says **Failed**, "Healthcheck failed", and no "listening" line | The server didn't start; scroll up for its first error line. If "listening" is there, the port is wrong: `PORT` must be `8080`, the same number as the domain's port (Settings → Networking). |
 | the deploy is **Active**, but the page says "This site answers only at its own address." | `PUBLIC_URL` isn't exactly the address in Settings → Networking: `https://`, the same name, no slash at the end. Fix it and **Deploy**. |
+| colony.benthedev.com doesn't load, or shows a certificate warning | Railway's domain panel (Part 2 step 6) isn't green yet. In Cloudflare, check both records match what Railway shows and that the CNAME is **DNS only** (grey cloud), then wait a little longer. |
 | Build Logs end in an error | Ask for help with the last 20 lines of Build Logs (they contain no secret). |
 
 After the first deploy, a failed one leaves the previous version serving. The very first has nothing to
@@ -229,7 +261,7 @@ fall back on, so the site stays down until a deploy succeeds.
 
 ## Part 6. First sign-in, and your own campaign
 
-1. On your Railway address, click **Sign in with Discord**, and **Authorize**. You land on **All
+1. On https://colony.benthedev.com, click **Sign in with Discord**, and **Authorize**. You land on **All
    campaigns**, which says there's nothing yet.
    - "Invalid OAuth2 redirect_uri" from Discord: the redirect in Part 4 doesn't match `PUBLIC_URL`
      exactly.
@@ -262,9 +294,9 @@ players won't see the setup. If you make a mistake, **Undo** on the board takes 
    new colonist** if not.
 5. **Places**, **Quests** and **Patrons** (with each patron's actions and the party's favor). Quests start
    visible, patrons and actions hidden.
-6. **Maps:** **Upload** your Mainland. Eldari is in this repository at
-   `~/myCodeSpace/colony-planner/web/public/eldari.webp` (in the file picker press Command-Shift-G and
-   paste that path). Name it "Eldari", make it the **Mainland**, and pin your places on it.
+6. **Maps:** **Upload** your Mainland. Eldari is in the monorepo at
+   `~/myCodeSpace/benthedev/apps/colony-planner/web/public/eldari.webp` (in the file picker press
+   Command-Shift-G and paste that path). Name it "Eldari", make it the **Mainland**, and pin your places on it.
 7. **Sessions:** **Schedule** your series (weekly or every other week, the day and the start time in the
    table's time zone). Leave its **Discord event** and **Reminder** switches as you want them for the real
    game; until switch day they post only into your private test server.
@@ -290,7 +322,7 @@ with the token acts on it.
 **If it fails:** `/link` says the code is unknown → codes last 15 minutes and are lost when the server
 restarts; get a new one. No events → check the series' **Discord event** switch and the channels.
 
-## Part 9. A test session on the Railway address
+## Part 9. A test session on colony.benthedev.com
 
 Run this with a friend, or with a second Discord account of your own in a private window.
 
@@ -305,58 +337,55 @@ Run this with a friend, or with a second Discord account of your own in a privat
    colony days and the timeline shows its band.
 6. `/colony` and `/nextsession` in the test server match the website.
 7. **Settings** → **Calendar link** → **Copy**, and in Google Calendar (on the web) **Other calendars** →
-   **+** → **From URL** → paste. The sessions appear (Google can take a few hours to fetch it). You'll
-   re-add it with the new address on switch day.
-8. On a phone, open the Railway address: Safari's **Share** → **Add to Home Screen** (or Chrome's **Install
+   **+** → **From URL** → paste. The sessions appear (Google can take a few hours to fetch it). The
+   address never changes, so this subscription keeps working after switch day.
+8. On a phone, open https://colony.benthedev.com: Safari's **Share** → **Add to Home Screen** (or Chrome's **Install
    app**) works over https.
 
 Anything wrong here is cheap to fix: the real table is still on party-planner.
 
-## Part 10. Switch day: move your domain
+## Part 10. Switch day: stop party-planner and send its address to colony
 
-The old site stops answering at your domain in step 2; the new one answers a few minutes later.
+Colony Planner has been live at https://colony.benthedev.com since Part 5, so switch day changes nothing
+about it: it stops the old app and sends the old address to the new one.
 
-1. Decide the address, for example `https://<your domain>` (the one party-planner uses today, so bookmarks
-   keep working).
-2. **Free the domain from party-planner.** In Railway, open the old party-planner project → its web
-   service → **Settings** → **Networking** → the custom domain → the trash icon. (If party-planner's domain
-   is set up somewhere other than Railway, remove it there.)
-3. **Give it to the new service.** In the new project → the service → **Settings** → **Networking** →
-   **Custom Domain** → type your domain → port `8080` → **Add**. Railway shows the DNS record(s) to create:
-   usually a **CNAME** whose value ends in `.up.railway.app`, sometimes also a **TXT** record to prove the
-   domain is yours. Keep that panel open.
-4. **At your registrar** (where you bought the domain), open its DNS settings. Edit the record that points
-   your domain at the old party-planner service so its value is the new one Railway shows, and add the TXT
-   record if there is one. Save.
-5. **Railway → Variables → `PUBLIC_URL`** → change it to `https://<your domain>` (no slash at the end) →
-   **Deploy**. The live site answers only at `PUBLIC_URL`'s address, so until this deploy is **Active** your
-   domain shows "This site answers only at its own address.", and afterwards the Railway address does.
-6. Wait. Railway's domain panel turns green and issues the https certificate once the record has spread,
-   usually within minutes, sometimes an hour.
-7. **Discord Developer Portal → Beny Bot Dev → OAuth2 → Redirects → Add Redirect**
-   `https://<your domain>/auth/discord/callback` → **Save Changes**. Remove the Railway-address redirect
-   once everything works.
+1. **Stop party-planner, production and staging.** In Railway, open the old party-planner project. With
+   **production** chosen in the environment picker at the top, for each running service (the web app, and
+   the Go API, which runs the old Beny Bot): **Deployments** → the active deployment's **⋮** → **Remove**.
+   Then pick **staging** and do the same for each of its services, so no old copy of the site or the bot
+   keeps running. This stops them but keeps the services, their settings and their history; **Redeploy**
+   brings one back if you ever need to roll back.
+2. **Replace party-planner's address record.** In Cloudflare → `benthedev.com` → **DNS** → **Records**:
+   - Open the `party-planner` CNAME and note its value somewhere private (you need it only to roll back),
+     then delete the record.
+   - **Add record**: type **AAAA**, name `party-planner`, IPv6 address `100::`, **Proxy status: Proxied**
+     (the orange cloud). `100::` leads nowhere on purpose: Cloudflare answers the request itself, and its
+     redirect rules run only on proxied records.
+   - Leave party-planner's other records (its `_railway-verify` TXT, and the `api`, `staging` and
+     `api-staging` records) until day 30 (Part 13).
+3. **The redirect rule.** Cloudflare → `benthedev.com` → **Rules** → **Redirect Rules** → **Create rule**:
+   - **Rule name:** `party-planner to colony`.
+   - **If incoming requests match:** a custom filter where **Hostname** **equals**
+     `party-planner.benthedev.com`.
+   - **Then:** **Static**, URL `https://colony.benthedev.com/`, status code **301**, **Preserve query
+     string** off.
+   - **Deploy**.
 
-**Success looks like:** `https://<your domain>` shows the new sign-in page; **Sign in with Discord** lands
-you on your campaign as DM; and `https://<your domain>/auth/dev` answers "No such route." (there is no Dev
-sign-in in production). Everyone, you included, signs in again at the new address (a sign-in belongs to
-one address), and calendar subscriptions and home-screen icons are re-added from the new address.
+**Success looks like:** https://party-planner.benthedev.com, and any page under it, lands on
+https://colony.benthedev.com/. Colony's own address, everyone's sign-ins and calendar subscriptions, and
+home-screen icons stay exactly as they were.
 
-**If it fails:** a certificate warning or the old site → the DNS record hasn't spread yet, or still points
-at the old target; check it at the registrar. "This site answers only at its own address." at your
-domain → `PUBLIC_URL` isn't the domain yet, or that deploy isn't **Active**. "Invalid OAuth2
-redirect_uri" → step 7 doesn't match `PUBLIC_URL`.
+**If it fails:** the old site still shows → the AAAA record isn't **Proxied**, or the old CNAME is still
+there; try a private window too, in case the browser kept the old page. Nothing happens at all → the
+rule's hostname has a typo, or the rule isn't deployed.
 
-## Part 11. Stop party-planner and the old bot
+## Part 11. The old bot out of your real server
 
-1. In Railway, open the old party-planner project. For each running service (the web app, and the Go API,
-   which runs the old Beny Bot): **Deployments** → the active deployment's **⋮** → **Remove**. This stops it
-   but keeps the service, its settings and its history; **Redeploy** brings it back if you ever need to
-   roll back.
-2. In your real Discord server, the old Beny Bot shows as offline within a minute or two.
-3. Delete the old recurring event: **Events** at the top of the channel list → the old event → **⋯** →
+1. In your real Discord server, the old Beny Bot shows as offline within a minute or two of Part 10
+   step 1.
+2. Delete the old recurring event: **Events** at the top of the channel list → the old event → **⋯** →
    **Delete Event** (or **Cancel Event**).
-4. Remove the old Beny Bot from the server: **Server Settings** → **Integrations** → **Beny Bot** →
+3. Remove the old Beny Bot from the server: **Server Settings** → **Integrations** → **Beny Bot** →
    **Remove** (or right-click it in the member list → **Kick**). That also removes its old commands.
 
 **Success looks like:** typing `/` in the real server no longer offers `/schedule`, `/registercampaign` or
@@ -401,21 +430,26 @@ doesn't end them:
 
 **To roll back after this** (the old services are still there): get a fresh connection string from the
 old Neon project, reset the old Beny Bot's token again, and paste both into the old services' variables
-(along with new Clerk, Resend and Google values if the old site still needs them); then **Redeploy** them
-and move the domain back. The old Beny Bot and Beny Bot Dev must never be in your real server at the same
+(along with new Clerk, Resend and Google values if the old site still needs them); then **Redeploy** them,
+delete the redirect rule, and put the `party-planner` CNAME back (the value you noted in Part 10, DNS
+only) in place of the AAAA record. The old Beny Bot and Beny Bot Dev must never be in your real server at the same
 time, so remove Beny Bot Dev from it first.
 
 **On day 30:**
 
 6. In Railway, delete the old party-planner project (its **Settings** → **Danger** → **Delete project**).
    That also deletes its variables, including the RSA keypair the old site used for its cookies.
-7. In Neon, delete the old project (its **Settings** → **Delete project**).
-8. In Clerk, delete the party-planner application (its **Settings** → **Delete application**). Clerk
+7. In Cloudflare → `benthedev.com` → **DNS** → **Records**, delete party-planner's other records: the
+   `api`, `staging` and `api-staging` CNAMEs and all four `_railway-verify` TXT records (for
+   party-planner, api, staging and api-staging). Keep the `party-planner` AAAA record and the redirect
+   rule, so old links keep landing on colony.
+8. In Neon, delete the old project (its **Settings** → **Delete project**).
+9. In Clerk, delete the party-planner application (its **Settings** → **Delete application**). Clerk
    keeps every old user's profile until you do.
-9. In Resend, remove your domain (**Domains**) if nothing else sends mail from it.
-10. Delete the RSA key files (`*.pem`) and `.env` files from your local party-planner folder, or the whole
+10. In Resend, remove your domain (**Domains**) if nothing else sends mail from it.
+11. Delete the RSA key files (`*.pem`) and `.env` files from your local party-planner folder, or the whole
     folder if you no longer want it. Never push its jj keep-refs anywhere.
-11. Optionally delete the old Beny Bot application in the Developer Portal (**General Information** →
+12. Optionally delete the old Beny Bot application in the Developer Portal (**General Information** →
     **Delete App**).
 
 ## Part 14. Keeping an eye on Neon

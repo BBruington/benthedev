@@ -960,7 +960,7 @@ The author's check-in: about an hour with dev sign-in, plus 30 minutes for the D
 3. **Your existing data first.** In Terminal:
 
    ```bash
-   cd ~/myCodeSpace/colony-planner
+   cd ~/myCodeSpace/benthedev/apps/colony-planner
    mise install
    mise run dev
    ```

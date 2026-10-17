@@ -146,8 +146,9 @@ new campaigns on Site admin, and `mise run fresh` makes them the DM of Sample Co
 
 ## 6. Fill in `.env`
 
-`.env` is in the `colony-planner` folder. `mise run setup` created it, and git ignores it. Finder hides
-files whose names start with a dot, so open it from your code editor.
+`.env` is in `~/myCodeSpace/benthedev/apps/colony-planner`. `mise run setup` created it, and git ignores
+it. If yours is still in the old `~/myCodeSpace/colony-planner` checkout, copy it into this folder
+yourself. Finder hides files whose names start with a dot, so open it from your code editor.
 
 Fill in the four lines that are already there, one value after each `=`, with no spaces or quotes:
 

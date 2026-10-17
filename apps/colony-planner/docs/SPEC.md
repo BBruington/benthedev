@@ -1,7 +1,7 @@
 # Colony Planner: v1 Specification
 
 **Status:** final spec for the author's review, revised with the author's follow-up decisions F1–F8 (below). **Date:** 2026-10-10.
-**Build target:** `/Users/bibruington/myCodeSpace/colony-planner`, a new, empty, clean-room repo that runs **only on the author's Mac** (Postgres 17 in Docker) until the optional cutover, M6.
+**Build target:** `/Users/bibruington/myCodeSpace/colony-planner`, a new, empty, clean-room repo that runs **only on the author's Mac** (Postgres 17 in Docker) until the optional cutover, M6. Since 2026-10-17 it lives, history included, in the benthedev monorepo at `~/myCodeSpace/benthedev/apps/colony-planner`; paths in this spec are relative to that folder.
 **Reference only:** `/Users/bibruington/myCodeSpace/party-planner`, read-only. Port from it only where named: the Beny Bot bot core, the rate limiter, the Discord message texts, the terrain colours, the pin styling and the Eldari art. No data is imported from it.
 **Basis:** the author's twelve decisions, plus the follow-up decisions below, which override the twelve where they differ. Where a design choice had real alternatives, Appendix A gives the ruling and the reason. Anything the author hasn't decided is an open question (§11), never a rule.
 
@@ -1158,7 +1158,7 @@ Browser ──http://localhost:5173──▶ Vite dev server (web/, hot reload)
 - There is one service and one origin, so there is no CORS, no BFF and no second private port.
 - Decision 11 says the old Go API's RPC port was private on Railway, and only the Clerk-webhook port had a public domain. Once deployed, the new service's single port is **public by design**. So from M0, every route declares its access (§2.2), and Go authenticates every request that touches data.
 
-### 8.2 Repo layout (`colony-planner/`)
+### 8.2 Repo layout (`apps/colony-planner/` in the benthedev monorepo)
 
 ```
 CLAUDE.md  AGENTS.md → CLAUDE.md    single agent/dev guide (kept short)
@@ -1190,7 +1190,8 @@ web/                                 Vite SPA: package.json, vite.config.ts (dev
 web/embed.go                         //go:embed all:dist
 scripts/check-docs.sh                every path named in CLAUDE.md must exist
 docs/SPEC.md  docs/discord-dev-setup.md
-.github/workflows/ci.yml             runs `mise run check` when the author pushes; deploys nothing before M6
+.github/workflows/colony-planner.yml at the monorepo root (ci.yml here before the move): runs
+                                     `mise run check` when the author pushes; deploys nothing before M6
 ```
 
 `Dockerfile`, `.dockerignore` and `railway.toml` are added only in M6 (§10).
@@ -1436,7 +1437,7 @@ One task runs every check locally, and every milestone checklist ends with it:
 5. Web checks: `bun install --frozen-lockfile && bun run typecheck && bunx biome ci && bun run build`.
 6. `scripts/check-docs.sh`.
 
-It ends by printing "All checks passed" or the first failure. `.github/workflows/ci.yml` runs the same task with a `postgres:17` service container, plus `git diff --exit-code` after `gen`, whenever the author pushes. Nothing deploys from it before M6, which adds `docker build` and the deploy gate (§10).
+It ends by printing "All checks passed" or the first failure. The monorepo's `.github/workflows/colony-planner.yml` (colony's own `.github/workflows/ci.yml` before the move) runs the same task with a `postgres:17` service container, plus `git diff --exit-code` after `gen`, whenever the author pushes. Nothing deploys from it before M6, which adds `docker build` and the deploy gate (§10).
 
 ### 8.13 Agent docs
 
@@ -1673,6 +1674,7 @@ Nothing here happens unless, after approving M5, the author says the app meets t
 - **As built in M6** (the author's decisions of 2026-10-14; the runbook is `docs/cutover.md`, the checklist `docs/checklists/M6.md`):
   - **Discord:** the live site uses **Beny Bot Dev** (§11, question 19), so "create the production Discord application" above is deferred. Beny Bot Dev joins the real server only after the old bot is stopped and removed; until then the live campaign is linked to the author's private test server. The same-token rule keeps local development off the bot while Railway has the token: `mise run dev` reads `.env` through mise, whose values win over a variable typed before the command, so the token is blanked in `.env` itself. The bot must be **public** (Developer Portal → Bot) before another DM can invite it.
   - **Rollout order:** deploy on Railway's own `*.up.railway.app` address, set up the author's campaign and run a test session there (the https-only checks included: Google Calendar and the phone's home screen), then move the domain from party-planner (remove it from the old service, add it to the new one, repoint the DNS record, then `PUBLIC_URL` and the Discord redirect). The old site keeps serving until that switch. Production answers only `PUBLIC_URL`'s host (`RequireKnownHost` in `internal/auth/host.go`, plus Railway's health check on `/healthz`), so the Railway address stops answering once `PUBLIC_URL` is the domain, and everyone signs in again there. Retiring the old app: its services are stopped (deployments removed, services kept) and kept with the old Neon database for 30 days; the old Neon role's password, the old bot token and client secret, Clerk's secret key and webhook, the Resend key and the Google OAuth secret are reset or deleted on switch day (they live in other accounts, so deleting the projects wouldn't end them); the old Railway project (with the RSA keypair in its variables), the old Neon project, the Clerk application (the old users' profiles), the Resend domain if unused, and the local `.pem` and `.env` files go on day 30. A rollback after switch day needs a fresh Neon connection string and a newly reset old bot token in the old services.
+  - **Superseded on 2026-10-17 (the benthedev monorepo):** the app moved into the benthedev monorepo (`BBruington/benthedev`, folder `apps/colony-planner`; Railway root directory `apps/colony-planner`, watch path `/apps/colony-planner/**`) and goes live at https://colony.benthedev.com from its first deploy, instead of on the Railway address and then party-planner's domain. On switch day party-planner's production and staging services stop and its address redirects to colony.benthedev.com (a proxied Cloudflare record and a redirect rule), so nobody signs in again or re-adds a calendar. `docs/cutover.md` is the current runbook.
   - **Railway:** Railway reads `railway.toml` only for services that already used it, and only until 2026-12-01, so the runbook sets the same values by hand on the new service (builder Dockerfile, healthcheck `/healthz` with a 120-second timeout, 1 replica, restart on failure up to 10 times) and the file keeps them on record. Serverless (app sleeping) stays off. Variables: `DATABASE_URL` (`sslmode=verify-full&channel_binding=require`; production refuses a string that skips the certificate check, `requireVerifiedDatabaseTLS` in `cmd/colony/config.go`), `PUBLIC_URL`, `PORT` (8080, the port given to Railway's domain), `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN` and `SITE_OWNER_DISCORD_ID`; the image sets `APP_ENV=production`. `PORT` is entered rather than left to Railway so the listener, the domain's target port and the health check agree. The app has no secret of its own to generate (sign-in tokens are random and stored hashed). With an https `PUBLIC_URL` every response carries `Strict-Transport-Security: max-age=31536000` (no `includeSubDomains`, since other names under the author's domain may be plain http).
   - **Go 1.27.2** before going live (the author's decision, ahead of the two-week rule): `mise.toml`, `go.mod` and the Dockerfile's builder image, and `scripts/vulncheck.sh` no longer accepts the ten standard-library advisories 1.27.2 fixes. It is now a plain govulncheck run that accepts nothing and fails on any vulnerability our code reaches; three unreached advisories remain in `golang.org/x/crypto` v0.55.0 (GO-2026-6355 and GO-2026-6354 in `ssh`, fixed in v0.56.0; GO-2026-5932, the unmaintained `openpgp`, with no fix).
   - **Gzip:** `internal/app/compress.go` compresses JSON (and `+json`), html, css, js and svg for clients that accept gzip, never the event stream, images, fonts or the ICS feed, and skips 204, 304 and 206. The hexes read at 5,000 hexes goes from 233,412 to 13,554 bytes, the SPA's main script from 387,773 to 125,988.

@@ -6,6 +6,8 @@ React SPA, live updates over SSE and the bot, on Postgres. The design is `docs/S
 multi-campaign design is `docs/design/multi-campaign.md`: read the sections your task touches before
 changing behavior. Starting a new session? Read `docs/HANDOFF.md` first: the author's decisions and
 working preferences, current status, pending items, and how to test without touching the author's setup.
+It lives in the benthedev monorepo as apps/colony-planner, and every command and path here is relative
+to this folder; the monorepo's own CLAUDE.md covers what spans apps.
 
 ## Commands
 
@@ -56,12 +58,18 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 
 ## Deployment (M6)
 
+- **Railway:** its own Railway project, deployed from the benthedev monorepo (BBruington/benthedev) at
+  https://colony.benthedev.com from the first deploy. The service's root directory is apps/colony-planner
+  and its watch path /apps/colony-planner/**, so only changes in this folder redeploy it. CI is the
+  monorepo's colony-planner workflow (.github/workflows/colony-planner.yml at the repo root), filtered to
+  the same folder; "Wait for CI" makes Railway deploy main only after it passes. The settings live in the
+  project's dashboard, and `docs/cutover.md` lists every one.
 - `Dockerfile` builds the one production image: Bun builds the SPA, Go builds `colony` without devauth
   (static, with the SPA and migrations embedded), and distroless runs it as non-root with
   `APP_ENV=production`. `.dockerignore` is an allow-list, so `.env` and key files never reach a build.
-- `railway.toml` records the service's settings: the Dockerfile builder, the `/healthz` health check,
-  1 replica, restart on failure. Railway applies it only to services that already used it, so
-  `docs/cutover.md` sets the same values by hand; change both together.
+- `railway.toml` keeps the service's settings on record: the Dockerfile builder, the `/healthz` health
+  check, 1 replica, restart on failure. A new Railway project ignores it, so `docs/cutover.md` sets the
+  same values by hand in the dashboard; change both together.
 - **1 replica, always** (Invariant 8): Beny Bot, the planner, the session cache and the SSE broker live
   in the process, and a second replica would run a second bot and split the cache and the broker. Railway's
   app sleeping stays off. The few seconds of deploy overlap are safe because every side effect is
