@@ -42,7 +42,14 @@ The old `BBruington/colony-planner` repository is not used for deploys; archive 
 done.
 
 1. On GitHub, create the private repository `BBruington/benthedev` (empty: no README, licence or
-   `.gitignore`) and push `main` from `~/myCodeSpace/benthedev`.
+   `.gitignore`). The local repository has no `main` bookmark and no remote yet, so in
+   `~/myCodeSpace/benthedev` check that `jj st` shows no changes (then `@-` is the last commit) and run:
+
+   ```sh
+   jj bookmark create main -r @-
+   jj git remote add origin git@github.com:BBruington/benthedev.git
+   jj git push --bookmark main
+   ```
 2. Open the repository's **Actions** tab and wait until the **colony-planner** workflow's run on `main`
    shows all four jobs green (lint, typecheck, docker, check).
 
@@ -104,8 +111,8 @@ start from an empty project and set the folder before the first deploy.
    - **Source → Root Directory:** `apps/colony-planner`. Railway builds only that folder.
    - **Source:** the branch is `main`, and **Wait for CI** is **on**, so a push to `main` deploys only
      after the GitHub checks pass. (The switch appears once GitHub has run the checks on `main` at least
-     once.) Railway waits for every workflow a commit runs, so a commit that also touches another app
-     waits for that app's checks too.
+     once.) Railway waits for every workflow a push runs, so a push that also touches another app
+     waits for that app's checks too: push each app's change on its own.
    - **Build → Watch Paths:** `/apps/colony-planner/**`. A push that changes nothing in colony's folder
      (an about-me change, say) doesn't redeploy colony.
    - **Build → Builder:** **Dockerfile**, with the Dockerfile path `Dockerfile` (inside the root
@@ -144,7 +151,7 @@ Railway keeps the server's settings as variables. Open the service → **Variabl
 |---|---|---|
 | `DATABASE_URL` | the direct connection string, ending `sslmode=verify-full&channel_binding=require` | Neon, Part 1 step 5. **Secret.** |
 | `PUBLIC_URL` | `https://colony.benthedev.com` | Part 2 step 6. `https://`, no slash at the end. It never changes, switch day included. |
-| `PORT` | `8080` | Type it. The port the server listens on, and the one you gave **Generate Domain**. |
+| `PORT` | `8080` | Type it. The port the server listens on, and the one you gave the custom domain (Part 2 step 6). |
 | `DISCORD_CLIENT_ID` | Beny Bot Dev's Client ID | Developer Portal → Beny Bot Dev → **OAuth2** → **Client ID**. Not a secret. |
 | `DISCORD_CLIENT_SECRET` | Beny Bot Dev's client secret | **Secret.** See below. |
 | `DISCORD_BOT_TOKEN` | Beny Bot Dev's bot token | **Secret.** See below. |
