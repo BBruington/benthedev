@@ -1,8 +1,8 @@
 # benthedev
 
 One repository for every app the author deploys under benthedev.com, each on its own subdomain. Every
-app lives in `apps/<app>` and has its own CLAUDE.md: read that one before changing the app. This file
-covers only what spans apps.
+app lives in `apps/<app>` and has its own CLAUDE.md or README: read that one before changing the app. This
+file covers only what spans apps.
 
 ## Layout
 
@@ -11,7 +11,7 @@ covers only what spans apps.
 | `apps/colony-planner/` | Go, React (Vite) and Postgres, plus Beny Bot. Its own Go module, `github.com/BBruington/colony-planner`, and its own Bun project in `web/` |
 | `apps/about-me/` | the small static personal site |
 | `.github/workflows/<app>.yml` | one CI workflow per app, run only when that app's files change |
-| `mise.toml` | the monorepo task root, and the tools every app inherits (bun, biome) |
+| `mise.toml` | the monorepo task root, and the default bun pin (each app pins its own too) |
 | `package.json` | the Bun workspace for web apps that share code; empty until two apps share a package |
 | `biome.json` | shared lint and format rules; skips `apps/colony-planner`, whose Biome config is its own root |
 
@@ -27,13 +27,14 @@ In a bare shell, use `mise exec -- <tool>` for the pinned tools.
 
 - Each app owns its database. No shared tables, and no app reads another app's database.
 - Apps talk only through small, explicit links (one narrow endpoint, a one-time code), never shared state.
-- Each app has its own CLAUDE.md, CI workflow and Railway project. Keep a change to two apps in separate
-  commits: Railway's "Wait for CI" waits on every workflow a commit triggers.
+- Each app has its own CLAUDE.md or README, CI workflow and Railway project. Push a change to each app
+  separately (or merge it in its own PR): one push runs every matching workflow on its last commit, and
+  Railway's "Wait for CI" waits on all of them.
 - No committed `go.work` until one module imports another. If one is ever committed it must list every Go
   module, colony included, and Dockerfiles build with `GOWORK=off`.
 - Apps stay outside the root Bun workspace, each with its own lockfile: Railway builds each app from its own
   folder, so its Dockerfile can't see a root `bun.lock`. An app joins the workspace only when it shares a
-  package, and its build then moves to the repo root (as colony's does in the sign-in phase).
+  web package, and its build then moves to the repo root.
 - Never Nx.
 - Pin exact versions (and Docker base images by tag and digest). No em dashes anywhere: code, docs or UI copy.
 - VCS is jj, colocated with git. One conventional commit line, no body.
