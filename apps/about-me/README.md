@@ -27,3 +27,21 @@ Its own Railway project, configured in the dashboard:
 - Caddy listens on `$PORT` (8080 when unset) and sets the cache and security headers in `Caddyfile`.
   Its CSP allows only this origin, so a new external script, font or image needs a CSP change too.
 - Wait for CI on, so a red about-me workflow blocks the deploy.
+
+## Go live
+
+Every step touches Railway, Cloudflare, Vercel or GitHub, so the author does them by hand, after the
+first deploy is up.
+
+1. Railway: the service's **Settings** → **Networking** → **Custom Domain**, add `benthedev.com` and
+   `www.benthedev.com`. Railway shows a CNAME and a `_railway-verify` TXT record for each.
+2. Cloudflare (`benthedev.com` → **DNS** → **Records**): delete Vercel's apex and `www` records, then add
+   Railway's four records exactly as shown, each **DNS only** (grey cloud). The apex CNAME sits beside
+   the mail records and Cloudflare flattens it. Change nothing else: the MX, SPF,
+   google-site-verification, `resend._domainkey` and `send.` records and the nameservers stay.
+3. Once Railway shows both domains with a green tick, open https://benthedev.com and
+   https://www.benthedev.com, then send a mail to ben@benthedev.com from another account and check it
+   arrives.
+4. Remove both domains from the old Vercel project and disconnect its Git repository. On GitHub, change
+   `BBruington/about-me`'s homepage (today `https://about-me-beryl-pi.vercel.app`) to
+   https://benthedev.com, then archive that repository.
