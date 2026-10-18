@@ -1,5 +1,5 @@
 import { CopyEmailButton } from "./copy-email-button";
-import { EMAIL } from "./profile";
+import { EMAIL, PHONE, PHONE_HREF } from "./profile";
 import { Section } from "./section";
 
 export function Contact() {
@@ -14,6 +14,12 @@ export function Contact() {
 				</a>
 				<CopyEmailButton />
 			</div>
+			<a
+				className="link-underlined mt-5 inline-block text-muted-foreground text-sm"
+				href={PHONE_HREF}
+			>
+				{PHONE}
+			</a>
 		</Section>
 	);
 }
