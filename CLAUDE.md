@@ -40,6 +40,18 @@ In a bare shell, use `mise exec -- <tool>` for the pinned tools.
 - Pin exact versions (and Docker base images by tag and digest). No em dashes anywhere: code, docs or UI copy.
 - VCS is jj, colocated with git. One conventional commit line, no body.
 
+## Pull requests
+
+CodeRabbit reviews PRs here on its free open-source plan, whose docs say a public repo under 10 stars is
+reviewed only on request. Right after `gh pr create`, comment `@coderabbitai review` on the PR unless it is a
+draft or already has that comment:
+
+```sh
+[ "$(gh pr view <number> --json isDraft,comments \
+  --jq '.isDraft or any(.comments[]; .body | contains("@coderabbitai review"))')" = false ] \
+  && gh pr comment <number> --body "@coderabbitai review"
+```
+
 ## Domains and Railway
 
 Each app is its own Railway project. Settings live in each project's dashboard, since new Railway projects
