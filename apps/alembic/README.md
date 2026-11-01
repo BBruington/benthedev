@@ -39,7 +39,7 @@ In the Clerk dashboard, turn on the social providers you want and keep email add
 
 ```bash
 mise install
-bun install --frozen-lockfile
+mise exec -- bun install --frozen-lockfile
 mise run db:migrate
 mise run dev
 ```
@@ -72,6 +72,7 @@ The live copy above still deploys to Vercel from the standalone repo. In this mo
 - Wait for CI on, so a red alembic workflow blocks the deploy.
 - Healthcheck path `/`.
 - Variables: `DATABASE_URL` (the production Neon database), `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY` from the Clerk production instance (`sk_live_`/`pk_live_`, with the subdomain set up in Clerk), `VITE_CLERK_SIGN_IN_URL=/sign-in` and `VITE_CLERK_SIGN_UP_URL=/sign-up`. The three `VITE_` ones are build arguments too, since Vite inlines them into the client bundle.
+- In the Clerk production instance, turn on GitHub and Google again with each provider's own production OAuth credentials. Production doesn't inherit the development instance's providers or its shared dev credentials.
 
 Built under Bun, Nitro uses its `bun` preset: `bun run build` writes a self-contained server to `.output/`, which the image serves on `PORT`.
 
