@@ -12,7 +12,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**", "!!apps/colony-planner", "!!**/dist"]
+		"includes": ["**", "!!apps/colony-planner", "!!apps/alembic", "!!**/dist"]
 	},
 	"formatter": {
 		"enabled": true,

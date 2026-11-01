@@ -1,0 +1,633 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+	color-scheme: dark;
+	--background: #0b1622;
+	--foreground: #f1e6cc;
+	--card: #172331;
+	--card-foreground: #f1e6cc;
+	--popover: #172331;
+	--popover-foreground: #f1e6cc;
+	--primary: #d3af68;
+	--primary-foreground: #17202a;
+	--secondary: #263546;
+	--secondary-foreground: #f1e6cc;
+	--muted: #202f3e;
+	--muted-foreground: #b5b8b6;
+	--accent: #324354;
+	--accent-foreground: #fff3d8;
+	--destructive: #e78b81;
+	--destructive-foreground: #261411;
+	--border: #3b4650;
+	--input: #52606c;
+	--ring: #d3af68;
+	--parchment: #f1e6cc;
+	--parchment-foreground: #24303c;
+	--arcane: #8bbdfa;
+	--arcane-foreground: #102239;
+	--primal: #91c9a0;
+	--primal-foreground: #112b1a;
+	--occult: #c6a7e8;
+	--occult-foreground: #2b183c;
+	--divine: #e2bf70;
+	--divine-foreground: #31250c;
+	--chart-1: var(--arcane);
+	--chart-2: var(--primal);
+	--chart-3: var(--occult);
+	--chart-4: var(--divine);
+	--chart-5: var(--destructive);
+	--radius: 0.5rem;
+	--workspace-gap: 1.25rem;
+	--bench-width: 25rem;
+	--section-space: 1.5rem;
+	--sidebar: var(--card);
+	--sidebar-foreground: var(--foreground);
+	--sidebar-primary: var(--primary);
+	--sidebar-primary-foreground: var(--primary-foreground);
+	--sidebar-accent: var(--accent);
+	--sidebar-accent-foreground: var(--accent-foreground);
+	--sidebar-border: var(--border);
+	--sidebar-ring: var(--ring);
+}
+
+@theme inline {
+	--font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Fraunces", Georgia, serif;
+	--font-serif: var(--font-display);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-parchment: var(--parchment);
+	--color-parchment-foreground: var(--parchment-foreground);
+	--color-arcane: var(--arcane);
+	--color-arcane-foreground: var(--arcane-foreground);
+	--color-primal: var(--primal);
+	--color-primal-foreground: var(--primal-foreground);
+	--color-occult: var(--occult);
+	--color-occult-foreground: var(--occult-foreground);
+	--color-divine: var(--divine);
+	--color-divine-foreground: var(--divine-foreground);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+		scrollbar-color: var(--border) var(--background);
+	}
+	body {
+		@apply bg-background text-foreground font-sans antialiased;
+		margin: 0;
+		min-width: 320px;
+		caret-color: var(--primary);
+	}
+	h1, h2 {
+		font-family: var(--font-display);
+		text-wrap: balance;
+	}
+	button, a, input, select, textarea {
+		-webkit-tap-highlight-color: transparent;
+	}
+	button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
+		cursor: pointer;
+	}
+	::selection {
+		background: var(--primary);
+		color: var(--primary-foreground);
+	}
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 4px;
+	}
+}
+
+.page-wrap {
+	width: min(100% - 2rem, 90rem);
+	margin-inline: auto;
+}
+
+.parchment {
+	background: var(--parchment);
+	color: var(--parchment-foreground);
+}
+
+.auth-page {
+	display: grid;
+	min-height: 65vh;
+	place-items: center;
+	padding: 3rem 1rem;
+}
+
+.workshop-layout {
+	padding-block: var(--section-space);
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--workspace-gap);
+}
+
+.workshop-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.workshop-layout h1,
+.workshop-layout h2 {
+	font-family: var(--font-sans);
+}
+
+.workshop-layout [data-slot="card"] {
+	min-width: 0;
+	border-radius: var(--radius);
+}
+
+.crafter-strip {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem 1.5rem;
+	padding-block: 0.75rem;
+	border-block: 1px solid var(--border);
+}
+
+.workshop-workspace {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) var(--bench-width);
+	align-items: start;
+	gap: var(--workspace-gap);
+}
+
+.workshop-library {
+	min-width: 0;
+}
+
+.workshop-bench {
+	display: grid;
+	gap: 1rem;
+	position: sticky;
+	top: 1rem;
+	scroll-margin-top: 1rem;
+	max-height: calc(100dvh - 2rem);
+	overflow-y: auto;
+}
+
+.ingredient-shelf {
+	overflow: hidden;
+}
+
+.ingredient-shelf input[type="search"]::-webkit-search-cancel-button {
+	appearance: none;
+}
+
+.ingredient-list {
+	height: 34rem;
+	max-height: 65dvh;
+}
+
+.ingredient-row {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr) 14rem auto;
+	align-items: center;
+	gap: 1rem;
+	min-height: 5.5rem;
+	padding: 1rem 1.5rem;
+	border-bottom: 1px solid var(--border);
+}
+
+.ingredient-group {
+	padding: 0.625rem 1.5rem;
+	border-bottom: 1px solid var(--border);
+	background: var(--muted);
+	color: var(--muted-foreground);
+	font-size: 0.75rem;
+	font-weight: 600;
+}
+
+.ingredient-selected {
+	background: color-mix(in srgb, var(--primary) 8%, var(--card));
+}
+
+
+.bench-mobile-link,
+.mobile-bench-shortcut {
+	display: none;
+}
+
+.mobile-bench-shortcut[hidden] {
+	display: none;
+}
+
+.brew-log-region {
+	container-type: inline-size;
+}
+
+@container (max-width: 639px) {
+	.brew-log-table {
+		min-width: 0;
+	}
+	.brew-log-table thead {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+	.brew-log-table tbody tr {
+		display: grid;
+		padding-block: 0.75rem;
+	}
+	.brew-log-table tbody th,
+	.brew-log-table tbody td {
+		min-width: 0;
+		padding-block: 0.375rem;
+		white-space: normal;
+	}
+	.brew-log-table td[data-label]::before {
+		content: attr(data-label) ": ";
+		font-family: var(--font-sans);
+	}
+}
+
+@media (max-width: 1279px) {
+	:root {
+		--bench-width: 23rem;
+	}
+}
+
+@media (max-width: 959px) {
+	.workshop-workspace {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.workshop-bench {
+		position: static;
+		max-height: none;
+		overflow: visible;
+		grid-row: 1;
+	}
+	.bench-mobile-link {
+		display: flex;
+	}
+}
+
+@media (max-width: 639px) {
+	body:has(.mobile-bench-shortcut) footer {
+		padding-bottom: 6rem;
+	}
+	.workshop-layout {
+		padding-bottom: 5rem;
+	}
+	.workshop-heading {
+		align-items: flex-start;
+	}
+	.workshop-heading h1 {
+		font-size: 1.25rem;
+	}
+	.crafter-strip {
+		align-items: flex-start;
+	}
+	.crafter-tools {
+		width: 100%;
+	}
+	.ingredient-list {
+		height: 28rem;
+		max-height: 60dvh;
+	}
+	.ingredient-row {
+		grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+		gap: 0.75rem;
+		padding: 1rem;
+	}
+	.ingredient-detail {
+		grid-column: 2;
+	}
+	.ingredient-values {
+		grid-column: 1 / -1;
+	}
+	.ingredient-controls {
+		grid-column: 3;
+		grid-row: 1;
+	}
+	.mobile-bench-shortcut {
+		position: fixed;
+		inset: auto 1rem 1rem;
+		z-index: 20;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1rem;
+		border: 1px solid var(--primary);
+		border-radius: var(--radius);
+		background: var(--primary);
+		color: var(--primary-foreground);
+		font-size: 0.75rem;
+		font-weight: 700;
+		box-shadow: 0 4px 16px color-mix(in srgb, var(--background) 50%, transparent);
+	}
+}
+
+@media (max-width: 359px) {
+	.ingredient-row {
+		grid-template-columns: 2.75rem minmax(0, 1fr);
+	}
+	.ingredient-controls {
+		grid-column: 2;
+		grid-row: auto;
+	}
+}
+
+.brewing-loader {
+	display: flex;
+	min-height: 60vh;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1rem;
+	color: var(--muted-foreground);
+}
+
+.brewing-loader svg {
+	width: 9rem;
+	overflow: visible;
+}
+
+.brewing-loader-glass {
+	stroke: var(--primary);
+	stroke-opacity: 0.65;
+	stroke-width: 1.2;
+}
+
+.brewing-loader-tint {
+	stop-color: var(--arcane);
+	stop-opacity: 0.14;
+}
+
+.brewing-loader-tint-clear {
+	stop-color: var(--foreground);
+	stop-opacity: 0.025;
+}
+
+.brewing-loader-depth-top,
+.brewing-loader-depth-bottom {
+	stop-color: var(--background);
+}
+
+.brewing-loader-depth-top {
+	stop-opacity: 0;
+}
+
+.brewing-loader-depth-bottom {
+	stop-opacity: 0.28;
+}
+
+.brewing-loader-rim,
+.brewing-loader-highlight,
+.brewing-loader-steam path {
+	fill: none;
+	stroke-linecap: round;
+}
+
+.brewing-loader-rim {
+	stroke: var(--primary);
+	stroke-width: 1.5;
+}
+
+.brewing-loader-highlight {
+	stroke: var(--foreground);
+	stroke-opacity: 0.3;
+	stroke-width: 2;
+}
+
+.brewing-loader-wave {
+	animation: brewing-wave 4s linear infinite;
+}
+
+.brewing-loader-liquid {
+	fill: var(--arcane);
+}
+
+.brewing-loader-liquid-primal,
+.brewing-loader-liquid-occult,
+.brewing-loader-liquid-divine {
+	opacity: 0;
+	animation: brewing-colour 16s linear infinite;
+}
+
+.brewing-loader-liquid-primal {
+	fill: var(--primal);
+}
+
+.brewing-loader-liquid-occult {
+	fill: var(--occult);
+	animation-delay: -12s;
+}
+
+.brewing-loader-liquid-divine {
+	fill: var(--divine);
+	animation-name: brewing-colour-divine;
+}
+
+.brewing-loader-bubbles circle {
+	fill: var(--foreground);
+	fill-opacity: 0.5;
+	stroke: var(--foreground);
+	stroke-opacity: 0.8;
+	stroke-width: 0.65;
+	opacity: 0.7;
+	animation: brewing-bubble 3s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+.brewing-loader-bubbles circle:nth-child(2) {
+	animation-duration: 3.6s;
+	animation-delay: -1.7s;
+}
+
+.brewing-loader-bubbles circle:nth-child(3) {
+	animation-duration: 2.8s;
+	animation-delay: -0.8s;
+}
+
+.brewing-loader-bubbles circle:nth-child(4) {
+	animation-duration: 4s;
+	animation-delay: -2.6s;
+}
+
+.brewing-loader-bubbles circle:nth-child(5) {
+	animation-duration: 3.4s;
+	animation-delay: -1.3s;
+}
+
+.brewing-loader-bubbles circle:nth-child(6) {
+	animation-duration: 3.8s;
+	animation-delay: -3s;
+}
+
+.brewing-loader-bubbles circle:nth-child(7) {
+	animation-duration: 3.2s;
+	animation-delay: -0.4s;
+}
+
+.brewing-loader-rings ellipse {
+	fill: none;
+	stroke: var(--foreground);
+	stroke-width: 0.65;
+	transform-box: fill-box;
+	transform-origin: center;
+	opacity: 0;
+	animation: brewing-pop 3.6s linear -1.7s infinite;
+}
+
+.brewing-loader-rings ellipse:nth-child(2) {
+	animation-duration: 4s;
+	animation-delay: -2.6s;
+}
+
+.brewing-loader-steam path {
+	stroke: var(--foreground);
+	stroke-width: 1.2;
+	opacity: 0.26;
+	animation: brewing-steam 4s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+.brewing-loader-steam path:nth-child(2) {
+	animation-duration: 4.8s;
+	animation-delay: -2.4s;
+}
+
+@keyframes brewing-wave {
+	to {
+		transform: translateX(-80px);
+	}
+}
+
+@keyframes brewing-colour {
+	0%,
+	50.01%,
+	100% {
+		opacity: 0;
+	}
+	12.5%,
+	50% {
+		opacity: 1;
+	}
+}
+
+@keyframes brewing-colour-divine {
+	0%,
+	50%,
+	100% {
+		opacity: 0;
+	}
+	62.5%,
+	87.5% {
+		opacity: 1;
+	}
+}
+
+@keyframes brewing-bubble {
+	0% {
+		transform: translateY(0);
+		opacity: 0;
+	}
+	15% {
+		opacity: 0.9;
+	}
+	75%,
+	100% {
+		transform: translateY(-30px);
+		opacity: 0;
+	}
+}
+
+@keyframes brewing-steam {
+	0% {
+		transform: translate(0, 3px);
+		opacity: 0.08;
+	}
+	25% {
+		opacity: 0.38;
+	}
+	100% {
+		transform: translate(3px, -7px);
+		opacity: 0.08;
+	}
+}
+
+@keyframes brewing-pop {
+	0%,
+	65% {
+		transform: scale(0.7);
+		opacity: 0;
+	}
+	75% {
+		transform: scale(1);
+		opacity: 0.8;
+	}
+	95%,
+	100% {
+		transform: scale(1.6);
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.brewing-loader-wave,
+	.brewing-loader-liquid,
+	.brewing-loader-bubbles circle,
+	.brewing-loader-rings ellipse,
+	.brewing-loader-steam path {
+		animation: none;
+	}
+	[data-slot="sheet-content"],
+	[data-slot="sheet-overlay"],
+	[data-slot="dialog-content"],
+	[data-slot="dialog-overlay"],
+	[data-slot="select-content"],
+	[data-slot="tooltip-content"],
+	[data-slot="switch-thumb"] {
+		animation: none !important;
+		transition: none !important;
+	}
+	* {
+		scroll-behavior: auto !important;
+	}
+}
