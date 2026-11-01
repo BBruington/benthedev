@@ -1,0 +1,388 @@
+{
+  "id": "9e60ea3d-acc5-4df5-bb98-e56c6d8bb402",
+  "prevId": "19da164a-3f54-4101-8176-ef38c52c87bb",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.brews": {
+      "name": "brews",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mix": {
+          "name": "mix",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "brews_campaign_id_created_at_idx": {
+          "name": "brews_campaign_id_created_at_idx",
+          "columns": [
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "brews_campaign_id_campaigns_id_fk": {
+          "name": "brews_campaign_id_campaigns_id_fk",
+          "tableFrom": "brews",
+          "tableTo": "campaigns",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.campaigns": {
+      "name": "campaigns",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "gm_user_id": {
+          "name": "gm_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "viewing_as": {
+          "name": "viewing_as",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'player'"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "campaigns_gm_user_id_unique": {
+          "name": "campaigns_gm_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "gm_user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.codex_entries": {
+      "name": "codex_entries",
+      "schema": "",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "potion_id": {
+          "name": "potion_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mentor": {
+          "name": "mentor",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "formed": {
+          "name": "formed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "revealed": {
+          "name": "revealed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "formula_revealed": {
+          "name": "formula_revealed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "perfected": {
+          "name": "perfected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "best_off_by": {
+          "name": "best_off_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "best_mix": {
+          "name": "best_mix",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "codex_entries_campaign_id_campaigns_id_fk": {
+          "name": "codex_entries_campaign_id_campaigns_id_fk",
+          "tableFrom": "codex_entries",
+          "tableTo": "campaigns",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "codex_entries_campaign_id_potion_id_pk": {
+          "name": "codex_entries_campaign_id_potion_id_pk",
+          "columns": [
+            "campaign_id",
+            "potion_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.crafters": {
+      "name": "crafters",
+      "schema": "",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "class_name": {
+          "name": "class_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level": {
+          "name": "level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "int_mod": {
+          "name": "int_mod",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "crafting_rank": {
+          "name": "crafting_rank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alchemical_crafting": {
+          "name": "alchemical_crafting",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tools": {
+          "name": "tools",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "downtime_days": {
+          "name": "downtime_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "crafters_campaign_id_campaigns_id_fk": {
+          "name": "crafters_campaign_id_campaigns_id_fk",
+          "tableFrom": "crafters",
+          "tableTo": "campaigns",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ingredient_inventory": {
+      "name": "ingredient_inventory",
+      "schema": "",
+      "columns": {
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ingredient_id": {
+          "name": "ingredient_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "ingredient_inventory_campaign_id_campaigns_id_fk": {
+          "name": "ingredient_inventory_campaign_id_campaigns_id_fk",
+          "tableFrom": "ingredient_inventory",
+          "tableTo": "campaigns",
+          "columnsFrom": [
+            "campaign_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ingredient_inventory_campaign_id_ingredient_id_pk": {
+          "name": "ingredient_inventory_campaign_id_ingredient_id_pk",
+          "columns": [
+            "campaign_id",
+            "ingredient_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ingredient_inventory_amount_non_negative": {
+          "name": "ingredient_inventory_amount_non_negative",
+          "value": "\"ingredient_inventory\".\"amount\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

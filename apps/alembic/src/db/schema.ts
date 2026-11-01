@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
 	boolean,
 	check,
+	index,
 	integer,
 	jsonb,
 	pgTable,
@@ -57,17 +58,27 @@ export const codexEntries = pgTable(
 	(table) => [primaryKey({ columns: [table.campaignId, table.potionId] })],
 );
 
-export const brews = pgTable("brews", {
-	id: uuid().defaultRandom().primaryKey(),
-	campaignId: uuid("campaign_id")
-		.notNull()
-		.references(() => campaigns.id, { onDelete: "cascade" }),
-	mix: jsonb().$type<Mix>().notNull(),
-	result: jsonb().$type<BrewView>().notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true })
-		.notNull()
-		.defaultNow(),
-});
+export const brews = pgTable(
+	"brews",
+	{
+		id: uuid().defaultRandom().primaryKey(),
+		campaignId: uuid("campaign_id")
+			.notNull()
+			.references(() => campaigns.id, { onDelete: "cascade" }),
+		mix: jsonb().$type<Mix>().notNull(),
+		result: jsonb().$type<BrewView>().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(table) => [
+		index("brews_campaign_id_created_at_idx").on(
+			table.campaignId,
+			table.createdAt.desc(),
+			table.id.desc(),
+		),
+	],
+);
 
 export const ingredientInventory = pgTable(
 	"ingredient_inventory",

@@ -15,6 +15,13 @@
       "when": 1793564318685,
       "tag": "0001_ingredient_inventory",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793573556928,
+      "tag": "0002_brews_campaign_index",
+      "breakpoints": true
     }
   ]
 }
