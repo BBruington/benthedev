@@ -63,8 +63,8 @@ export function BrewExample() {
 					className="text-sm leading-relaxed text-muted-foreground"
 				>
 					{perfect
-						? "Glowcap adds 9 Occult and 5 Divine. The totals are now Arcane 7, Primal 26, Occult 10, Divine 13. All four values match: a Perfect mix."
-						: "The totals are Arcane 7, Primal 26, Occult 1, Divine 8. Close enough to form! “Off by 14” is the total distance from the target. The arrows show Occult and Divine are low: add more of those traditions."}
+						? "Glowcap adds 9 Occult and 5 Divine. The totals are now Arcane 7, Primal 26, Occult 10, Divine 13. All four values match: a Perfect mix, so the batch is 1 + 1d3 potions, 3 here instead of 1."
+						: "The totals are Arcane 7, Primal 26, Occult 1, Divine 8. Close enough to form 1 potion! “Off by 14” is the total distance from the target. The arrows show Occult and Divine are low: add more of those traditions."}
 				</p>
 				<p className="text-xs leading-relaxed text-muted-foreground">
 					Worked example: a die roll of 6; the perfect mix’s bonus die rolls 2.
