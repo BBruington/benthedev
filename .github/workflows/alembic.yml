@@ -1,0 +1,56 @@
+# Alembic's CI: `mise run check` and the image Railway will build. It deploys nothing itself. Alembic's Biome
+# config is its own root, so only the root mise.toml is listed beside the app's files.
+name: alembic
+
+on:
+  push:
+    paths:
+      - apps/alembic/**
+      - .github/workflows/alembic.yml
+      - mise.toml
+  pull_request:
+    paths:
+      - apps/alembic/**
+      - .github/workflows/alembic.yml
+      - mise.toml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/alembic
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.10.1
+          install: true
+          cache: true
+          working_directory: apps/alembic
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: mise run check
+        run: mise run check
+      # The build regenerates src/routeTree.gen.ts; generate needs a DATABASE_URL but never connects.
+      - name: Migrations are generated
+        run: bun run db:generate
+        env:
+          DATABASE_URL: postgres://ci@127.0.0.1/ci
+      # Untracked files count too: a migration that was generated but never added would otherwise pass here.
+      - name: Generated code is committed and current
+        run: git diff --exit-code -- . && test -z "$(git status --porcelain -- .)" || { git status --porcelain -- .; exit 1; }
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image Railway will build (root directory apps/alembic), so a Dockerfile mistake fails here, not in a deploy.
+      - name: docker build (no push)
+        run: docker build --tag alembic:ci .

@@ -1,0 +1,13 @@
+# An allow-list: only what the build reads reaches the context, so a new local file (.env, a key) never does.
+*
+!package.json
+!bun.lock
+!bunfig.toml
+!tsconfig.json
+!vite.config.ts
+!tsr.config.json
+!public/
+!src/
+**/.env*
+**/*.pem
+**/.DS_Store

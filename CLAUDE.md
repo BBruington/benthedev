@@ -10,17 +10,18 @@ file covers only what spans apps.
 |---|---|
 | `apps/colony-planner/` | Go, React (Vite) and Postgres, plus Beny Bot. Its own Go module, `github.com/BBruington/colony-planner`, and its own Bun project in `web/` |
 | `apps/about-me/` | the small static personal site |
+| `apps/alembic/` | the PF2e potion-brewing app: TanStack Start (Nitro on Bun), Clerk and Postgres via Drizzle |
 | `.github/workflows/<app>.yml` | one CI workflow per app, run only when that app's files change |
 | `mise.toml` | the monorepo task root, and the default bun pin (each app pins its own too) |
 | `package.json` | the Bun workspace for web apps that share code; empty until two apps share a package |
-| `biome.json` | shared lint and format rules; skips `apps/colony-planner`, whose Biome config is its own root |
+| `biome.json` | shared lint and format rules; skips `apps/colony-planner` and `apps/alembic`, whose Biome configs are their own roots |
 
 ## Running tasks
 
 Each app keeps its tasks in its own `mise.toml`. Either `cd apps/<app>` and `mise run <task>`, or run
 `mise run //apps/<app>:<task>` from anywhere in the repo (for example `mise run //apps/colony-planner:check`).
 `mise tasks ls --all` lists every app's tasks. Each app installs its own dependencies from its own lockfile
-(`bun install --frozen-lockfile` in `apps/about-me`, colony's `mise run setup` for its `web/`).
+(`bun install --frozen-lockfile` in `apps/about-me` and `apps/alembic`, colony's `mise run setup` for its `web/`).
 In a bare shell, use `mise exec -- <tool>` for the pinned tools.
 
 ## Rules
@@ -39,6 +40,18 @@ In a bare shell, use `mise exec -- <tool>` for the pinned tools.
 - Pin exact versions (and Docker base images by tag and digest). No em dashes anywhere: code, docs or UI copy.
 - VCS is jj, colocated with git. One conventional commit line, no body.
 
+## Pull requests
+
+CodeRabbit reviews PRs here on its free open-source plan, whose docs say a public repo under 10 stars is
+reviewed only on request. Right after `gh pr create`, comment `@coderabbitai review` on the PR unless it is a
+draft or already has that comment:
+
+```sh
+[ "$(gh pr view <number> --json isDraft,comments \
+  --jq '.isDraft or any(.comments[]; .body | contains("@coderabbitai review"))')" = false ] \
+  && gh pr comment <number> --body "@coderabbitai review"
+```
+
 ## Domains and Railway
 
 Each app is its own Railway project. Settings live in each project's dashboard, since new Railway projects
@@ -48,7 +61,7 @@ ignore `railway.toml`; each app's runbook lists them.
 |---|---|---|
 | colony.benthedev.com | colony-planner | root directory `apps/colony-planner`, watch path `/apps/colony-planner/**` |
 | benthedev.com, www.benthedev.com | about-me | root directory `apps/about-me`, watch path `/apps/about-me/**` |
-| potions (later, subdomain not chosen) | not built yet | |
+| potions (later, subdomain not chosen) | alembic | root directory `apps/alembic`, watch path `/apps/alembic/**`; project not created yet, the standalone copy still runs on Vercel |
 
 DNS is on Cloudflare with DNSSEC on, so never change the nameservers. An app's domain is the CNAME and
 `_railway-verify` TXT record Railway shows, left as DNS only (grey cloud); the apex is a flattened CNAME

@@ -1,0 +1,1 @@
+CREATE INDEX "brews_campaign_id_created_at_idx" ON "brews" USING btree ("campaign_id","created_at" DESC NULLS LAST,"id" DESC NULLS LAST);

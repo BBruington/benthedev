@@ -1,0 +1,39 @@
+[tools]
+bun = "1.4.2"
+
+[tasks.dev]
+description = "Run the Vite dev server on http://localhost:3000 (reads .env.local)"
+run = "bun run dev"
+
+[tasks.build]
+description = "Build the Nitro server into .output/"
+run = "bun run build"
+
+[tasks.start]
+description = "Serve the built app from .output/"
+run = "bun run start"
+
+[tasks.lint]
+description = "Lint and format check with Biome"
+run = "bun run lint"
+
+[tasks.typecheck]
+description = "Typecheck with tsc"
+run = "bun run typecheck"
+
+[tasks.test]
+description = "Run the brewing and projection tests"
+run = "bun test"
+
+[tasks.check]
+description = "Lint, typecheck and test, then build"
+depends = ["lint", "typecheck", "test"]
+run = "bun run build"
+
+[tasks."db:generate"]
+description = "Generate a migration under drizzle/ from src/db/schema.ts"
+run = "bun run db:generate"
+
+[tasks."db:migrate"]
+description = "Apply pending migrations to DATABASE_URL"
+run = "bun run db:migrate"

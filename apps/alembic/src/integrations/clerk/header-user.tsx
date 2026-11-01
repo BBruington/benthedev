@@ -1,0 +1,9 @@
+import { Show, UserButton } from "@clerk/tanstack-react-start";
+
+export default function HeaderUser() {
+	return (
+		<Show when="signed-in">
+			<UserButton />
+		</Show>
+	);
+}

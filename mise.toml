@@ -1,7 +1,7 @@
 monorepo_root = true
 
 [monorepo]
-config_roots = ["apps/colony-planner", "apps/about-me"]
+config_roots = ["apps/colony-planner", "apps/about-me", "apps/alembic"]
 
 # Every app's tasks inherit these; an app's own mise.toml can pin something else.
 [tools]
