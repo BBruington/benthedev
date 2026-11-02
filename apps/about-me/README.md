@@ -39,9 +39,21 @@ first deploy is up.
    Railway's four records exactly as shown, each **DNS only** (grey cloud). The apex CNAME sits beside
    the mail records and Cloudflare flattens it. Change nothing else: the MX, SPF,
    google-site-verification, `resend._domainkey` and `send.` records and the nameservers stay.
-3. Once Railway shows both domains with a green tick, open https://benthedev.com and
-   https://www.benthedev.com, then send a mail to ben@benthedev.com from another account and check it
-   arrives.
+3. Once Railway shows both domains with a green tick, open https://benthedev.com and check that
+   https://www.benthedev.com redirects to it, then send a mail to ben@benthedev.com from another
+   account and check it arrives.
 4. Remove both domains from the old Vercel project and disconnect its Git repository. On GitHub, change
    `BBruington/about-me`'s homepage (today `https://about-me-beryl-pi.vercel.app`) to
    https://benthedev.com, then archive that repository.
+5. Google Search Console: open the `benthedev.com` Domain property (the google-site-verification TXT
+   record already verifies it). Under **Sitemaps** submit `https://benthedev.com/sitemap.xml`, then
+   **URL inspection** on `https://benthedev.com/` → **Request indexing**. Repeat both in Bing Webmaster
+   Tools (it can import the property from Search Console).
+6. Link the site from the profiles the structured data names as `sameAs`: GitHub profile website field
+   and LinkedIn **Contact info** → **Website**. Those links are how search engines tie the name to it.
+
+## Search
+
+The full name, Benjamin Isaac Bruington, is in the title, description, footer and the `ProfilePage`
+JSON-LD that `scripts/prerender.tsx` adds to `dist/index.html` from `src/profile.ts`. `public/robots.txt`
+points crawlers at `public/sitemap.xml`. Check the JSON-LD with Google's Rich Results Test after a deploy.

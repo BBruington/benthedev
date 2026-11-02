@@ -1,6 +1,6 @@
 import { Contact } from "./contact";
 import { GitHubIcon, LinkedInIcon } from "./icons";
-import { EMAIL, GITHUB_URL, LINKEDIN_URL, RESUME_PATH } from "./profile";
+import { EMAIL, FULL_NAME, GITHUB_URL, LINKEDIN_URL, RESUME_PATH } from "./profile";
 import { Experience, Projects, Skills } from "./resume";
 
 const NAVIGATION = [
@@ -93,7 +93,7 @@ export function App() {
 			</main>
 
 			<footer className="mx-auto max-w-5xl border-border border-t px-6 py-8 font-mono text-muted-foreground text-xs">
-				© <span suppressHydrationWarning={true}>{new Date().getFullYear()}</span> Benjamin Bruington
+				© <span suppressHydrationWarning={true}>{new Date().getFullYear()}</span> {FULL_NAME}
 			</footer>
 		</>
 	);
