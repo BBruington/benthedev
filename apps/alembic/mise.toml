@@ -25,6 +25,10 @@ run = "bun run typecheck"
 description = "Run the brewing and projection tests"
 run = "bun test"
 
+[tasks."test:db"]
+description = "Run the database tests against TEST_DATABASE_URL, a throwaway Postgres they wipe"
+run = "bun test ./src/server/workshop.db.ts"
+
 [tasks.check]
 description = "Lint, typecheck and test, then build"
 depends = ["lint", "typecheck", "test"]

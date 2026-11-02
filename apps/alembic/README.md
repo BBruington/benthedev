@@ -56,6 +56,12 @@ Schema changes go through migrations: edit `src/db/schema.ts`, run `mise run db:
 
 The brewing tests pin the worked examples in `Brewing rules.md` §12 and every outcome cell. The projection test checks that answer-key data never reaches the player view.
 
+The database tests in `src/server/workshop.db.ts` cover brewing against stock, the codex's best-mix rules, inventory limits and GM reveals. They wipe every table, so point them at a throwaway Postgres; `mise run check` skips them and CI runs them:
+
+```bash
+TEST_DATABASE_URL=postgres://localhost/alembic_test mise run test:db
+```
+
 ## The 60-second tour
 
 1. Sign in. The workshop opens with Wren and Healing Potion (Minor) already Known.
