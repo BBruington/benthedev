@@ -12,10 +12,12 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import type {
-	BrewView,
+	BrewRecord,
 	CraftingRank,
+	ItemKind,
 	Mix,
 	Tools,
+	Tradition,
 	ViewingAs,
 } from "#/brewing/types";
 
@@ -66,7 +68,7 @@ export const brews = pgTable(
 			.notNull()
 			.references(() => campaigns.id, { onDelete: "cascade" }),
 		mix: jsonb().$type<Mix>().notNull(),
-		result: jsonb().$type<BrewView>().notNull(),
+		result: jsonb().$type<BrewRecord>().notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
@@ -94,6 +96,51 @@ export const ingredientInventory = pgTable(
 		check(
 			"ingredient_inventory_amount_non_negative",
 			sql`${table.amount} >= 0`,
+		),
+	],
+);
+
+export const potionInventory = pgTable(
+	"potion_inventory",
+	{
+		campaignId: uuid("campaign_id")
+			.notNull()
+			.references(() => campaigns.id, { onDelete: "cascade" }),
+		potionId: text("potion_id").notNull(),
+		amount: integer().notNull().default(0),
+	},
+	(table) => [
+		primaryKey({ columns: [table.campaignId, table.potionId] }),
+		check("potion_inventory_amount_non_negative", sql`${table.amount} >= 0`),
+	],
+);
+
+export const traditionKnowledge = pgTable(
+	"tradition_knowledge",
+	{
+		campaignId: uuid("campaign_id")
+			.notNull()
+			.references(() => campaigns.id, { onDelete: "cascade" }),
+		itemKind: text("item_kind").$type<ItemKind>().notNull(),
+		itemId: text("item_id").notNull(),
+		tradition: text().$type<Tradition>().notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [
+				table.campaignId,
+				table.itemKind,
+				table.itemId,
+				table.tradition,
+			],
+		}),
+		check(
+			"tradition_knowledge_item_kind_valid",
+			sql`${table.itemKind} in ('ingredient', 'potion')`,
+		),
+		check(
+			"tradition_knowledge_tradition_valid",
+			sql`${table.tradition} in ('arcane', 'primal', 'occult', 'divine')`,
 		),
 	],
 );

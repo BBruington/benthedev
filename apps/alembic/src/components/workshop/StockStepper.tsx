@@ -1,20 +1,23 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
+import type { ItemKind } from "#/brewing/types";
 import { Button } from "#/components/ui/button";
 import { orpc } from "#/orpc/client";
 
 const MAX_STOCK = 999;
 
 interface StockStepperProps {
-	ingredientId: string;
-	ingredientName: string;
+	kind: ItemKind;
+	itemId: string;
+	itemName: string;
 	amount: number;
 }
 
 export function StockStepper({
-	ingredientId,
-	ingredientName,
+	kind,
+	itemId,
+	itemName,
 	amount,
 }: StockStepperProps) {
 	const queryClient = useQueryClient();
@@ -24,12 +27,22 @@ export function StockStepper({
 				await queryClient.cancelQueries({ queryKey: orpc.workshop.key() });
 				queryClient.setQueryData(orpc.workshop.get.queryKey(), (current) => {
 					if (!current) return current;
-					const stocked = current.inventory[ingredientId] ?? 0;
+					const clamp = (stocked: number) =>
+						Math.min(MAX_STOCK, Math.max(0, stocked + delta));
+					if (kind === "potion")
+						return {
+							...current,
+							codex: current.codex.map((entry) =>
+								entry.potionId === itemId
+									? { ...entry, stock: clamp(entry.stock) }
+									: entry,
+							),
+						};
 					return {
 						...current,
 						inventory: {
 							...current.inventory,
-							[ingredientId]: Math.min(MAX_STOCK, Math.max(0, stocked + delta)),
+							[itemId]: clamp(current.inventory[itemId] ?? 0),
 						},
 					};
 				});
@@ -44,15 +57,15 @@ export function StockStepper({
 	);
 
 	return (
-		<div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+		<div className="flex items-center gap-1 text-xs text-muted-foreground">
 			<span className="mr-1">In stock</span>
 			<Button
 				type="button"
 				size="icon-xs"
 				variant="outline"
-				aria-label={`Remove one ${ingredientName} from stock`}
+				aria-label={`Remove one ${itemName} from stock`}
 				disabled={amount <= 0}
-				onClick={() => mutation.mutate({ ingredientId, delta: -1 })}
+				onClick={() => mutation.mutate({ kind, itemId, delta: -1 })}
 			>
 				<Minus />
 			</Button>
@@ -66,9 +79,9 @@ export function StockStepper({
 				type="button"
 				size="icon-xs"
 				variant="outline"
-				aria-label={`Add one ${ingredientName} to stock`}
+				aria-label={`Add one ${itemName} to stock`}
 				disabled={amount >= MAX_STOCK}
-				onClick={() => mutation.mutate({ ingredientId, delta: 1 })}
+				onClick={() => mutation.mutate({ kind, itemId, delta: 1 })}
 			>
 				<Plus />
 			</Button>

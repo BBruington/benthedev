@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import type { BrewLogEntry, Ingredient } from "#/brewing/types";
+import {
+	type BrewLogEntry,
+	type IngredientView,
+	TRADITIONS,
+} from "#/brewing/types";
 import { Badge } from "#/components/ui/badge";
 import {
 	Card,
@@ -8,7 +12,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "#/components/ui/card";
-import { formatCheck, formatValues } from "#/lib/format";
+import { formatCheck, formatKnownValues, TRADITION_LABEL } from "#/lib/format";
 
 function relativeTime(date: string, now: number): string {
 	const minutes = Math.max(
@@ -26,7 +30,7 @@ export function BrewLog({
 	ingredients,
 }: {
 	log: BrewLogEntry[];
-	ingredients: readonly Ingredient[];
+	ingredients: readonly IngredientView[];
 }) {
 	const [now, setNow] = useState<number | null>(null);
 	useEffect(() => {
@@ -98,7 +102,15 @@ export function BrewLog({
 											data-label="A / P / O / D"
 											className="whitespace-nowrap px-4 py-3 font-mono text-muted-foreground tabular-nums"
 										>
-											{formatValues(entry.result.totals)}
+											<span aria-hidden="true">
+												{formatKnownValues(entry.result.totals)}
+											</span>
+											<span className="sr-only">
+												{TRADITIONS.map(
+													(tradition, axis) =>
+														`${TRADITION_LABEL[tradition]} ${entry.result.totals[axis] ?? "unknown"}`,
+												).join(", ")}
+											</span>
 										</td>
 										<td className="min-w-56 space-y-1 px-4 py-3">
 											<div className="flex flex-wrap items-center gap-2">

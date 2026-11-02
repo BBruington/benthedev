@@ -1,8 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
-import { POTIONS, WREN } from "./catalog";
+import { INGREDIENTS, POTIONS, WREN } from "./catalog";
 import {
 	crafterGates,
 	crafterModifier,
+	deconstructDc,
 	degreeOf,
 	odds,
 	potionDc,
@@ -321,6 +322,23 @@ describe("PF2e Crafting", () => {
 			failure: 0.05,
 			criticalFailure: 0.95,
 		});
+	});
+});
+
+describe("deconstruction", () => {
+	test("DC is 10 + level + rarity adjustment, ingredients counting as level 0", () => {
+		const dcOf = (id: string) => {
+			const item =
+				INGREDIENTS.find((ingredient) => ingredient.id === id) ??
+				POTIONS.find((potion) => potion.id === id);
+			if (!item) throw new Error(`Unknown item: ${id}`);
+			return deconstructDc(item);
+		};
+		expect(dcOf("heartmoss")).toBe(13);
+		expect(dcOf("ghost-orchid")).toBe(15);
+		expect(dcOf("phoenix-ash")).toBe(18);
+		expect(dcOf("healing-potion-minor")).toBe(14);
+		expect(dcOf("potion-of-flying")).toBe(26);
 	});
 });
 
