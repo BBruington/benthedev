@@ -8,6 +8,10 @@
 	root * /srv
 	encode zstd gzip
 
+	# One host for search engines to index; the canonical tag already names the apex.
+	@www host www.benthedev.com
+	redir @www https://benthedev.com{uri} permanent
+
 	header {
 		Content-Security-Policy "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
 		Cross-Origin-Opener-Policy "same-origin"

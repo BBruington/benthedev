@@ -1,3 +1,5 @@
+export const FULL_NAME = "Benjamin Isaac Bruington";
+export const SITE_URL = "https://benthedev.com/";
 export const EMAIL = "ben@benthedev.com";
 export const PHONE = "(386) 225-1574";
 export const PHONE_HREF = "tel:+13862251574";
