@@ -26,8 +26,12 @@ const DEGREES: readonly Degree[] = [
 	"success",
 	"critical-success",
 ];
-const RARITY_DC: Record<Rarity, number> = { common: 0, uncommon: 2, rare: 5 };
-const DECONSTRUCT_RARITY_DC: Record<Rarity, number> = {
+const CRAFT_RARITY_ADJUSTMENT: Record<Rarity, number> = {
+	common: 0,
+	uncommon: 2,
+	rare: 5,
+};
+const DECONSTRUCT_RARITY_ADJUSTMENT: Record<Rarity, number> = {
 	common: 3,
 	uncommon: 5,
 	rare: 8,
@@ -61,14 +65,14 @@ export function potionDc(p: Potion): number {
 	const levelDc = LEVEL_DCS[p.level];
 	if (levelDc === undefined)
 		throw new Error(`Unsupported potion level: ${p.level}`);
-	return levelDc + RARITY_DC[p.rarity];
+	return levelDc + CRAFT_RARITY_ADJUSTMENT[p.rarity];
 }
 
 export function deconstructDc(item: {
 	rarity: Rarity;
 	level?: number;
 }): number {
-	return 10 + (item.level ?? 0) + DECONSTRUCT_RARITY_DC[item.rarity];
+	return 10 + (item.level ?? 0) + DECONSTRUCT_RARITY_ADJUSTMENT[item.rarity];
 }
 
 export function primaryOf(p: Potion): Tradition {
