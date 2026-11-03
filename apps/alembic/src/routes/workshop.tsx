@@ -5,7 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { ArrowDown, ArrowUp, CircleHelp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { BrewView, Mix } from "#/brewing/types";
+import type { BrewView, DeconstructView, ItemKind, Mix } from "#/brewing/types";
 import { HouseRules } from "#/components/HouseRules";
 import { Button } from "#/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
@@ -23,6 +23,7 @@ import { CrafterCard } from "#/components/workshop/CrafterCard";
 import { ResultCard } from "#/components/workshop/ResultCard";
 import { Shelf } from "#/components/workshop/Shelf";
 import { ViewingToggle } from "#/components/workshop/ViewingToggle";
+import { TRADITION_LABEL } from "#/lib/format";
 import { orpc } from "#/orpc/client";
 
 const requireSession = createServerFn({ method: "GET" }).handler(async () => {
@@ -40,7 +41,7 @@ function Workshop() {
 	const workshop = useQuery(orpc.workshop.get.queryOptions());
 	const [mix, setMix] = useState<Mix>({});
 	const [previewMix, setPreviewMix] = useState<Mix | null>(null);
-	const [result, setResult] = useState<BrewView | null>(null);
+	const [result, setResult] = useState<BrewView | DeconstructView | null>(null);
 	const benchRef = useRef<HTMLElement>(null);
 	const [benchVisible, setBenchVisible] = useState(true);
 	const hasWorkshop = workshop.data !== undefined;
@@ -65,6 +66,26 @@ function Workshop() {
 				queryClient.invalidateQueries({ queryKey: orpc.workshop.key() }),
 		}),
 	);
+	const deconstruct = useMutation(
+		orpc.deconstruct.attempt.mutationOptions({
+			onMutate: () => setResult(null),
+			onSuccess: (nextResult) => {
+				setResult(nextResult);
+				toast(
+					nextResult.learned
+						? `${nextResult.name}: ${TRADITION_LABEL[nextResult.learned.tradition]} is ${nextResult.learned.value}`
+						: `Deconstructing ${nextResult.name} taught nothing`,
+					{ position: "top-right" },
+				);
+			},
+			onError: (error) => toast.error(error.message, { position: "top-right" }),
+			onSettled: () =>
+				queryClient.invalidateQueries({ queryKey: orpc.workshop.key() }),
+		}),
+	);
+	function deconstructItem(kind: ItemKind, itemId: string) {
+		deconstruct.mutate({ kind, itemId });
+	}
 	const units = Object.values(mix).reduce((sum, quantity) => sum + quantity, 0);
 
 	function changeIngredient(id: string, delta: number) {
@@ -140,6 +161,9 @@ function Workshop() {
 						inventory={view.inventory}
 						mix={mix}
 						units={units}
+						viewingAs={view.viewingAs}
+						deconstructing={deconstruct.isPending}
+						onDeconstruct={deconstructItem}
 						onChange={changeIngredient}
 					/>
 					<Tabs defaultValue="codex" className="mt-5">
@@ -154,6 +178,8 @@ function Workshop() {
 								workshop={view}
 								onUseMix={useMix}
 								onPreviewMix={setPreviewMix}
+								deconstructing={deconstruct.isPending}
+								onDeconstruct={deconstructItem}
 							/>
 						</TabsContent>
 						<TabsContent value="log">

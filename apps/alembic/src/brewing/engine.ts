@@ -10,6 +10,7 @@ import {
 	type Mix,
 	type Odds,
 	type Potion,
+	type Rarity,
 	TRADITIONS,
 	type Tradition,
 	type Values,
@@ -25,6 +26,16 @@ const DEGREES: readonly Degree[] = [
 	"success",
 	"critical-success",
 ];
+const CRAFT_RARITY_ADJUSTMENT: Record<Rarity, number> = {
+	common: 0,
+	uncommon: 2,
+	rare: 5,
+};
+const DECONSTRUCT_RARITY_ADJUSTMENT: Record<Rarity, number> = {
+	common: 3,
+	uncommon: 5,
+	rare: 8,
+};
 const INGREDIENT_BY_ID = new Map(
 	INGREDIENTS.map((ingredient) => [ingredient.id, ingredient]),
 );
@@ -54,7 +65,14 @@ export function potionDc(p: Potion): number {
 	const levelDc = LEVEL_DCS[p.level];
 	if (levelDc === undefined)
 		throw new Error(`Unsupported potion level: ${p.level}`);
-	return levelDc + (p.rarity === "rare" ? 5 : p.rarity === "uncommon" ? 2 : 0);
+	return levelDc + CRAFT_RARITY_ADJUSTMENT[p.rarity];
+}
+
+export function deconstructDc(item: {
+	rarity: Rarity;
+	level?: number;
+}): number {
+	return 10 + (item.level ?? 0) + DECONSTRUCT_RARITY_ADJUSTMENT[item.rarity];
 }
 
 export function primaryOf(p: Potion): Tradition {

@@ -3,6 +3,7 @@ import { WREN } from "#/brewing/catalog";
 import {
 	brewAttemptSchema,
 	crafterEditSchema,
+	deconstructSchema,
 	inventoryAdjustSchema,
 } from "./schema";
 
@@ -81,14 +82,29 @@ describe("crafter edit input", () => {
 });
 
 test("inventory adjustments move one unit at a time", () => {
-	for (const delta of [1, -1])
-		expect(
-			inventoryAdjustSchema.safeParse({ ingredientId: "heartmoss", delta })
-				.success,
-		).toBe(true);
-	for (const delta of [0, 2, -2])
-		expect(
-			inventoryAdjustSchema.safeParse({ ingredientId: "heartmoss", delta })
-				.success,
-		).toBe(false);
+	for (const kind of ["ingredient", "potion"]) {
+		for (const delta of [1, -1])
+			expect(
+				inventoryAdjustSchema.safeParse({ kind, itemId: "heartmoss", delta })
+					.success,
+			).toBe(true);
+		for (const delta of [0, 2, -2])
+			expect(
+				inventoryAdjustSchema.safeParse({ kind, itemId: "heartmoss", delta })
+					.success,
+			).toBe(false);
+	}
+});
+
+test("deconstruction takes a known item kind and a real d20", () => {
+	const heartmoss = { kind: "ingredient", itemId: "heartmoss" };
+	expect(deconstructSchema.safeParse({ ...heartmoss, d20: 20 }).success).toBe(
+		true,
+	);
+	expect(deconstructSchema.safeParse({ ...heartmoss, d20: 21 }).success).toBe(
+		false,
+	);
+	expect(
+		deconstructSchema.safeParse({ ...heartmoss, kind: "spell" }).success,
+	).toBe(false);
 });

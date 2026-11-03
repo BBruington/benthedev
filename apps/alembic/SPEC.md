@@ -21,10 +21,10 @@ Alembic is no longer a sandbox: ingredients are a finite, per-campaign inventory
 1. Sign in with GitHub, Google or Discord.
 2. The workshop opens on:
    - Wren Ashby, a level 5 Alchemist;
-   - 16 ingredients showing their tradition values, one of each in stock;
+   - 16 ingredients whose tradition values all start hidden ("?"), one of each in stock;
    - a codex with Healing Potion (Minor) already Known, plus a mentor's note: "Heartmoss + Marsh Toad Gland".
-3. Brew the note. The totals are 7/26/1/8, which forms Healing Potion (Minor) against DC 15. The result shows it was off by 14, with arrows: Arcane on, Primal on, Occult low, Divine low.
-4. Follow the arrows: restock Heartmoss and Marsh Toad Gland on the shelf, then brew them with Glowcap. The totals become 7/26/10/13, which is Perfect: 1 + 1d3 potions. The codex marks it Perfected.
+3. Brew the note. It forms Healing Potion (Minor) against DC 15, with totals shown as "?" because no ingredient's traditions are learned yet. The result shows it was off by 14, with arrows: Arcane on, Primal on, Occult low, Divine low.
+4. Follow the arrows: restock Heartmoss and Marsh Toad Gland on the shelf, then brew them with Glowcap. That mix is Perfect: 1 + 1d3 potions, added to the potion's stock. The codex marks it Perfected. Deconstruct an ingredient or a potion to learn one of its traditions.
 5. Experiment toward the 10 undiscovered potions. A blocked brew names its gate; for example, Truth Potion is level 6 and Wren is level 5.
 6. Flip to GM view. The answer key shows every target and perfect recipe. Reveal Invisibility Potion, flip back, and the codex shows it as Known with its name, rarity, DC and odds, but no target.
 
@@ -32,7 +32,8 @@ Alembic is no longer a sandbox: ingredients are a finite, per-campaign inventory
 
 - Clerk sign-in
 - the workshop
-- the ingredient inventory
+- the ingredient and potion inventory
+- tradition knowledge and deconstruction
 - the brew bench
 - server-side brew resolution
 - the result card
@@ -62,19 +63,20 @@ Alembic is no longer a sandbox: ingredients are a finite, per-campaign inventory
 - a campaign with the user as its GM, viewing as player;
 - Wren: level 5, Int +4, expert Crafting, Alchemical Crafting, expanded lab;
 - Healing Potion (Minor) Known, with the mentor's note;
-- one unit of every catalog ingredient in stock.
+- one unit of every catalog ingredient in stock;
+- no tradition of any ingredient or potion learned.
 
 **R3 Ingredient shelf.** All 16 catalog ingredients, each with:
 
 - name, rarity, type and form, biome;
-- the four tradition values.
+- the four tradition values, each shown as "?" until learned.
 
-Each ingredient shows its stock with +/- buttons that change it by one (0-999). Players and the GM can both change it; each click is an atomic adjustment of the `ingredient_inventory` row, one per campaign and ingredient. Campaigns created before inventory existed are backfilled to one of each.
+Each ingredient shows its stock with +/- buttons that change it by one (0-999). Players and the GM can both change it; each click is an atomic adjustment of the `ingredient_inventory` row, one per campaign and ingredient. Campaigns created before inventory existed are backfilled to one of each. In player view each ingredient also has a Deconstruct button (R16).
 
 **R4 Brew bench.**
 
 - Pick 1-4 units, repeats allowed, with +/- per ingredient and a hard cap of 4 in total.
-- Four live total bars, one per tradition colour.
+- Four live total bars, one per tradition colour. Each bar sums the learned contributions; when part of a tradition is unlearned it reads "N+?", and "?" when none of it is learned.
 - An optional "table d20" field that accepts only 1-20, and a Brew button that is disabled while a brew is pending.
 - No ingredient can be added past its stock, repeats included. A mix needing more than is in stock names every short ingredient and cannot be brewed.
 
@@ -88,7 +90,7 @@ Each ingredient shows its stock with +/- buttons that change it by one (0-999). 
 6. Roll the Crafting check against DC = the level DC plus the rarity adjustment.
 7. Apply the outcome table.
 
-The app rolls the d20 with crypto unless a table d20 was given. Every brew adds 1 to the crafter's downtime-day counter and subtracts its units from the inventory. The server refuses a brew the inventory can't cover before rolling, so nothing is logged, consumed or counted.
+The app rolls the d20 with crypto unless a table d20 was given. Every brew adds 1 to the crafter's downtime-day counter and subtracts its units from the inventory. A formed brew adds its quantity to that potion's stock in `potion_inventory` (capped at 999). The server refuses a brew the inventory can't cover before rolling, so nothing is logged, consumed or counted. A total in the response is null unless every ingredient in the mix has that tradition learned.
 
 **R6 Result card.** It has three variants:
 
@@ -102,14 +104,14 @@ Every brew also raises a small top-right toast naming the outcome (potion and co
 
 - A potion becomes Known when it forms or the GM reveals it.
 - It becomes Perfected after any formed brew with a perfect mix, whatever the check's result.
-- Known potions show name, rarity, level, DC, the crafter's odds and the best off-by so far.
+- Known potions show name, rarity, level, DC, the crafter's odds, the best off-by so far, their four traditions (each "?" until learned) and their stock with +/- buttons (0-999) and, in player view, a Deconstruct button (R16). Stock and deconstruction are refused for potions that aren't Known.
 - An undiscovered count shows how many remain.
 
-**R8 Brew log.** Every brew, newest first: the mix, the totals, the roll arithmetic, the outcome and the time.
+**R8 Brew log.** Every brew, newest first: the mix, the totals (masked as in R5), the roll arithmetic, the outcome and the time.
 
 **R9 Viewing-as toggle.** It switches between GM and Player and is stored on the server. It can only lower the user's role, never raise it.
 
-**R10 GM answer key.** Shows every potion's target, both rooms, any required ingredient and the perfect recipe.
+**R10 GM answer key.** Shows every potion's target, both rooms, any required ingredient and the perfect recipe. GM view also shows every tradition value and total unmasked, and has no Deconstruct buttons.
 
 - The player view never receives any of it, because one server-side projection strips it.
 - A leak test asserts that.
@@ -131,6 +133,8 @@ The DC odds and the gates update after saving.
 **R14 House rules and licence.** A panel lists the homebrew rules. The footer carries the ORC / Community Use notice and a "sample content is fictional" line.
 
 **R15 Delivery.** Deployed on Railway with Neon. The README covers what works, what is incomplete, how to run it and the 60-second tour.
+
+**R16 Deconstruction.** The Deconstruct button runs `deconstruct.attempt` at once (no dialog), and the result shows in the result card's slot below the bench with a top-right toast. It spends one unit of an ingredient or Known potion and rolls the crafter's check (crypto d20 unless a table d20 is given to the API) against DC 10 + level (ingredients count as 0) + rarity (common +3, uncommon +5, rare +8). A success or critical success records one random unlearned tradition in `tradition_knowledge`, one row per campaign, item and tradition. A failure still spends the unit. It costs no downtime day, and it is refused without spending anything when stock is empty or every tradition is already known.
 
 ## Constraints & Assumptions
 

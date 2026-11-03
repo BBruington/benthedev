@@ -18,7 +18,7 @@ export function shortagesOf(mix: Mix, inventory: Inventory): Shortage[] {
 
 export function describeShortages(
 	shortages: readonly Shortage[],
-	ingredients: readonly Ingredient[],
+	ingredients: readonly Pick<Ingredient, "id" | "name">[],
 ): string {
 	const details = shortages.map(({ ingredientId, needed, available }) => {
 		const name =

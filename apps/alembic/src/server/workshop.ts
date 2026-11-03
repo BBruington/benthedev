@@ -7,12 +7,24 @@ import {
 	STARTER_POTION_ID,
 	WREN,
 } from "#/brewing/catalog";
-import { potionDc, primaryOf, resolveBrew } from "#/brewing/engine";
-import type {
-	AnswerKeyEntry,
-	BrewView,
-	Inventory,
-	ViewingAs,
+import {
+	crafterModifier,
+	deconstructDc,
+	degreeOf,
+	potionDc,
+	primaryOf,
+	resolveBrew,
+} from "#/brewing/engine";
+import { maskTotals } from "#/brewing/knowledge";
+import {
+	type AnswerKeyEntry,
+	type BrewRecord,
+	type BrewView,
+	type Check,
+	type DeconstructView,
+	type Inventory,
+	TRADITIONS,
+	type ViewingAs,
 } from "#/brewing/types";
 import { db } from "#/db/index";
 import {
@@ -21,15 +33,23 @@ import {
 	codexEntries,
 	crafters,
 	ingredientInventory,
+	potionInventory,
+	traditionKnowledge,
 } from "#/db/schema";
 import type {
 	BrewAttempt,
 	CrafterEdit,
+	Deconstruct,
 	InventoryAdjust,
 	Reveal,
 } from "#/orpc/schema";
 import { assertEnoughIngredients } from "./inventory";
-import { toCrafterView, toWorkshopView } from "./projection";
+import {
+	knowledgeFrom,
+	toCrafterView,
+	toIngredientViews,
+	toWorkshopView,
+} from "./projection";
 
 function startingInventory(campaignId: string) {
 	return INGREDIENTS.map((ingredient) => ({
@@ -76,25 +96,34 @@ export async function bootstrap(userId: string) {
 
 export async function getWorkshop(userId: string) {
 	const campaign = await bootstrap(userId);
-	const [crafter, entries, log, stock] = await Promise.all([
-		db.query.crafters.findFirst({
-			where: eq(crafters.campaignId, campaign.id),
-		}),
-		db
-			.select()
-			.from(codexEntries)
-			.where(eq(codexEntries.campaignId, campaign.id)),
-		db
-			.select()
-			.from(brews)
-			.where(eq(brews.campaignId, campaign.id))
-			.orderBy(desc(brews.createdAt), desc(brews.id))
-			.limit(50),
-		db
-			.select()
-			.from(ingredientInventory)
-			.where(eq(ingredientInventory.campaignId, campaign.id)),
-	]);
+	const [crafter, entries, log, stock, potionStock, knowledge] =
+		await Promise.all([
+			db.query.crafters.findFirst({
+				where: eq(crafters.campaignId, campaign.id),
+			}),
+			db
+				.select()
+				.from(codexEntries)
+				.where(eq(codexEntries.campaignId, campaign.id)),
+			db
+				.select()
+				.from(brews)
+				.where(eq(brews.campaignId, campaign.id))
+				.orderBy(desc(brews.createdAt), desc(brews.id))
+				.limit(50),
+			db
+				.select()
+				.from(ingredientInventory)
+				.where(eq(ingredientInventory.campaignId, campaign.id)),
+			db
+				.select()
+				.from(potionInventory)
+				.where(eq(potionInventory.campaignId, campaign.id)),
+			db
+				.select()
+				.from(traditionKnowledge)
+				.where(eq(traditionKnowledge.campaignId, campaign.id)),
+		]);
 	if (stock.length < INGREDIENTS.length) {
 		// Campaigns created before inventory existed get the fresh-campaign stock.
 		await db
@@ -141,7 +170,34 @@ export async function getWorkshop(userId: string) {
 			result: row.result,
 		})),
 		inventory,
+		potionStock: Object.fromEntries(
+			potionStock.map((row) => [row.potionId, row.amount]),
+		),
+		knowledge: knowledgeFrom(knowledge),
 	});
+}
+
+// Undiscovered potions stay unknown to every route, so stock and deconstruction can't reveal them.
+async function assertPotionInCodex(
+	executor: Pick<typeof db, "select">,
+	campaignId: string,
+	potionId: string,
+) {
+	const [entry] = await executor
+		.select({
+			mentor: codexEntries.mentor,
+			formed: codexEntries.formed,
+			revealed: codexEntries.revealed,
+		})
+		.from(codexEntries)
+		.where(
+			and(
+				eq(codexEntries.campaignId, campaignId),
+				eq(codexEntries.potionId, potionId),
+			),
+		);
+	if (!entry || !(entry.mentor || entry.formed || entry.revealed))
+		throw new ORPCError("BAD_REQUEST", { message: "Unknown potion" });
 }
 
 function rollDie(sides: number): number {
@@ -204,7 +260,7 @@ export async function attemptBrew(
 			tableRoll: input.d20 !== undefined,
 			rollD3: () => rollDie(3),
 		});
-		const view: BrewView = {
+		const record: BrewRecord = {
 			...result,
 			potionName:
 				result.kind === "inert"
@@ -214,7 +270,7 @@ export async function attemptBrew(
 		};
 		await tx
 			.insert(brews)
-			.values({ campaignId: campaign.id, mix: input.mix, result: view });
+			.values({ campaignId: campaign.id, mix: input.mix, result: record });
 		await tx
 			.update(crafters)
 			.set({ downtimeDays: sql`${crafters.downtimeDays} + 1` })
@@ -239,8 +295,35 @@ export async function attemptBrew(
 						bestMix: sql`CASE WHEN ${codexEntries.bestOffBy} IS NULL OR ${result.offBy} < ${codexEntries.bestOffBy} OR (${codexEntries.bestMix} IS NULL AND ${result.offBy} = ${codexEntries.bestOffBy}) THEN excluded.best_mix ELSE ${codexEntries.bestMix} END`,
 					},
 				});
+			if (result.quantity > 0) {
+				await tx
+					.insert(potionInventory)
+					.values({
+						campaignId: campaign.id,
+						potionId: result.potionId,
+						amount: Math.min(999, result.quantity),
+					})
+					.onConflictDoUpdate({
+						target: [potionInventory.campaignId, potionInventory.potionId],
+						set: {
+							amount: sql`least(999, ${potionInventory.amount} + ${result.quantity})`,
+						},
+					});
+			}
 		}
-		return view;
+		const knowledge = await tx
+			.select()
+			.from(traditionKnowledge)
+			.where(eq(traditionKnowledge.campaignId, campaign.id));
+		const ingredients = toIngredientViews({
+			viewingAs: campaign.viewingAs,
+			knowledge: knowledgeFrom(knowledge),
+			modifier: crafterModifier(crafter),
+		});
+		return {
+			...record,
+			totals: maskTotals(record.totals, input.mix, ingredients),
+		};
 	});
 }
 
@@ -256,30 +339,179 @@ export async function updateCrafter(userId: string, input: CrafterEdit) {
 }
 
 export async function adjustInventory(userId: string, input: InventoryAdjust) {
-	if (!INGREDIENTS.some((ingredient) => ingredient.id === input.ingredientId))
-		throw new ORPCError("BAD_REQUEST", { message: "Unknown ingredient" });
+	if (input.kind === "ingredient") {
+		if (!INGREDIENTS.some((ingredient) => ingredient.id === input.itemId))
+			throw new ORPCError("BAD_REQUEST", { message: "Unknown ingredient" });
+		const campaign = await bootstrap(userId);
+		const [saved] = await db
+			.insert(ingredientInventory)
+			.values({
+				campaignId: campaign.id,
+				ingredientId: input.itemId,
+				amount: Math.max(0, 1 + input.delta),
+			})
+			.onConflictDoUpdate({
+				target: [
+					ingredientInventory.campaignId,
+					ingredientInventory.ingredientId,
+				],
+				set: {
+					amount: sql`least(999, greatest(0, ${ingredientInventory.amount} + ${input.delta}))`,
+				},
+			})
+			.returning({ amount: ingredientInventory.amount });
+		return { kind: input.kind, itemId: input.itemId, amount: saved.amount };
+	}
+	if (!POTIONS.some((potion) => potion.id === input.itemId))
+		throw new ORPCError("BAD_REQUEST", { message: "Unknown potion" });
 	const campaign = await bootstrap(userId);
+	await assertPotionInCodex(db, campaign.id, input.itemId);
 	const [saved] = await db
-		.insert(ingredientInventory)
+		.insert(potionInventory)
 		.values({
 			campaignId: campaign.id,
-			ingredientId: input.ingredientId,
-			amount: Math.max(0, 1 + input.delta),
+			potionId: input.itemId,
+			amount: Math.max(0, input.delta),
 		})
 		.onConflictDoUpdate({
-			target: [
-				ingredientInventory.campaignId,
-				ingredientInventory.ingredientId,
-			],
+			target: [potionInventory.campaignId, potionInventory.potionId],
 			set: {
-				amount: sql`least(999, greatest(0, ${ingredientInventory.amount} + ${input.delta}))`,
+				amount: sql`least(999, greatest(0, ${potionInventory.amount} + ${input.delta}))`,
 			},
 		})
-		.returning({
-			ingredientId: ingredientInventory.ingredientId,
-			amount: ingredientInventory.amount,
+		.returning({ amount: potionInventory.amount });
+	return { kind: input.kind, itemId: input.itemId, amount: saved.amount };
+}
+
+export async function deconstructItem(
+	userId: string,
+	input: Deconstruct,
+): Promise<DeconstructView> {
+	const item =
+		input.kind === "ingredient"
+			? INGREDIENTS.find((ingredient) => ingredient.id === input.itemId)
+			: POTIONS.find((potion) => potion.id === input.itemId);
+	if (!item)
+		throw new ORPCError("BAD_REQUEST", {
+			message:
+				input.kind === "ingredient" ? "Unknown ingredient" : "Unknown potion",
 		});
-	return saved;
+	const values = "values" in item ? item.values : item.target;
+	const campaign = await bootstrap(userId);
+	return db.transaction(async (tx) => {
+		const [crafter] = await tx
+			.select()
+			.from(crafters)
+			.where(eq(crafters.campaignId, campaign.id))
+			.for("update");
+		if (!crafter) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		let stock: number;
+		if (input.kind === "ingredient") {
+			await tx
+				.insert(ingredientInventory)
+				.values(startingInventory(campaign.id))
+				.onConflictDoNothing();
+			const [row] = await tx
+				.select({ amount: ingredientInventory.amount })
+				.from(ingredientInventory)
+				.where(
+					and(
+						eq(ingredientInventory.campaignId, campaign.id),
+						eq(ingredientInventory.ingredientId, item.id),
+					),
+				)
+				.for("update");
+			stock = row?.amount ?? 0;
+		} else {
+			await assertPotionInCodex(tx, campaign.id, item.id);
+			const [row] = await tx
+				.select({ amount: potionInventory.amount })
+				.from(potionInventory)
+				.where(
+					and(
+						eq(potionInventory.campaignId, campaign.id),
+						eq(potionInventory.potionId, item.id),
+					),
+				)
+				.for("update");
+			stock = row?.amount ?? 0;
+		}
+		if (stock < 1)
+			throw new ORPCError("BAD_REQUEST", {
+				message: `No ${item.name} left to deconstruct`,
+			});
+		const known = await tx
+			.select({ tradition: traditionKnowledge.tradition })
+			.from(traditionKnowledge)
+			.where(
+				and(
+					eq(traditionKnowledge.campaignId, campaign.id),
+					eq(traditionKnowledge.itemKind, input.kind),
+					eq(traditionKnowledge.itemId, item.id),
+				),
+			);
+		const unlearned = TRADITIONS.filter(
+			(tradition) => !known.some((row) => row.tradition === tradition),
+		);
+		if (unlearned.length === 0)
+			throw new ORPCError("BAD_REQUEST", {
+				message: `Every tradition of ${item.name} is already known`,
+			});
+		if (input.kind === "ingredient") {
+			await tx
+				.update(ingredientInventory)
+				.set({ amount: sql`${ingredientInventory.amount} - 1` })
+				.where(
+					and(
+						eq(ingredientInventory.campaignId, campaign.id),
+						eq(ingredientInventory.ingredientId, item.id),
+					),
+				);
+		} else {
+			await tx
+				.update(potionInventory)
+				.set({ amount: sql`${potionInventory.amount} - 1` })
+				.where(
+					and(
+						eq(potionInventory.campaignId, campaign.id),
+						eq(potionInventory.potionId, item.id),
+					),
+				);
+		}
+		const dc = deconstructDc(item);
+		const modifier = crafterModifier(crafter);
+		const d20 = input.d20 ?? rollDie(20);
+		const check: Check = {
+			d20,
+			tableRoll: input.d20 !== undefined,
+			modifier,
+			total: d20 + modifier,
+			dc,
+			degree: degreeOf(d20, d20 + modifier, dc),
+		};
+		let learned: DeconstructView["learned"] = null;
+		if (check.degree === "success" || check.degree === "critical-success") {
+			const tradition = unlearned[rollDie(unlearned.length) - 1];
+			await tx
+				.insert(traditionKnowledge)
+				.values({
+					campaignId: campaign.id,
+					itemKind: input.kind,
+					itemId: item.id,
+					tradition,
+				})
+				.onConflictDoNothing();
+			learned = { tradition, value: values[TRADITIONS.indexOf(tradition)] };
+		}
+		return {
+			kind: input.kind,
+			itemId: item.id,
+			name: item.name,
+			check,
+			learned,
+			remaining: stock - 1,
+		};
+	});
 }
 
 export async function setViewing(userId: string, viewingAs: ViewingAs) {

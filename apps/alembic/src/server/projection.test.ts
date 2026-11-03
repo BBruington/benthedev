@@ -1,11 +1,118 @@
 import { describe, expect, test } from "bun:test";
 import {
+	INGREDIENTS,
 	MENTOR_MIX,
 	POTIONS,
 	STARTER_POTION_ID,
 	WREN,
 } from "#/brewing/catalog";
-import { toWorkshopView } from "./projection";
+import { resolveBrew } from "#/brewing/engine";
+import type { BrewRecord, Mix, ViewingAs } from "#/brewing/types";
+import { knowledgeFrom, toWorkshopView } from "./projection";
+
+const none = knowledgeFrom([]);
+
+function viewWith(
+	viewingAs: ViewingAs,
+	knowledge = none,
+	log: { mix: Mix; result: BrewRecord }[] = [],
+) {
+	return toWorkshopView({
+		viewingAs,
+		isGm: true,
+		crafter: { ...WREN, downtimeDays: 0 },
+		entries: [
+			{
+				potionId: STARTER_POTION_ID,
+				mentor: true,
+				formed: false,
+				revealed: false,
+				formulaRevealed: false,
+				perfected: false,
+				bestOffBy: null,
+				bestMix: null,
+				note: null,
+			},
+		],
+		log: log.map((entry, index) => ({
+			id: String(index),
+			createdAt: new Date(0).toISOString(),
+			...entry,
+		})),
+		inventory: {},
+		potionStock: {},
+		knowledge,
+	});
+}
+
+function brewed(mix: Mix): { mix: Mix; result: BrewRecord } {
+	const result = resolveBrew({
+		mix,
+		crafter: WREN,
+		d20: 10,
+		tableRoll: true,
+		rollD3: () => 1,
+	});
+	return { mix, result: { ...result, potionName: null } };
+}
+
+describe("tradition knowledge", () => {
+	test("with nothing learned, no ingredient value reaches the player", () => {
+		const view = viewWith("player");
+		const serialized = JSON.stringify(view);
+		for (const ingredient of INGREDIENTS)
+			expect(serialized).not.toContain(JSON.stringify(ingredient.values));
+		for (const ingredient of view.ingredients)
+			expect(ingredient.values).toEqual([null, null, null, null]);
+		expect(view.codex[0].traditions).toEqual([null, null, null, null]);
+	});
+
+	test("a learned tradition shows only that axis, and mixed totals stay hidden", () => {
+		const view = viewWith(
+			"player",
+			knowledgeFrom([
+				{ itemKind: "ingredient", itemId: "heartmoss", tradition: "primal" },
+			]),
+			[brewed({ heartmoss: 1, "marsh-toad-gland": 1 })],
+		);
+		expect(
+			view.ingredients.find((ingredient) => ingredient.id === "heartmoss")
+				?.values,
+		).toEqual([null, 14, null, null]);
+		expect(view.log[0].result.totals).toEqual([null, null, null, null]);
+	});
+
+	test("a potion with arcane learned exposes only its arcane target", () => {
+		const view = viewWith(
+			"player",
+			knowledgeFrom([
+				{ itemKind: "potion", itemId: STARTER_POTION_ID, tradition: "arcane" },
+			]),
+		);
+		const potion = POTIONS.find((p) => p.id === STARTER_POTION_ID);
+		if (!potion) throw new Error("starter potion missing");
+		expect(view.codex[0].traditions).toEqual([
+			potion.target[0],
+			null,
+			null,
+			null,
+		]);
+		const serialized = JSON.stringify(view);
+		expect(serialized).not.toContain('"target"');
+		expect(serialized).not.toContain(JSON.stringify(potion.target));
+	});
+
+	test("the GM view shows every value unmasked", () => {
+		const mix = { heartmoss: 1, "marsh-toad-gland": 1 };
+		const entry = brewed(mix);
+		const view = viewWith("gm", none, [entry]);
+		expect(view.ingredients.map((ingredient) => ingredient.values)).toEqual(
+			INGREDIENTS.map((ingredient) => ingredient.values),
+		);
+		expect(view.log[0].result.totals).toEqual(entry.result.totals);
+		expect(view.codex[0].traditions).toEqual(POTIONS[0].target);
+	});
+});
 
 describe("player workshop projection", () => {
 	test("all known potions expose metadata without answer-key fields or values", () => {
@@ -26,6 +133,8 @@ describe("player workshop projection", () => {
 			})),
 			log: [],
 			inventory: {},
+			potionStock: {},
+			knowledge: none,
 		});
 		expect(view.codex).toHaveLength(11);
 		expect(view.undiscoveredCount).toBe(0);
@@ -68,6 +177,8 @@ describe("player workshop projection", () => {
 			entries,
 			log: [],
 			inventory: {},
+			potionStock: {},
+			knowledge: none,
 		});
 		expect(view.codex.map((entry) => entry.source)).toEqual([
 			"mentor",
@@ -115,6 +226,8 @@ describe("player workshop projection", () => {
 			],
 			log: [],
 			inventory: {},
+			potionStock: {},
+			knowledge: none,
 		});
 		expect(view.codex[0].solvedMix).toEqual(bestMix);
 		expect(view.codex[0].bestOffBy).toBe(bestOffBy);
@@ -138,6 +251,8 @@ describe("player workshop projection", () => {
 			})),
 			log: [],
 			inventory: {},
+			potionStock: {},
+			knowledge: none,
 		});
 		expect(view.codex).toHaveLength(POTIONS.length);
 		const serialized = JSON.stringify(view);
@@ -184,6 +299,8 @@ describe("player workshop projection", () => {
 			],
 			log: [],
 			inventory: {},
+			potionStock: {},
+			knowledge: none,
 		});
 		expect(view.codex[0].solvedMix).toEqual(POTIONS[0].perfectRecipe);
 		expect(view.codex[0].note).toBe("Mentor note");

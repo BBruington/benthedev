@@ -2,9 +2,9 @@ import type {
 	Check,
 	Degree,
 	Gate,
+	KnownValues,
 	Odds,
 	Tradition,
-	Values,
 } from "#/brewing/types";
 
 export const TRADITION_LABEL: Record<Tradition, string> = {
@@ -14,8 +14,8 @@ export const TRADITION_LABEL: Record<Tradition, string> = {
 	divine: "Divine",
 };
 
-export function formatValues(values: Values): string {
-	return values.join("/");
+export function formatKnownValues(values: KnownValues): string {
+	return values.map((value) => value ?? "?").join("/");
 }
 
 export function degreeLabel(degree: Degree): string {

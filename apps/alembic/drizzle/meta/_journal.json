@@ -22,6 +22,13 @@
       "when": 1793573556928,
       "tag": "0002_brews_campaign_index",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793655345221,
+      "tag": "0003_tradition_knowledge",
+      "breakpoints": true
     }
   ]
 }

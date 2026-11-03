@@ -1,5 +1,10 @@
 import { BookOpen, Check, FlaskConical, LockKeyhole } from "lucide-react";
-import type { Mix, WorkshopView } from "#/brewing/types";
+import {
+	type ItemKind,
+	type Mix,
+	TRADITIONS,
+	type WorkshopView,
+} from "#/brewing/types";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
@@ -9,16 +14,23 @@ import {
 	CardHeader,
 	CardTitle,
 } from "#/components/ui/card";
-import { formatGate, formatOdds } from "#/lib/format";
+import { DeconstructButton } from "#/components/workshop/DeconstructButton";
+import { StockStepper } from "#/components/workshop/StockStepper";
+import { TRADITION_STYLE } from "#/components/workshop/TraditionBars";
+import { formatGate, formatOdds, TRADITION_LABEL } from "#/lib/format";
 
 export function Codex({
 	workshop,
 	onUseMix,
 	onPreviewMix,
+	deconstructing,
+	onDeconstruct,
 }: {
 	workshop: WorkshopView;
 	onUseMix: (mix: Mix) => void;
 	onPreviewMix: (mix: Mix | null) => void;
+	deconstructing: boolean;
+	onDeconstruct: (kind: ItemKind, itemId: string) => void;
 }) {
 	return (
 		<Card className="h-fit gap-0 rounded-lg py-0 shadow-none">
@@ -88,6 +100,45 @@ export function Codex({
 										{entry.bestOffBy ?? "Not brewed yet"}
 									</span>
 								</p>
+								<div className="flex flex-wrap items-center gap-1.5 text-xs">
+									<span className="mr-1 text-muted-foreground">Traditions</span>
+									{TRADITIONS.map((tradition, axis) => {
+										const value = entry.traditions[axis];
+										return (
+											<span
+												key={tradition}
+												title={TRADITION_LABEL[tradition]}
+												className={`rounded-sm px-1.5 py-0.5 font-mono tabular-nums ${value === null ? "bg-muted text-muted-foreground" : TRADITION_STYLE[tradition].chip}`}
+											>
+												<span aria-hidden="true">{value ?? "?"}</span>
+												<span className="sr-only">
+													{TRADITION_LABEL[tradition]}{" "}
+													{value === null ? "unknown" : value}
+												</span>
+											</span>
+										);
+									})}
+								</div>
+								<div className="flex items-center gap-3">
+									<StockStepper
+										kind="potion"
+										itemId={entry.potionId}
+										itemName={entry.name}
+										amount={entry.stock}
+									/>
+									{workshop.viewingAs === "player" && (
+										<DeconstructButton
+											name={entry.name}
+											values={entry.traditions}
+											stock={entry.stock}
+											deconstruct={entry.deconstruct}
+											pending={deconstructing}
+											onDeconstruct={() =>
+												onDeconstruct("potion", entry.potionId)
+											}
+										/>
+									)}
+								</div>
 								{entry.solvedMix && (
 									<p className="text-xs">
 										{entry.formulaRevealed && (

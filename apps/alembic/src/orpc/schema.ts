@@ -15,12 +15,15 @@ export const crafterEditSchema = z
 	});
 export type CrafterEdit = z.infer<typeof crafterEditSchema>;
 
+const d20Schema = z.number().int().min(1).max(20);
+const itemKindSchema = z.enum(["ingredient", "potion"]);
+
 export const brewAttemptSchema = z.object({
 	mix: z.record(z.string(), z.number().int().min(1).max(4)).refine((m) => {
 		const units = Object.values(m).reduce((a, b) => a + b, 0);
 		return units >= 1 && units <= 4;
 	}, "Pick 1-4 units"),
-	d20: z.number().int().min(1).max(20).optional(),
+	d20: d20Schema.optional(),
 });
 export type BrewAttempt = z.infer<typeof brewAttemptSchema>;
 
@@ -32,7 +35,15 @@ export const revealSchema = z.object({
 export type Reveal = z.infer<typeof revealSchema>;
 
 export const inventoryAdjustSchema = z.object({
-	ingredientId: z.string(),
+	kind: itemKindSchema,
+	itemId: z.string().min(1),
 	delta: z.union([z.literal(1), z.literal(-1)]),
 });
 export type InventoryAdjust = z.infer<typeof inventoryAdjustSchema>;
+
+export const deconstructSchema = z.object({
+	kind: itemKindSchema,
+	itemId: z.string().min(1),
+	d20: d20Schema.optional(),
+});
+export type Deconstruct = z.infer<typeof deconstructSchema>;

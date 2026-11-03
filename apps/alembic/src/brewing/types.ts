@@ -56,8 +56,18 @@ export interface Crafter {
 /** ingredientId -> units; 1-4 units total. */
 export type Mix = Readonly<Record<string, number>>;
 
-/** ingredientId -> units in stock. */
+/** item id -> units in stock. */
 export type Inventory = Readonly<Record<string, number>>;
+
+export type ItemKind = "ingredient" | "potion";
+
+/** Values with unlearned traditions as null; A/P/O/D order. */
+export type KnownValues = readonly [
+	number | null,
+	number | null,
+	number | null,
+	number | null,
+];
 
 export type Gate =
 	| { kind: "feat"; feat: "Alchemical Crafting" }
@@ -123,6 +133,16 @@ export interface CrafterView extends Crafter {
 	downtimeDays: number;
 }
 
+export interface DeconstructOdds {
+	dc: number;
+	odds: Odds;
+}
+
+export interface IngredientView extends Omit<Ingredient, "values"> {
+	values: KnownValues;
+	deconstruct: DeconstructOdds;
+}
+
 export interface CodexEntryView {
 	potionId: string;
 	name: string;
@@ -138,6 +158,10 @@ export interface CodexEntryView {
 	perfected: boolean;
 	source: "mentor" | "brewed" | "revealed";
 	note: string | null;
+	/** the target, masked to the learned traditions */
+	traditions: KnownValues;
+	stock: number;
+	deconstruct: DeconstructOdds;
 }
 
 export interface BrewLogEntry {
@@ -147,18 +171,34 @@ export interface BrewLogEntry {
 	result: BrewView;
 }
 
-/** BrewResult as sent to the player: potionName added, nothing else hidden needed beyond engine output. */
-export type BrewView = BrewResult & { potionName: string | null };
+/** BrewResult as stored in the brews table. */
+export type BrewRecord = BrewResult & { potionName: string | null };
+
+type Masked<T> = T extends { totals: Values }
+	? Omit<T, "totals"> & { totals: KnownValues }
+	: never;
+
+/** BrewRecord as sent to the player: totals masked to the learned traditions. */
+export type BrewView = Masked<BrewRecord>;
 
 export interface WorkshopView {
 	viewingAs: ViewingAs;
 	isGm: boolean;
 	crafter: CrafterView;
-	ingredients: readonly Ingredient[];
+	ingredients: readonly IngredientView[];
 	inventory: Inventory;
 	codex: CodexEntryView[];
 	undiscoveredCount: number;
 	log: BrewLogEntry[];
+}
+
+export interface DeconstructView {
+	kind: ItemKind;
+	itemId: string;
+	name: string;
+	check: Check;
+	learned: { tradition: Tradition; value: number } | null;
+	remaining: number;
 }
 
 /** GM only. */

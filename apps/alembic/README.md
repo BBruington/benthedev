@@ -12,11 +12,12 @@ I built it in roughly two hours of active time. Railway had a platform-wide outa
 
 - Sign in with GitHub or Google (Clerk). Your first request creates your workshop: Wren Ashby, a level 5 Alchemist, one of each of the 16 ingredients and a mentor's note for Healing Potion (Minor).
 - Ingredient inventory: each ingredient has an editable stock amount on the shelf, for players or the GM. Brewing uses up what goes in, and the server refuses a mix you don't have enough for.
-- The brew bench: up to four units, live tradition totals, and an optional table d20 so you can force any degree of success. Brewing resolves on the server, including every gate and every cell of the outcome table.
+- The brew bench: up to four units, live tradition totals (a "?" or "N+?" where a tradition isn't learned yet), and an optional table d20 so you can force any degree of success. Brewing resolves on the server, including every gate and every cell of the outcome table.
 - Result cards for a formed potion (off-by plus an arrow per tradition), an inert mix (one hint at most) and a blocked brew (names every gate it failed).
 - The codex: known potions, odds, best off-by, Perfected, and your best combination for each one with **Add to bench**. Hovering that button previews the mix on the bench.
 - Ingredient search and favourites, the brew log and the crafter edit sheet.
-- GM view: the answer key with every target and perfect recipe, plus a Hidden / Potion / Formula reveal per potion. Player responses never include targets, rooms or required ingredients, and there's a leak test for that.
+- Hidden traditions: every ingredient and potion value starts as "?". **Deconstruct** on the shelf or codex spends one unit and rolls Crafting against a level and rarity DC; a success reveals one random unlearned tradition. Potions you brew go into stock on the codex.
+- GM view: the answer key with every target and perfect recipe, plus a Hidden / Potion / Formula reveal per potion. Player responses never include rooms, required ingredients or unlearned tradition values, and there's a leak test for that.
 - A landing page that explains the mechanics for anyone who hasn't played Pathfinder.
 
 ## What's incomplete
@@ -56,7 +57,7 @@ Schema changes go through migrations: edit `src/db/schema.ts`, run `mise run db:
 
 The brewing tests pin the worked examples in `Brewing rules.md` §12 and every outcome cell. The projection test checks that answer-key data never reaches the player view.
 
-The database tests in `src/server/workshop.db.ts` cover brewing against stock, the codex's best-mix rules, inventory limits and GM reveals. They wipe every table, so point them at a throwaway Postgres; `mise run check` skips them and CI runs them:
+The database tests in `src/server/workshop.db.ts` cover brewing against stock, the codex's best-mix rules, inventory limits, GM reveals and deconstruction. They wipe every table, so point them at a throwaway Postgres; `mise run check` skips them and CI runs them:
 
 ```bash
 TEST_DATABASE_URL=postgres://localhost/alembic_test mise run test:db
@@ -65,8 +66,8 @@ TEST_DATABASE_URL=postgres://localhost/alembic_test mise run test:db
 ## The 60-second tour
 
 1. Sign in. The workshop opens with Wren and Healing Potion (Minor) already Known.
-2. Follow the mentor's note: add **Heartmoss + Marsh Toad Gland**, set the table d20 to **6** and brew. Totals are **7/26/1/8** against DC **15**, off by **14**. Arcane and Primal are on, Occult and Divine are low.
-3. That brew used up your only Heartmoss and Marsh Toad Gland, so press **+** next to **In stock** on both to restock one each. Add **Glowcap** and brew again with **6**. Totals are **7/26/10/13**, a perfect mix that makes **1 + 1d3** potions, and the codex marks it Perfected.
+2. Follow the mentor's note: add **Heartmoss + Marsh Toad Gland**, set the table d20 to **6** and brew. It forms against DC **15**, off by **14**, with totals shown as **?** because no tradition is learned yet. Arcane and Primal are on, Occult and Divine are low.
+3. That brew used up your only Heartmoss and Marsh Toad Gland, so press **+** next to **In stock** on both to restock one each. Add **Glowcap** and brew again with **6**. It's a perfect mix that makes **1 + 1d3** potions, and the codex marks it Perfected. Press **Deconstruct** on an ingredient to learn one of its traditions.
 4. Try **Silverleaf + Ghost Orchid + Moonwell Water**. Truth Potion is level 6 and Wren is level 5, so the brew is blocked and says so.
 5. Switch **Viewing as** to **GM**. Set **Invisibility Potion** to **Potion**, switch back to Player, and it shows up in the codex with its name, rarity, DC and odds but no target. **Formula** also shares its recipe.
 

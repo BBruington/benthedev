@@ -5,6 +5,10 @@ bun = "1.4.2"
 description = "Run the Vite dev server on http://localhost:3000 (reads .env.local)"
 run = "bun run dev"
 
+[tasks."dev:login"]
+description = "Sign the dev Clerk user alembic-tour in and save its browser state to .auth/alembic-tour.json (needs mise run dev and Google Chrome)"
+run = "bun --env-file=.env.local scripts/dev-login.ts"
+
 [tasks.build]
 description = "Build the Nitro server into .output/"
 run = "bun run build"

@@ -1,7 +1,8 @@
 import { FlaskConical, Minus, Plus } from "lucide-react";
 import { useState } from "react";
 import { describeShortages, shortagesOf } from "#/brewing/inventory";
-import type { Ingredient, Inventory, Mix } from "#/brewing/types";
+import { knownTotals } from "#/brewing/knowledge";
+import type { IngredientView, Inventory, Mix } from "#/brewing/types";
 import { Button } from "#/components/ui/button";
 import {
 	Card,
@@ -16,7 +17,7 @@ import { TraditionBars } from "#/components/workshop/TraditionBars";
 import { cn } from "#/lib/utils";
 
 interface BrewBenchProps {
-	ingredients: readonly Ingredient[];
+	ingredients: readonly IngredientView[];
 	inventory: Inventory;
 	mix: Mix;
 	units: number;
@@ -48,12 +49,7 @@ export function BrewBench({
 	const selected = ingredients.filter(
 		(ingredient) => (mix[ingredient.id] ?? 0) > 0,
 	);
-	const totals: [number, number, number, number] = [0, 0, 0, 0];
-	for (const ingredient of selected) {
-		for (const index of [0, 1, 2, 3]) {
-			totals[index] += ingredient.values[index] * mix[ingredient.id];
-		}
-	}
+	const totals = knownTotals(mix, ingredients);
 	const shortages = shortagesOf(mix, inventory);
 	return (
 		<Card
@@ -116,7 +112,7 @@ export function BrewBench({
 						))
 					)}
 				</div>
-				<TraditionBars values={totals} />
+				<TraditionBars values={totals.known} hidden={totals.hidden} />
 				<div className="space-y-2 border-t pt-4">
 					<Label htmlFor="table-d20">
 						Table d20{" "}

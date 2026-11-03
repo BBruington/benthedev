@@ -1,5 +1,15 @@
-import { ArrowDown, ArrowUp, Check, FlaskConical } from "lucide-react";
-import { type BrewView, TRADITIONS } from "#/brewing/types";
+import {
+	ArrowDown,
+	ArrowUp,
+	Check,
+	FlaskConical,
+	Microscope,
+} from "lucide-react";
+import {
+	type BrewView,
+	type DeconstructView,
+	TRADITIONS,
+} from "#/brewing/types";
 import { Badge } from "#/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { TRADITION_STYLE } from "#/components/workshop/TraditionBars";
@@ -9,10 +19,47 @@ export function ResultCard({
 	result,
 	crafterName,
 }: {
-	result: BrewView | null;
+	result: BrewView | DeconstructView | null;
 	crafterName: string;
 }) {
 	if (!result) return null;
+	if ("itemId" in result)
+		return (
+			<Card className="min-w-0 gap-3 rounded-lg py-4 shadow-none">
+				<CardHeader className="px-4 sm:px-4">
+					<CardTitle className="flex items-start gap-2 font-sans text-base font-semibold leading-snug">
+						<Microscope
+							className="mt-0.5 size-4 shrink-0 text-primary"
+							aria-hidden="true"
+						/>
+						<span className="min-w-0 break-words">
+							Deconstruct {result.name}
+						</span>
+					</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-3 px-4 sm:px-4">
+					<p className="border-y py-3 text-sm leading-relaxed tabular-nums">
+						{formatCheck(result.check)}
+					</p>
+					{result.learned ? (
+						<p
+							className={`flex flex-wrap items-baseline justify-between gap-x-2 text-sm ${TRADITION_STYLE[result.learned.tradition].text}`}
+						>
+							<span className="font-medium">
+								Learned {TRADITION_LABEL[result.learned.tradition]}
+							</span>
+							<strong className="tabular-nums text-foreground">
+								{result.learned.value}
+							</strong>
+						</p>
+					) : (
+						<p className="text-sm leading-relaxed text-muted-foreground">
+							Nothing learned. 1 {result.name} spent.
+						</p>
+					)}
+				</CardContent>
+			</Card>
+		);
 	const potionName = result.potionName ?? "Potion";
 	return (
 		<Card className="min-w-0 gap-3 rounded-lg py-4 shadow-none">

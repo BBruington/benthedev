@@ -1,4 +1,4 @@
-import { TRADITIONS, type Tradition, type Values } from "#/brewing/types";
+import { type KnownValues, TRADITIONS, type Tradition } from "#/brewing/types";
 import { TRADITION_LABEL } from "#/lib/format";
 
 export const TRADITION_STYLE: Record<
@@ -27,29 +27,56 @@ export const TRADITION_STYLE: Record<
 	},
 };
 
-export function TraditionBars({ values }: { values: Values }) {
+export function TraditionBars({
+	values,
+	hidden,
+}: {
+	values: KnownValues;
+	hidden?: readonly boolean[];
+}) {
 	return (
 		<section className="space-y-2.5" aria-label="Live tradition totals">
-			{TRADITIONS.map((tradition, index) => (
-				<div
-					key={tradition}
-					className="grid grid-cols-[3.5rem_minmax(0,1fr)_2rem] items-center gap-3 text-xs"
-				>
-					<span className="font-medium">{TRADITION_LABEL[tradition]}</span>
+			{TRADITIONS.map((tradition, index) => {
+				const value = values[index];
+				const partial = value !== null && hidden?.[index] === true;
+				return (
 					<div
-						className="h-1.5 overflow-hidden rounded-full bg-muted"
-						aria-hidden="true"
+						key={tradition}
+						className="grid grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] items-center gap-3 text-xs"
 					>
+						<span className="font-medium">{TRADITION_LABEL[tradition]}</span>
 						<div
-							className={`h-full rounded-full motion-safe:transition-[width] ${TRADITION_STYLE[tradition].bar}`}
-							style={{ width: `${Math.min((values[index] / 45) * 100, 100)}%` }}
-						/>
+							className="h-1.5 overflow-hidden rounded-full bg-muted"
+							aria-hidden="true"
+						>
+							{value !== null && (
+								<div
+									className={`h-full rounded-full motion-safe:transition-[width] ${TRADITION_STYLE[tradition].bar} ${partial ? "opacity-60" : ""}`}
+									style={{ width: `${Math.min((value / 45) * 100, 100)}%` }}
+								/>
+							)}
+						</div>
+						<span
+							className={`text-right text-sm font-semibold tabular-nums ${value === null ? "text-muted-foreground" : ""}`}
+						>
+							{value ?? (
+								<>
+									<span aria-hidden="true">?</span>
+									<span className="sr-only">unknown</span>
+								</>
+							)}
+							{partial && (
+								<>
+									<span aria-hidden="true" className="text-muted-foreground">
+										+?
+									</span>
+									<span className="sr-only"> plus unknown</span>
+								</>
+							)}
+						</span>
 					</div>
-					<span className="text-right text-sm font-semibold tabular-nums">
-						{values[index]}
-					</span>
-				</div>
-			))}
+				);
+			})}
 		</section>
 	);
 }

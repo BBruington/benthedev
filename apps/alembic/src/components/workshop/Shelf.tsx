@@ -1,10 +1,12 @@
 import { Minus, Plus, Star, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
-	type Ingredient,
+	type IngredientView,
 	type Inventory,
+	type ItemKind,
 	type Mix,
 	TRADITIONS,
+	type ViewingAs,
 } from "#/brewing/types";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -18,16 +20,20 @@ import {
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import { ScrollArea } from "#/components/ui/scroll-area";
+import { DeconstructButton } from "#/components/workshop/DeconstructButton";
 import { StockStepper } from "#/components/workshop/StockStepper";
 import { TRADITION_STYLE } from "#/components/workshop/TraditionBars";
 import { useFavouriteIngredients } from "#/components/workshop/use-favourite-ingredients";
 import { TRADITION_LABEL } from "#/lib/format";
 
 interface ShelfProps {
-	ingredients: readonly Ingredient[];
+	ingredients: readonly IngredientView[];
 	inventory: Inventory;
 	mix: Mix;
 	units: number;
+	viewingAs: ViewingAs;
+	deconstructing: boolean;
+	onDeconstruct: (kind: ItemKind, itemId: string) => void;
 	onChange: (ingredientId: string, delta: number) => void;
 }
 
@@ -36,6 +42,9 @@ export function Shelf({
 	inventory,
 	mix,
 	units,
+	viewingAs,
+	deconstructing,
+	onDeconstruct,
 	onChange,
 }: ShelfProps) {
 	const [search, setSearch] = useState("");
@@ -159,26 +168,53 @@ export function Shelf({
 												{ingredient.type} · {ingredient.form} ·{" "}
 												{ingredient.biome}
 											</p>
-											<StockStepper
-												ingredientId={ingredient.id}
-												ingredientName={ingredient.name}
-												amount={inventory[ingredient.id] ?? 0}
-											/>
+											<div className="mt-2 flex items-center gap-3">
+												<StockStepper
+													kind="ingredient"
+													itemId={ingredient.id}
+													itemName={ingredient.name}
+													amount={inventory[ingredient.id] ?? 0}
+												/>
+												{viewingAs === "player" && (
+													<DeconstructButton
+														name={ingredient.name}
+														values={ingredient.values}
+														stock={inventory[ingredient.id] ?? 0}
+														deconstruct={ingredient.deconstruct}
+														pending={deconstructing}
+														onDeconstruct={() =>
+															onDeconstruct("ingredient", ingredient.id)
+														}
+													/>
+												)}
+											</div>
 										</div>
 										<div className="ingredient-values grid grid-cols-4 gap-3">
-											{TRADITIONS.map((tradition, axis) => (
-												<div
-													key={tradition}
-													className={TRADITION_STYLE[tradition].text}
-												>
-													<p className="text-[0.6875rem]">
-														{TRADITION_LABEL[tradition]}
-													</p>
-													<p className="mt-1 font-mono text-sm tabular-nums">
-														{ingredient.values[axis]}
-													</p>
-												</div>
-											))}
+											{TRADITIONS.map((tradition, axis) => {
+												const value = ingredient.values[axis];
+												return (
+													<div
+														key={tradition}
+														className={
+															value === null
+																? "text-muted-foreground"
+																: TRADITION_STYLE[tradition].text
+														}
+													>
+														<p className="text-[0.6875rem]">
+															{TRADITION_LABEL[tradition]}
+														</p>
+														<p className="mt-1 font-mono text-sm tabular-nums">
+															{value ?? (
+																<>
+																	<span aria-hidden="true">?</span>
+																	<span className="sr-only">unknown</span>
+																</>
+															)}
+														</p>
+													</div>
+												);
+											})}
 										</div>
 										<div className="ingredient-controls flex items-center gap-1">
 											<Button

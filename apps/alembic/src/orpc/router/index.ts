@@ -3,6 +3,7 @@ import { ORPCError, os } from "@orpc/server";
 import {
 	brewAttemptSchema,
 	crafterEditSchema,
+	deconstructSchema,
 	inventoryAdjustSchema,
 	revealSchema,
 	viewingSetSchema,
@@ -10,6 +11,7 @@ import {
 import {
 	adjustInventory,
 	attemptBrew,
+	deconstructItem,
 	getAnswerKey,
 	getWorkshop,
 	revealPotion,
@@ -43,6 +45,11 @@ export default {
 		adjust: authenticated
 			.input(inventoryAdjustSchema)
 			.handler(({ context, input }) => adjustInventory(context.userId, input)),
+	},
+	deconstruct: {
+		attempt: authenticated
+			.input(deconstructSchema)
+			.handler(({ context, input }) => deconstructItem(context.userId, input)),
 	},
 	viewing: {
 		set: authenticated
