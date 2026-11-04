@@ -132,6 +132,9 @@ func (service *Service) ApproveCampaignRequest(requestContext context.Context, c
 		if err := queries.CreateDefaultRoles(requestContext, campaign.ID); err != nil {
 			return err
 		}
+		if err := createDefaultMarketOffers(requestContext, queries, campaign.ID); err != nil {
+			return err
+		}
 		_, err = queries.DecideCampaignRequest(requestContext, store.DecideCampaignRequestParams{
 			Status:     store.CampaignRequestStatusAPPROVED,
 			Slug:       slug,

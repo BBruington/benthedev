@@ -7,11 +7,13 @@ import {
 	advancePreviewQueryKeyPrefix,
 	approveRequestPreviewQueryKeyPrefix,
 	colonyBoardQuery,
+	marketQuery,
 	npcQueryKeyPrefix,
 	npcsQueryKeyPrefix,
 	patronActionsQuery,
 	patronQueryKeyPrefix,
 	patronsQuery,
+	payMarketOrderPreviewQueryKeyPrefix,
 	questPreviewQueryKeyPrefixes,
 	questQueryKeyPrefix,
 	questsQueryKeyPrefix,
@@ -24,6 +26,7 @@ import {
 	workforceQuery,
 } from "@/api/queries";
 import { useCampaignId } from "@/hooks/use-campaign";
+import { cachedMe, canUseDmTools } from "@/lib/access";
 import { isPublicEntry } from "@/lib/colony";
 import { markAnnounced } from "./live-toasts";
 
@@ -49,6 +52,8 @@ function refreshAfter(
 	queryClient.invalidateQueries({ queryKey: advancePreviewQueryKeyPrefix(campaignId) });
 	queryClient.invalidateQueries({ queryKey: adjustPreviewQueryKeyPrefix(campaignId) });
 	queryClient.invalidateQueries({ queryKey: approveRequestPreviewQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: payMarketOrderPreviewQueryKeyPrefix(campaignId) });
+	queryClient.invalidateQueries({ queryKey: marketQuery(campaignId).queryKey });
 	for (const queryKey of questPreviewQueryKeyPrefixes(campaignId)) {
 		queryClient.invalidateQueries({ queryKey });
 	}
@@ -70,8 +75,11 @@ function refreshAfter(
 	]);
 }
 
-/** The DM's toast for their own change: its public text, and Undo (spec §6.3). */
-function toastChange(change: ColonyChange, undo: (groupId: string) => void) {
+/**
+ * The toast for this tab's own change: its public text, and Undo for the DM (spec §6.3). A player's
+ * change (paying for the goods ship) has no Undo, since only the DM may undo.
+ */
+function toastChange(change: ColonyChange, undo: ((groupId: string) => void) | null) {
 	markAnnounced(change.entries.map((entry) => entry.id));
 	const publicEntry = change.entries.find(isPublicEntry);
 	let description = "Only you can see it on the timeline.";
@@ -79,12 +87,14 @@ function toastChange(change: ColonyChange, undo: (groupId: string) => void) {
 		description = publicEntry.body || "Everyone sees it on the timeline.";
 	}
 	toast.success(publicEntry?.title ?? change.label, {
-		action: {
-			label: "Undo",
-			onClick: () => {
-				undo(change.groupId);
-			},
-		},
+		action: undo
+			? {
+					label: "Undo",
+					onClick: () => {
+						undo(change.groupId);
+					},
+				}
+			: undefined,
 		description,
 		duration: undoToastDurationInMilliseconds,
 	});
@@ -131,7 +141,8 @@ export function useColonyChanges() {
 		// Returning the refresh keeps the mutation pending until it lands, so a screen's own onSuccess
 		// (closing its sheet) runs only once the next sheet would open on the new version.
 		onSuccess: (change: ColonyChange) => {
-			toastChange(change, undoGroup);
+			const me = cachedMe(queryClient, campaignId);
+			toastChange(change, me && canUseDmTools(me) ? undoGroup : null);
 			return refreshAfter(queryClient, campaignId, change);
 		},
 	};
@@ -184,6 +195,11 @@ export function useColonyChanges() {
 		leaveColony: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/npcs/{npcId}/leave-colony",
+			changeOptions,
+		),
+		payMarketOrder: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/market/orders/{orderId}/pay",
 			changeOptions,
 		),
 		reopenQuest: api.useMutation(

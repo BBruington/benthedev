@@ -182,6 +182,7 @@ const colonyChangePathPatterns = [
 	/^\/api\/campaigns\/\{campaignId\}\/quests\/\{questId\}\/(complete|fail|reopen)$/,
 	/^\/api\/campaigns\/\{campaignId\}\/patrons\/\{patronId\}\/adjust-favor$/,
 	/^\/api\/campaigns\/\{campaignId\}\/requests\/(use-action|\{requestId\}\/approve)$/,
+	/^\/api\/campaigns\/\{campaignId\}\/market\/orders(\/\{orderId\}\/(pay|cancel))?$/,
 ];
 
 /** A mutation path that goes through the colony write path (spec §5.1) and so writes timeline entries. */

@@ -59,7 +59,7 @@ export function Field({
 				{optional ? (
 					<>
 						{" "}
-						<span className="font-normal text-muted-foreground text-xs">Optional</span>
+						<span className="font-normal text-muted-foreground text-xs leading-none">Optional</span>
 					</>
 				) : null}
 			</Label>

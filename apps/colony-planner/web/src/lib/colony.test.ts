@@ -204,4 +204,21 @@ describe("colony change paths", () => {
 			expect(isColonyChangePath(path)).toBe(false);
 		}
 	});
+
+	test("placing, paying for and cancelling an order are colony changes; the pay preview is not", () => {
+		for (const path of [
+			"/api/campaigns/{campaignId}/market/orders",
+			"/api/campaigns/{campaignId}/market/orders/{orderId}/pay",
+			"/api/campaigns/{campaignId}/market/orders/{orderId}/cancel",
+		]) {
+			expect(isColonyChangePath(path)).toBe(true);
+		}
+		for (const path of [
+			"/api/campaigns/{campaignId}/market/orders/{orderId}/pay-preview",
+			"/api/campaigns/{campaignId}/market/cart/{itemId}",
+			"/api/campaigns/{campaignId}/market/items",
+		]) {
+			expect(isColonyChangePath(path)).toBe(false);
+		}
+	});
 });

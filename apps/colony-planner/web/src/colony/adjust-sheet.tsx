@@ -28,14 +28,13 @@ type Mode = "change" | "set";
 type ResourceDraft = { mode: Mode; text: string };
 
 const previewDelayInMilliseconds = 350;
-const reasonLimit = 200;
 
 /** The input the drafts describe, or the first problem with them; null when nothing would change. */
 function buildInput(
 	resources: readonly ColonyResource[],
 	drafts: Record<string, ResourceDraft>,
 	colonistsText: string,
-	common: Pick<AdjustInput, "reason" | "public" | "source" | "arrivalEntryId" | "expectedVersion">,
+	common: Pick<AdjustInput, "public" | "source" | "arrivalEntryId" | "expectedVersion">,
 ): { input: AdjustInput | null; problems: Record<string, string> } {
 	const deltas: Record<string, number> = {};
 	const setTo: Record<string, number> = {};
@@ -68,8 +67,8 @@ function buildInput(
 }
 
 /**
- * Adjust stock, or Record cargo from an arrival (spec §5.3–5.4): deltas or set-to values, a reason and
- * the public switch. The preview shows what the bounds will do ("capped") before the DM confirms.
+ * Adjust stock, or Record cargo from an arrival (spec §5.3–5.4): deltas or set-to values and the
+ * public switch. The preview shows what the bounds will do ("capped") before the DM confirms.
  */
 export function AdjustSheet({
 	open,
@@ -89,7 +88,6 @@ export function AdjustSheet({
 }) {
 	const [drafts, setDrafts] = useState<Record<string, ResourceDraft>>({});
 	const [colonistsText, setColonistsText] = useState("");
-	const [reason, setReason] = useState("");
 	const [isPublic, setPublic] = useState(cargo !== null);
 	const mutation = changes.adjust;
 
@@ -97,7 +95,6 @@ export function AdjustSheet({
 		arrivalEntryId: cargo?.arrivalEntryId ?? null,
 		expectedVersion: version,
 		public: isPublic,
-		reason: reason.trim(),
 		source: cargo ? "SHIPMENT" : "ADJUSTMENT",
 	});
 	const previewInput = useDebouncedValue(input, previewDelayInMilliseconds);
@@ -191,25 +188,6 @@ export function AdjustSheet({
 					/>
 				</Field>
 
-				<Field
-					description="Shown on the timeline entry."
-					error={serverErrors.reason}
-					id="adjust-reason"
-					label="Reason"
-					optional
-				>
-					<Input
-						{...fieldInputProps("adjust-reason", serverErrors.reason, true)}
-						autoComplete="off"
-						maxLength={reasonLimit}
-						onChange={(event) => {
-							setReason(event.target.value);
-						}}
-						placeholder={cargo ? "For example, grain and settlers" : "For example, spoiled stores"}
-						value={reason}
-					/>
-				</Field>
-
 				<div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-3">
 					<Label className="grid gap-0.5" htmlFor="adjust-public">
 						<span>Log on the public timeline</span>
@@ -265,7 +243,6 @@ const emptyInput: AdjustInput = {
 	deltas: {},
 	expectedVersion: 0,
 	public: false,
-	reason: "",
 	setTo: {},
 	source: "ADJUSTMENT",
 };

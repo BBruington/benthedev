@@ -76,7 +76,7 @@ Colony Planner is a private website for colony campaigns; the author's **Colony 
 - AI features;
 - Foundry sync;
 - Google Calendar OAuth (Open Question 16);
-- the player store;
+- an in-app player store (added after M6 as the Market, §3.3);
 - any new colony mechanic;
 - deployment, a domain or a hosted database before the optional M6 cutover (F1);
 - importing the old app's data (F2);
@@ -181,6 +181,7 @@ Colony Planner is a private website for colony campaigns; the author's **Colony 
 | Maps and places | revealed only; no `dm_notes` | CRUD, pins, image uploads |
 | Hex map | paint, label, erase (no history: F6) | same |
 | Sessions, recaps, ICS link | read | series CRUD, cancel or restore dates, recaps, mark played, regenerate the ICS token |
+| Market (§3.3) | read unarchived items and orders; edit the party cart, place an order, pay a docked one | same, plus item CRUD and archive, the voyage length, cancel an order, undo a payment |
 | Members | active members' display and character names | approve, deny, remove, re-admit, set character names |
 | Settings | — | yes |
 | Own profile | character name, theme, sign out, sign out everywhere | same, plus view as player |
@@ -244,15 +245,32 @@ The **site owner** (F8) has a third column: nothing inside a campaign they aren'
   - `/request` from Discord.
 - **Shipments:** a standing shipment manifest, if the author chooses one (Open Question 7).
 
-### 3.3 Later
+### 3.3 The Market (the player store, added after M6)
 
-**The player store** (magic items, food, colonists, special NPCs) is a separate design effort (decision 6). Its open questions are Open Question 18: who pays, whether purchases arrive at once or by ship, and who owns bought items. Nothing in v1 blocks it:
+**The Market** (`/c/{slug}/market`, "Market" in the Colony nav group after People, for everyone) is how the party buys colonists, food, building supplies and unique items from the mainland. It answers Open Question 18 (decided on 2026-11-03). It isn't called "store", which would collide with `internal/store`; what a ship carries is an **order**.
 
-- `request.kind` is text validated in Go, so adding `STORE_PURCHASE` needs no migration;
-- `request.cost` and `request.effects` hold any price and any goods as snapshots, and approval re-checks them under the colony lock;
-- bought colonists land in Unassigned (decision 8);
-- an `npc` row can carry a role, so a bought "special NPC" can become a named colonist;
-- the catalog and owned items get their own tables, and `request` gains one nullable column that points at the catalog (one additive migration).
+- **Catalog.** Three kinds of row, told apart by their columns (no kind column):
+  - **Supply offers**, one per buyable resource (any active resource but gold and morale: the market charges gold, and morale isn't goods). An offer sells in lots: one purchase brings `amount` units (1 to 1,000,000) for `price_gold`. Its name is the resource's label.
+  - **Colonist offers**, one per role, Unassigned included (its offer is named "Colonist"). One purchase is one colonist who joins that role. Every role is offered at 30 gp each from the start: at campaign approval, and when the DM creates a role. The DM changes each price.
+  - **Special items**, the DM's own: name, description, price in gold and an optional "Most per order" limit. They grant nothing and are a record only (magic and unique items, handed over at the table). The DM adds them when a player asks in person or on Discord (there is no in-app "ask" step).
+  - Every campaign starts with a **Food** offer (2 food for 1 gp, one colonist for two days) and a **Materials** offer (1 for 5 gp), each only where its resource exists. The DM sets a price on any other resource from the catalog ("Set price"), and **Stop selling** archives an offer; setting its price again re-lists it.
+  - Nothing in the catalog is secret: a new row is visible to players at once. Rows are archived, never deleted, and an archived row, or an offer whose resource or role is archived, reaches only the DM.
+- **One shared party cart.** Any active member changes it (1 to 10,000 purchases a line, at most the item's limit; 0 removes the line), and it shows who changed it last. Players type supplies and colonists in units ("500" food), which must be a whole number of lots and are never rounded; a special item steps one at a time. Every line, order and timeline entry shows units ("500 food", "12 Farmers"). Editing the cart writes no timeline entry and takes no colony lock.
+- **Place order.** Any active member confirms the cart. The order snapshots each line (name, unit price, quantity, grants, colonists, role), so later price edits don't change it, and the cart empties.
+  - It docks on `arrives_day = day placed + voyage days`. The voyage is one DM setting per campaign (`settings.market_voyage_days`, 1 to 3650, default 14). The supply-ship cadence (§5.3) is unchanged.
+  - Gold isn't checked here. The confirm sheet warns when gold on hand is below the total, and confirming is still allowed.
+  - **One ship at a time:** a campaign has at most one UNPAID order (a partial unique index). A second order is refused with 409 "The ship is still out. Pay for it at the docks first." A cart whose total changed since the sheet opened is 409 "The cart changed. Review it and confirm again."
+  - Placing takes the colony lock and writes a PUBLIC `MARKET_ORDER_PLACED` entry but, like Mark played (§5.11), leaves the version and the undo slot alone.
+- **At sea and docked.** Both are UNPAID; docked is derived from the colony day (`day >= arrives_day`). An Advance that crosses the arrival day writes a PUBLIC `MARKET_ORDER_DOCKED` entry on that day in its group, and its preview names the docking ("The goods ship docks on Day 36."). Undoing the advance marks the entry undone, and the order is at sea again. Correct day writes no docked entry, as it writes no arrivals.
+- **Pay (unload).** Any active member pays a docked order. It is a colony change (§5.1) at member level, with a server preview of gold, every granted resource and every role, before and after:
+  - gold is STRICT: when it is short, Pay is refused with the shortfall named ("Not enough gold: the colony has 40, needs 65"), the ship waits at the docks, and nothing else happens;
+  - grants cap at their maximum, and colonists land in their item's role (the one exception to decision 8, §5.5);
+  - a grant whose resource or role was archived after the order was placed is refused, never skipped; the DM unarchives it or cancels the order;
+  - it writes a PUBLIC `MARKET_ORDER_PAID` entry with the deltas, the colonists per role and the special items, and the order becomes PAID;
+  - the DM can undo it like any colony change, which puts the order back at the docks. If a newer order is open by then, the undo is 409 "A newer order is open. Cancel it before undoing this payment."
+- **Cancel (DM only).** Cancels an order at sea or docked: nothing is charged, the lines don't return to the cart, and a PUBLIC `MARKET_ORDER_CANCELLED` entry is written. Like Place, it takes the colony lock without a version bump or undo slot. Players can't cancel.
+- **Not tracked.** The app keeps no inventory and no characters: a magic item is recorded in the order and the timeline, and the DM decides who holds it (character sheets, the VTT). Named NPCs for bought colonists go through People as today. Nothing happens if a ship sits at the docks for a long time, and Advance is never blocked by it.
+- **Screens.** The Market page has the ship card, the party cart, the catalog (Supplies, Colonists and Special items; DM: set and edit prices, Stop selling, New special item, the archived special items) and past orders, plus the DM's voyage setting. The colony board shows a goods-ship card while an order is open ("Goods ship · docks Day 36 (in 5 days)" or "Goods ship docked · 65 gold due"). Beny Bot is unchanged.
 
 ### 3.4 Disposition of every old feature
 
@@ -543,7 +561,7 @@ type Step interface {
   - Every `SHIPMENT_ARRIVED` entry, folded ones included, offers the DM **Record cargo**.
   - It opens Adjust (§5.4) prefilled with `source = shipment`, with public logging switched on.
   - It writes `CARGO_RECORDED`, linked to the arrival.
-  - Recorded colonists land in Unassigned (decision 8).
+  - Recorded colonists land in Unassigned (decision 8; only the Market lands colonists in a role, §3.3).
   - So that cargo counts toward later upkeep, the DM advances to the arrival day, records the cargo, then continues. That is why the preview names arrival days.
   - A standing manifest is Open Question 7.
 
@@ -558,10 +576,10 @@ type Step interface {
   - by default, any negative resource deltas in the action's effects. Whether those should clamp instead is Open Question 12.
   - If anything would fall short, the whole operation is rejected with the shortfall named, e.g. "Not enough favor: Lady Vex has 2, needs 3" or "Not enough food: the colony has 4, needs 10".
   - Positive deltas still cap at the maximum.
-  - The request flow, and so a future store, uses this mode.
+  - The request flow and the Market's payment (§3.3) use this mode.
 - `colonists: n` adds n to `UNASSIGNED.unnamed_count`. Negative colonist deltas are not supported; removals go through the workforce screen (§5.5).
 - **Adjust stock (DM).**
-  - Input is deltas, or "set to" values that the server converts to deltas under the lock, plus a reason.
+  - Input is deltas, or "set to" values that the server converts to deltas under the lock.
   - It always writes `STOCK_ADJUSTED`, which keeps the audit trail. Visibility is **DM by default**, with a "Log on the public timeline" switch.
 - **Adjust favor (DM).**
   - Takes a delta or a set-to value. DM adjustments are unbounded, as today (Open Question 12).
@@ -570,7 +588,7 @@ type Step interface {
 ### 5.5 Colonists, roles and Unassigned (decision 8, settled)
 
 - **Colonists = Σ over all roles of (unnamed count + named NPC colonists in that role)**, Unassigned included. Food upkeep uses this number.
-- **New colonists always land in UNASSIGNED**, whether they come from quest rewards, recorded cargo, approved actions or, later, the store.
+- **New colonists land in UNASSIGNED**, whether they come from quest rewards, recorded cargo or approved actions. **The one exception is the Market** (§3.3, decided on 2026-11-03): a bought colonist lands in the role its item names, so a bought Farmer joins Farmers; an item with no role still lands its colonists in Unassigned.
 - **Workforce operations (DM)** write `WORKFORCE_CHANGED` with **DM visibility by default** (opt-in PUBLIC):
   - **Transfer:** move n unnamed colonists from role A to role B. Requires `A.unnamed_count ≥ n`; the total is unchanged.
   - **Set count:** set a role's unnamed count directly. This is a correction, and it is how deaths and departures are recorded.
@@ -681,6 +699,10 @@ type Step interface {
 | `QUEST_COMPLETED` / `QUEST_FAILED` / `QUEST_REOPENED` | Quest actions | current | PUBLIC if the quest is revealed, else DM |
 | `PATRON_ACTION` | Approve, use action | current | PUBLIC if the patron is revealed, else DM |
 | `SESSION_PLAYED` | Discord event ACTIVE, or Mark played | `colony_day_start` | PUBLIC |
+| `MARKET_ORDER_PLACED` | Place order (§3.3) | current | PUBLIC |
+| `MARKET_ORDER_DOCKED` | Advance across an order's arrival day | `arrives_day` | PUBLIC |
+| `MARKET_ORDER_PAID` | Pay (§3.3) | current | PUBLIC |
+| `MARKET_ORDER_CANCELLED` | Cancel order (DM) | current | PUBLIC |
 | `UNDO` | Undo | current | PUBLIC if any undone entry was PUBLIC, else DM |
 | `CUSTOM` | DM | any day (past or future) | chosen by the DM |
 
@@ -908,6 +930,7 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
 | `/places`, `/places/$placeId` | List and detail; CRUD; reveal; `dm_notes`; pin (arrives in M4) | Visible places, redacted; NPCs who are here |
 | `/npcs`, `/npcs/$npcId` | Roster with search and filters; full edit; reveal; colony role; first-encountered session (arrives in M5) | Revealed NPCs under their display name, redacted |
 | `/sessions`, `/sessions/$sessionId` | Series CRUD; upcoming dates (cancel or restore); history; recap editor; mark played or end session; edit day stamps; ICS link | Upcoming dates (cancelled ones struck through) in local time; history with recaps and "Days 36–41"; ICS link |
+| `/market` (§3.3) | Catalog (new item, edit, archive, archived list); voyage days; the party cart; place order; pay a docked order; cancel an order; past orders | Catalog without archived items; the party cart; place order; pay a docked order; past orders |
 | `/players` | Pending (approve or deny); active (character names, remove); removed, left or denied, each labeled so (re-admit) | 403 |
 | `/settings` | Campaign and colony name; timezone; resources (add, rename, icon, bounds, archive); roles; Discord channels and event location; bot invite link; ICS token | 403 |
 | Profile menu | Character name, theme, **View as player**, sign out, sign out everywhere | Character name, theme, sign out, sign out everywhere |
@@ -1202,7 +1225,7 @@ These versions were checked on 2026-10-10, and every one is at least two weeks o
 
 | Concern | Choice | Version | Why it earns its place |
 |---|---|---|---|
-| Backend | Go | 1.27 (toolchain go1.27.1; move to go1.27.2's security fixes once it is two weeks old, about 2026-10-22) | The author's direction. The bot, stdlib `CrossOriginProtection`, `embed`, `slog`. |
+| Backend | Go | 1.27 (toolchain go1.27.3, for GO-2026-6809 since 2026-11-04) | The author's direction. The bot, stdlib `CrossOriginProtection`, `embed`, `slog`. |
 | HTTP / API | huma v2 on `net/http` ServeMux (humago) | v2.39.1 | Go structs become the contract: OpenAPI 3.1, struct-tag validation, problem+json, response Transformers. Default doc routes disabled (§2.2). **On trial (F5)**, and kept inside `internal/app` (§8.6). |
 | DB driver | pgx/v5 (pgxpool: MaxConns 5, MinConns 0, MaxConnIdleTime 1 min) | v5.11.0 (must be ≥ 5.9.2 for GHSA-j88v-2chj-qfwx) | Standard; sqlc targets it. The pool holds no connections while idle. |
 | Queries | sqlc (`sql_package: pgx/v5`, `emit_pointers_for_null_types`, `emit_all_enum_values`) | 1.31.1 | Compile-checked SQL and Go enums, generated from the migrations. Installed by mise, not globally. |
@@ -1335,7 +1358,7 @@ On the web, Biome allows the server transports (fetch, EventSource, XMLHttpReque
 | Buildings | New tables; `BUILDING_*` timeline kinds; `Effects` for anything that changes stock; a `Step` if buildings act over days | none expected |
 | Sickness | NPC `health` (already has SICK); DM-defined resources or roles; a `Step` if it changes over days; `SICKNESS_*` kinds. If per-colonist state is needed, `game.Colonists` is the one function to revisit. | none expected |
 | Events | `EVENT_*` kinds; `Effects` for outcomes; a `Step` if events trigger on their own | none expected |
-| Store | `request.kind = STORE_PURCHASE`; the `cost` and `effects` snapshots; catalog and owned-item tables; colonists to Unassigned | `request` gains one nullable catalog column (additive) |
+| Store | Built as the Market (§3.3): its own catalog, cart and order tables, not `request` | `settings` gained `market_voyage_days` (additive) |
 | New resource or role | `/settings` | **no code** |
 
 ### 8.7 How many places to add one field
@@ -1748,7 +1771,16 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
     - Who pays: colony gold, a party purse, or individual characters?
     - Who owns a bought magic item, now that player characters aren't tracked?
 
-    *Default: decided in the store design; nothing in v1 depends on the answers.*
+    **Resolved (2026-11-03), built as the Market (§3.3):**
+
+    | Question | Decision |
+    |---|---|
+    | Timer | Each order has its own voyage. It docks a set number of days after it is confirmed (one DM setting per campaign, default 14). The supply-ship cadence stays exactly as it is. |
+    | Short on gold at arrival | The ship waits at the docks. The goods unload only when someone pays in full (STRICT gold). Until then no new order can be placed. The DM can cancel the order. Advance is never blocked. |
+    | Who orders and pays | One shared party cart. Any active member edits it, and anyone confirms it; colony gold pays on arrival. |
+    | Typed colonists | A bought Farmer lands in Farmers. This is a Market-only exception to decision 8; generic colonists still land in Unassigned. |
+    | Magic and unique items | Recorded only, in the order and the timeline. The app tracks no inventory and no characters. |
+    | Food rate | 1 gp = 2 food (one colonist for two days). |
 
 **Multi-campaign (M1.5), all resolved on 2026-10-11 (multi-campaign design, last section)**
 

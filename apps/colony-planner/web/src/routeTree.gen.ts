@@ -22,6 +22,7 @@ import { Route as SignedInCCampaignSlugShellRouteImport } from "./routes/_signed
 import { Route as SignedInCCampaignSlugPendingRouteImport } from "./routes/_signedIn/c.$campaignSlug/pending"
 import { Route as SignedInCCampaignSlugShellIndexRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/index"
 import { Route as SignedInCCampaignSlugShellExploreRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/explore"
+import { Route as SignedInCCampaignSlugShellMarketRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/market"
 import { Route as SignedInCCampaignSlugShellPeopleRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/people"
 import { Route as SignedInCCampaignSlugShellPlayersRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/players"
 import { Route as SignedInCCampaignSlugShellRequestsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/requests"
@@ -105,6 +106,12 @@ const SignedInCCampaignSlugShellExploreRoute =
   SignedInCCampaignSlugShellExploreRouteImport.update({
     id: "/explore",
     path: "/explore",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellMarketRoute =
+  SignedInCCampaignSlugShellMarketRouteImport.update({
+    id: "/market",
+    path: "/market",
     getParentRoute: () => SignedInCCampaignSlugShellRoute,
   } as any)
 const SignedInCCampaignSlugShellPeopleRoute =
@@ -220,6 +227,7 @@ export interface FileRoutesByFullPath {
   "/join/$inviteCode": typeof SignedInAccountJoinInviteCodeRoute
   "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
+  "/c/$campaignSlug/market": typeof SignedInCCampaignSlugShellMarketRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
@@ -249,6 +257,7 @@ export interface FileRoutesByTo {
   "/join/$inviteCode": typeof SignedInAccountJoinInviteCodeRoute
   "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
+  "/c/$campaignSlug/market": typeof SignedInCCampaignSlugShellMarketRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
@@ -281,6 +290,7 @@ export interface FileRoutesById {
   "/_signedIn/c/$campaignSlug/_shell": typeof SignedInCCampaignSlugShellRouteWithChildren
   "/_signedIn/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/_signedIn/c/$campaignSlug/_shell/explore": typeof SignedInCCampaignSlugShellExploreRoute
+  "/_signedIn/c/$campaignSlug/_shell/market": typeof SignedInCCampaignSlugShellMarketRoute
   "/_signedIn/c/$campaignSlug/_shell/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/_signedIn/c/$campaignSlug/_shell/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/_signedIn/c/$campaignSlug/_shell/requests": typeof SignedInCCampaignSlugShellRequestsRoute
@@ -312,6 +322,7 @@ export interface FileRouteTypes {
     | "/join/$inviteCode"
     | "/c/$campaignSlug/pending"
     | "/c/$campaignSlug/explore"
+    | "/c/$campaignSlug/market"
     | "/c/$campaignSlug/people"
     | "/c/$campaignSlug/players"
     | "/c/$campaignSlug/requests"
@@ -341,6 +352,7 @@ export interface FileRouteTypes {
     | "/join/$inviteCode"
     | "/c/$campaignSlug/pending"
     | "/c/$campaignSlug/explore"
+    | "/c/$campaignSlug/market"
     | "/c/$campaignSlug/people"
     | "/c/$campaignSlug/players"
     | "/c/$campaignSlug/requests"
@@ -372,6 +384,7 @@ export interface FileRouteTypes {
     | "/_signedIn/c/$campaignSlug/_shell"
     | "/_signedIn/c/$campaignSlug/pending"
     | "/_signedIn/c/$campaignSlug/_shell/explore"
+    | "/_signedIn/c/$campaignSlug/_shell/market"
     | "/_signedIn/c/$campaignSlug/_shell/people"
     | "/_signedIn/c/$campaignSlug/_shell/players"
     | "/_signedIn/c/$campaignSlug/_shell/requests"
@@ -489,6 +502,13 @@ declare module "@tanstack/react-router" {
       path: "/explore"
       fullPath: "/c/$campaignSlug/explore"
       preLoaderRoute: typeof SignedInCCampaignSlugShellExploreRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/market": {
+      id: "/_signedIn/c/$campaignSlug/_shell/market"
+      path: "/market"
+      fullPath: "/c/$campaignSlug/market"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellMarketRouteImport
       parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
     "/_signedIn/c/$campaignSlug/_shell/people": {
@@ -633,6 +653,7 @@ const SignedInAccountRouteWithChildren = SignedInAccountRoute._addFileChildren(
 
 interface SignedInCCampaignSlugShellRouteChildren {
   SignedInCCampaignSlugShellExploreRoute: typeof SignedInCCampaignSlugShellExploreRoute
+  SignedInCCampaignSlugShellMarketRoute: typeof SignedInCCampaignSlugShellMarketRoute
   SignedInCCampaignSlugShellPeopleRoute: typeof SignedInCCampaignSlugShellPeopleRoute
   SignedInCCampaignSlugShellPlayersRoute: typeof SignedInCCampaignSlugShellPlayersRoute
   SignedInCCampaignSlugShellRequestsRoute: typeof SignedInCCampaignSlugShellRequestsRoute
@@ -657,6 +678,8 @@ const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteCh
   {
     SignedInCCampaignSlugShellExploreRoute:
       SignedInCCampaignSlugShellExploreRoute,
+    SignedInCCampaignSlugShellMarketRoute:
+      SignedInCCampaignSlugShellMarketRoute,
     SignedInCCampaignSlugShellPeopleRoute:
       SignedInCCampaignSlugShellPeopleRoute,
     SignedInCCampaignSlugShellPlayersRoute:

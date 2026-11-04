@@ -400,12 +400,15 @@ func (service *Service) CreateRole(requestContext context.Context, viewer Viewer
 			Icon:       input.Icon,
 			SortOrder:  sortOrder,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		return createColonistOffer(requestContext, queries, viewer.campaignID, row.Key)
 	})
 	if err != nil {
 		return RoleSettings{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicPeople, TopicColony)
+	service.broker.Publish(viewer.campaignID, TopicPeople, TopicColony, TopicMarket)
 	return toRoleSettings(row, 0), nil
 }
 

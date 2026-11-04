@@ -13,6 +13,7 @@ import {
 	latestRecapQuery,
 	mapQueryKeyPrefix,
 	mapsQuery,
+	marketQuery,
 	membersQuery,
 	meQuery,
 	myCampaignsQuery,
@@ -22,6 +23,7 @@ import {
 	patronActionsQuery,
 	patronQueryKeyPrefix,
 	patronsQuery,
+	payMarketOrderPreviewQueryKeyPrefix,
 	placeQueryKeyPrefix,
 	placesQueryKeyPrefix,
 	playedSessionsQuery,
@@ -58,6 +60,9 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 			adjustPreviewQueryKeyPrefix(campaignId),
 			...questPreviewQueryKeyPrefixes(campaignId),
 			approveRequestPreviewQueryKeyPrefix(campaignId),
+			payMarketOrderPreviewQueryKeyPrefix(campaignId),
+			// The market page carries gold on hand and whether the ship has docked, both colony state.
+			marketQuery(campaignId).queryKey,
 		],
 		hexes: [hexesQuery(campaignId).queryKey],
 		// A map's page carries its pins, and a place's page names the map it is pinned on.
@@ -67,6 +72,7 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 			placesQueryKeyPrefix(campaignId),
 			placeQueryKeyPrefix(campaignId),
 		],
+		market: [marketQuery(campaignId).queryKey, payMarketOrderPreviewQueryKeyPrefix(campaignId)],
 		// The caller's own membership or session changed: their status here, the picker's card, and
 		// view as player (a session toggle that the account read carries too).
 		me: [campaignMeQuery(campaignId).queryKey, myCampaignsQuery.queryKey, meQuery.queryKey],

@@ -82,6 +82,38 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	if board.Dm == nil || board.Dm.LastChange == nil || board.Dm.LastChange.Label != "3 days pass · Day 22" {
 		t.Fatalf("undo slot = %+v; want the last advance", board.Dm)
 	}
+	// The market: the default offers (Mages raised to 80 gp), the Boots the DM added, Thorin's order
+	// out until Day 36, and Sela's cart.
+	market, err := service.GetMarket(testContext, dm)
+	if err != nil || market.VoyageDays != 14 {
+		t.Fatalf("market = %+v, %v", market, err)
+	}
+	offers := map[string]int64{}
+	specials := 0
+	for _, item := range market.Items {
+		if item.ResourceKey == nil && item.RoleKey == nil {
+			specials++
+		}
+		offers[item.Name] = item.PriceGold
+	}
+	if specials != 1 || offers["Food"] != 1 || offers["Materials"] != 5 || offers["Farmer"] != 30 || offers["Mage"] != 80 || offers["Boots of Striding"] != 120 {
+		t.Fatalf("market items = %+v", market.Items)
+	}
+	order := market.Order
+	if order == nil || order.Status != core.MarketOrderStatusUnpaid || order.PlacedDay != 22 ||
+		order.ArrivesDay != 36 || order.Docked || order.TotalGold != 70 || len(order.Lines) != 2 {
+		t.Fatalf("the open order = %+v", market.Order)
+	}
+	quantities := map[string]int64{}
+	for _, line := range order.Lines {
+		quantities[line.Name] = line.Quantity
+	}
+	if quantities["Food"] != 10 || quantities["Farmer"] != 2 {
+		t.Fatalf("the open order's lines = %+v", order.Lines)
+	}
+	if len(market.Cart.Lines) != 2 || market.Cart.TotalGold != 125 || len(market.History) != 0 {
+		t.Fatalf("cart = %+v, history = %+v", market.Cart, market.History)
+	}
 	dmTimeline, err := service.ListTimeline(testContext, dm, core.TimelineRangeInput{FromDay: 0, ToDay: 30})
 	if err != nil {
 		t.Fatalf("read the timeline: %v", err)

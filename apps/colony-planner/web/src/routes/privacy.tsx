@@ -68,7 +68,8 @@ function PrivacyPage() {
 							<li>
 								<strong>Everything people enter in a campaign:</strong> the colony's books and
 								timeline, NPCs, places, quests, patrons, requests, maps, the hex map, session dates
-								and recaps. DMs and players type all of it themselves.
+								and recaps, and the market's items, the party's cart and its orders (including who
+								placed and paid them). DMs and players type all of it themselves.
 							</li>
 							<li>
 								<strong>Pictures</strong> uploaded to a campaign, such as maps and NPC portraits.

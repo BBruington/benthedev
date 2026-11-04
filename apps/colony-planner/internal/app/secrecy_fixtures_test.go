@@ -161,7 +161,7 @@ var secrecyFixtures = []secrecyFixture{
 	{
 		feature: "colony",
 		// A shipment arrival (for cargo bodies), a PUBLIC adjustment that is then undone and a DM-only
-		// adjustment, whose reasons are DM-only; B also gets a resource of its own.
+		// adjustment; B also gets a resource of its own.
 		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
 			dmViewer := testHarness.enter(side.dm, side.campaign.id)
@@ -207,7 +207,6 @@ var secrecyFixtures = []secrecyFixture{
 				Source:          core.AdjustSourceAdjustment,
 				Deltas:          map[string]int64{resourceKey: 3},
 				SetTo:           map[string]int64{},
-				Reason:          side.dmSecret + " undone",
 				Public:          true,
 			})
 			if err != nil {
@@ -221,11 +220,11 @@ var secrecyFixtures = []secrecyFixture{
 				Source:          core.AdjustSourceAdjustment,
 				Deltas:          map[string]int64{"gold": 7},
 				SetTo:           map[string]int64{},
-				Reason:          side.dmSecret + " paid the smuggler",
 			}); err != nil {
 				t.Fatalf("plant a DM-only adjustment: %v", err)
 			}
 		},
+		// Adjustments carry no text, so the proof is borrowed from the timeline fixture's DM-only entry.
 		dmProof: []string{"/timeline/recent", "/timeline?fromDay=0&toDay=30"},
 	},
 	{
@@ -702,11 +701,90 @@ var secrecyFixtures = []secrecyFixture{
 		dmProof: []string{"/npcs"},
 	},
 	{
+		feature: "market",
+		// The market has no DM-only values, so B's carry canaryB in every text. A shown special item (the
+		// {itemId} row), the standing offers of the campaign's own {resourceKey} resource (food in A, whose
+		// key is gold) and {roleKey} role, whose names carry the labels, an archived item, an unpaid order
+		// of all three (the {orderId} row, its lines a snapshot), and a cart line left after the order was
+		// placed. The order is docked, so pay-preview and pay run their data paths; it is moved back a day
+		// in SQL, because an advance would replace the undo slot that pass 4 borrows and undoes.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			visible := side.playerVisible
+			roleKey := side.campaign.pathIDs["roleKey"]
+			resourceKey := side.campaign.pathIDs["resourceKey"]
+			if resourceKey == "gold" {
+				resourceKey = "food"
+			}
+			check := func(what string, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("%s in %s: %v", what, side.campaign.name, err)
+				}
+			}
+			shown, err := testHarness.core.CreateMarketItem(testHarness.context, dmViewer, core.MarketItemInput{
+				Name: "Seed Grain" + visible, Description: "From the mainland" + visible, PriceGold: 3,
+			})
+			check("plant a market item", err)
+			supplies, err := testHarness.core.SetSupplyOffer(testHarness.context, dmViewer, resourceKey, core.SupplyOfferInput{PriceGold: 2, Amount: 3})
+			check("price a supply offer", err)
+			colonists, err := testHarness.core.SetColonistOffer(testHarness.context, dmViewer, roleKey, core.ColonistOfferInput{PriceGold: 4})
+			check("price a colonist offer", err)
+			archived, err := testHarness.core.CreateMarketItem(testHarness.context, dmViewer, core.MarketItemInput{
+				Name: "Old Lantern" + visible, Description: "Withdrawn" + visible, PriceGold: 1,
+			})
+			check("plant an item to archive", err)
+			_, err = testHarness.core.SetMarketItemArchived(testHarness.context, dmViewer, archived.ID, true)
+			check("archive an item", err)
+			for _, line := range []struct {
+				itemID   uuid.UUID
+				quantity int64
+			}{
+				{shown.ID, 2},
+				{marketOfferID(t, supplies, resourceKey, ""), 1},
+				{marketOfferID(t, colonists, "", roleKey), 1},
+			} {
+				_, err = testHarness.core.SetCartQuantity(testHarness.context, dmViewer, line.itemID, core.CartQuantityInput{Quantity: line.quantity})
+				check("fill the cart", err)
+			}
+			placed, err := testHarness.core.PlaceMarketOrder(testHarness.context, dmViewer, core.PlaceMarketOrderInput{ExpectedTotalGold: 12})
+			check("place an order", err)
+			if placed.Order == nil {
+				t.Fatalf("placing an order in %s left no open order", side.campaign.name)
+			}
+			_, err = testHarness.core.SetCartQuantity(testHarness.context, dmViewer, shown.ID, core.CartQuantityInput{Quantity: 1})
+			check("refill the cart", err)
+			if _, err := testHarness.database.Pool.Exec(testHarness.context,
+				"UPDATE market_order SET placed_day = placed_day - 1, arrives_day = placed_day WHERE campaign_id = $1 AND id = $2",
+				side.campaign.id, placed.Order.ID); err != nil {
+				t.Fatalf("dock the order in %s: %v", side.campaign.name, err)
+			}
+			side.campaign.pathIDs["itemId"] = shown.ID.String()
+			side.campaign.pathIDs["orderId"] = placed.Order.ID.String()
+			side.campaign.archivedIDs = append(side.campaign.archivedIDs, archived.ID.String())
+		},
+		// Nothing here is DM-only but the archived item, which holds no canary, so the proof is borrowed.
+		dmProof: []string{"/npcs"},
+	},
+	{
 		feature: "invite link",
 		// The invite code is DM-only: the harness's forbidden lists hold it as a literal.
 		plant:   func(*testing.T, *harness, campaignSide) {},
 		dmProof: []string{"/invite"},
 	},
+}
+
+// marketOfferID finds the standing offer for a resource or a role on a market page.
+func marketOfferID(t *testing.T, page core.MarketPage, resourceKey, roleKey string) uuid.UUID {
+	t.Helper()
+	for _, item := range page.Items {
+		if (item.ResourceKey != nil && *item.ResourceKey == resourceKey) || (item.RoleKey != nil && *item.RoleKey == roleKey) {
+			return item.ID
+		}
+	}
+	t.Fatalf("no market offer for %q%q", resourceKey, roleKey)
+	return uuid.Nil
 }
 
 // plantCanaries runs every feature's fixture in both campaigns.

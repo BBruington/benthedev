@@ -150,7 +150,24 @@ type requestBodyInput[Body any] struct {
 	Body       Body
 }
 
-// ArchiveInput is the body of the archive switches on patrons and their actions.
+type marketItemBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	ItemID     uuid.UUID `path:"itemId" format:"uuid"`
+	Body       Body
+}
+
+type marketOrderPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	OrderID    uuid.UUID `path:"orderId" format:"uuid"`
+}
+
+type marketOrderBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	OrderID    uuid.UUID `path:"orderId" format:"uuid"`
+	Body       Body
+}
+
+// ArchiveInput is the body of the archive switches on patrons, their actions and market items.
 type ArchiveInput struct {
 	Archived bool `json:"archived"`
 }

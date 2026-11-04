@@ -18,6 +18,7 @@ import {
 	colonyBoardQuery,
 	latestRecapQuery,
 	mapsQuery,
+	marketQuery,
 	membersQuery,
 	nextSessionQuery,
 	recentTimelineQuery,
@@ -47,6 +48,7 @@ import { focusFirstVisible } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
 import { artSource } from "@/maps/art";
+import { BoardMarket } from "@/market/board-market";
 import { BoardSessions } from "@/sessions/board-sessions";
 import { MyRequestsCard, PendingRequestsCard } from "@/ventures/board-ventures";
 
@@ -62,6 +64,7 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/")({
 		queryClient.prefetchQuery(colonyBoardQuery(campaignId));
 		queryClient.prefetchQuery(recentTimelineQuery(campaignId));
 		queryClient.prefetchQuery(mapsQuery(campaignId));
+		queryClient.prefetchQuery(marketQuery(campaignId));
 		queryClient.prefetchQuery(nextSessionQuery(campaignId));
 		queryClient.prefetchQuery(latestRecapQuery(campaignId));
 		const me = cachedMe(queryClient, campaignId);
@@ -123,6 +126,7 @@ function ColonyPage() {
 				<ResourceTiles resources={data.resources} />
 			</section>
 			<ColonistsStrip board={data} />
+			<BoardMarket day={data.day} />
 			{canUseDmTools(me) ? (
 				<PendingRequestsCard resources={data.resources} />
 			) : (
