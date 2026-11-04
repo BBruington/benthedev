@@ -750,18 +750,18 @@ var secrecyFixtures = []secrecyFixture{
 			}
 			placed, err := testHarness.core.PlaceMarketOrder(testHarness.context, dmViewer, core.PlaceMarketOrderInput{ExpectedTotalGold: 12})
 			check("place an order", err)
-			if placed.Order == nil {
+			if len(placed.Orders) != 1 {
 				t.Fatalf("placing an order in %s left no open order", side.campaign.name)
 			}
 			_, err = testHarness.core.SetCartQuantity(testHarness.context, dmViewer, shown.ID, core.CartQuantityInput{Quantity: 1})
 			check("refill the cart", err)
 			if _, err := testHarness.database.Pool.Exec(testHarness.context,
 				"UPDATE market_order SET placed_day = placed_day - 1, arrives_day = placed_day WHERE campaign_id = $1 AND id = $2",
-				side.campaign.id, placed.Order.ID); err != nil {
+				side.campaign.id, placed.Orders[0].ID); err != nil {
 				t.Fatalf("dock the order in %s: %v", side.campaign.name, err)
 			}
 			side.campaign.pathIDs["itemId"] = shown.ID.String()
-			side.campaign.pathIDs["orderId"] = placed.Order.ID.String()
+			side.campaign.pathIDs["orderId"] = placed.Orders[0].ID.String()
 			side.campaign.archivedIDs = append(side.campaign.archivedIDs, archived.ID.String())
 		},
 		// Nothing here is DM-only but the archived item, which holds no canary, so the proof is borrowed.

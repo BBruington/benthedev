@@ -114,12 +114,12 @@ type AdvancePreview struct {
 	ToDay     int64 `json:"toDay"`
 	Colonists int64 `json:"colonists" doc:"The headcount upkeep used"`
 	// Resources lists every resource the advance changes (food, in v1).
-	Resources      []ResourceChangePreview `json:"resources"`
-	ArrivalCount   int64                   `json:"arrivalCount"`
-	Arrivals       []ArrivalRun            `json:"arrivals" doc:"Every arrival day in the span, as runs"`
-	ShipmentsAfter *ShipmentSchedule       `json:"shipmentsAfter" doc:"null when no shipment schedule is set"`
-	Summary        string                  `json:"summary" doc:"e.g. Day 12 → 17 · Food 140 → 80 · 1 shipment arrival (Day 14)"`
-	MarketDocksDay *int64                  `json:"marketDocksDay" nullable:"true" doc:"The day the open market order docks during this advance; null when it doesn't"`
+	Resources       []ResourceChangePreview `json:"resources"`
+	ArrivalCount    int64                   `json:"arrivalCount"`
+	Arrivals        []ArrivalRun            `json:"arrivals" doc:"Every arrival day in the span, as runs"`
+	ShipmentsAfter  *ShipmentSchedule       `json:"shipmentsAfter" doc:"null when no shipment schedule is set"`
+	Summary         string                  `json:"summary" doc:"e.g. Day 12 → 17 · Food 140 → 80 · 1 shipment arrival (Day 14)"`
+	MarketDocksDays []int64                 `json:"marketDocksDays" doc:"The days open market orders dock during this advance, soonest first; empty when none does"`
 }
 
 // ArrivalRun is the arrival days first, first+every, ... (count of them), ending on last.
@@ -252,16 +252,15 @@ func (service *Service) PreviewAdvance(requestContext context.Context, viewer Vi
 	if err != nil {
 		return AdvancePreview{}, gameError(err, nil)
 	}
-	openOrder, err := openMarketOrder(requestContext, service.queries, viewer.campaignID)
+	docking, err := ordersDockingDuring(requestContext, service.queries, viewer.campaignID, colony.state.Day, result.After.Day)
 	if err != nil {
 		return AdvancePreview{}, err
 	}
-	var marketDocksDay *int64
-	if openOrder != nil && game.DocksDuring(colony.state.Day, result.After.Day, int64(openOrder.ArrivesDay)) {
-		arrivesDay := int64(openOrder.ArrivesDay)
-		marketDocksDay = &arrivesDay
+	marketDocksDays := make([]int64, 0, len(docking))
+	for _, order := range docking {
+		marketDocksDays = append(marketDocksDays, int64(order.ArrivesDay))
 	}
-	return advancePreview(colony, result, marketDocksDay), nil
+	return advancePreview(colony, result, marketDocksDays), nil
 }
 
 // Advance moves the clock N days: upkeep, then shipments (spec §5.2), on the write path of §5.1.
@@ -271,7 +270,11 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 		if err != nil {
 			return colonyOutcome{}, gameError(err, nil)
 		}
-		entries := make([]plannedEntry, 0, len(result.ArrivalEntries)+1)
+		docking, err := ordersDockingDuring(requestContext, queries, viewer.campaignID, colony.state.Day, result.After.Day)
+		if err != nil {
+			return colonyOutcome{}, err
+		}
+		entries := make([]plannedEntry, 0, len(result.ArrivalEntries)+len(docking)+1)
 		for _, arrival := range result.ArrivalEntries {
 			title := "Shipment arrived · " + dayText(arrival.Day)
 			if arrival.Folded {
@@ -285,18 +288,24 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 				data:       arrivalData{First: arrival.Run.First, Every: arrival.Run.Every, Count: arrival.Run.Count},
 			})
 		}
-		openOrder, err := openMarketOrder(requestContext, queries, viewer.campaignID)
-		if err != nil {
-			return colonyOutcome{}, err
-		}
 		var topics []Topic
-		if openOrder != nil && game.DocksDuring(colony.state.Day, result.After.Day, int64(openOrder.ArrivesDay)) {
+		for _, order := range docking {
+			alreadyDocked, err := queries.MarketOrderHasDocked(requestContext, store.MarketOrderHasDockedParams{CampaignID: viewer.campaignID, OrderID: order.ID.String()})
+			if err != nil {
+				return colonyOutcome{}, err
+			}
+			if alreadyDocked {
+				continue
+			}
 			entries = append(entries, plannedEntry{
-				day:        int64(openOrder.ArrivesDay),
+				day:        int64(order.ArrivesDay),
 				kind:       TimelineKindMarketOrderDocked,
-				title:      dockedTitle(int64(openOrder.TotalGold)),
+				title:      dockedTitle(int64(order.TotalGold)),
 				visibility: TimelineVisibilityPublic,
+				data:       dockedData{OrderID: order.ID},
 			})
+		}
+		if len(docking) > 0 {
 			topics = append(topics, TopicMarket)
 		}
 		title := daysPassTitle(result.Days, result.After.Day)
@@ -1118,17 +1127,17 @@ func gameError(err error, renames map[string]string) error {
 
 // advancePreview turns a rule result into the preview sheet: "Day 12 → 17 · Food 140 → 80 · 1
 // shipment arrival (Day 14)".
-func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDocksDay *int64) AdvancePreview {
+func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDocksDays []int64) AdvancePreview {
 	preview := AdvancePreview{
-		Days:           result.Days,
-		Version:        colony.row.Version,
-		FromDay:        result.Before.Day,
-		ToDay:          result.After.Day,
-		Colonists:      result.Colonists,
-		Resources:      []ResourceChangePreview{},
-		ArrivalCount:   result.ArrivalCount,
-		Arrivals:       make([]ArrivalRun, 0, len(result.Arrivals)),
-		MarketDocksDay: marketDocksDay,
+		Days:            result.Days,
+		Version:         colony.row.Version,
+		FromDay:         result.Before.Day,
+		ToDay:           result.After.Day,
+		Colonists:       result.Colonists,
+		Resources:       []ResourceChangePreview{},
+		ArrivalCount:    result.ArrivalCount,
+		Arrivals:        make([]ArrivalRun, 0, len(result.Arrivals)),
+		MarketDocksDays: marketDocksDays,
 	}
 	if result.After.Schedule != nil {
 		preview.ShipmentsAfter = &ShipmentSchedule{
@@ -1172,8 +1181,12 @@ func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDock
 		parts = append(parts, formatNumber(result.ArrivalCount)+" shipment "+plural(result.ArrivalCount, "arrival", "arrivals")+
 			" ("+arrivalDaysText(result.Arrivals)+")")
 	}
-	if marketDocksDay != nil {
-		parts = append(parts, "Goods ship docks "+dayText(*marketDocksDay))
+	if len(marketDocksDays) > 0 {
+		dockingDays := make([]string, 0, len(marketDocksDays))
+		for _, day := range slices.Compact(slices.Clone(marketDocksDays)) {
+			dockingDays = append(dockingDays, dayText(day))
+		}
+		parts = append(parts, plural(int64(len(marketDocksDays)), "Goods ship docks ", "Goods ships dock ")+strings.Join(dockingDays, ", "))
 	}
 	preview.Summary = joinParts(parts...)
 	return preview

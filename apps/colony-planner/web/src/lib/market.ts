@@ -119,3 +119,46 @@ export function shipLine(order: { arrivesDay: number }, today: number): string {
 	}
 	return `At sea · docks Day ${formatNumber(order.arrivesDay)} (${inDays(order.arrivesDay - today)})`;
 }
+
+/** The board dial's line for the soonest open order: when it docks, or that it waits to be paid for. */
+export function goodsShipLine(order: { arrivesDay: number }, today: number): string {
+	if (isDocked(order, today)) {
+		return "Shipment has arrived and is awaiting payment";
+	}
+	return `Next shipment arrives at Day ${formatNumber(order.arrivesDay)}`;
+}
+
+/** How far the goods ship has come since it was ordered, 0 to 1, for the day dial's arc. */
+export function goodsShipProgress(
+	order: { placedDay: number; arrivesDay: number },
+	today: number,
+): number {
+	if (isDocked(order, today)) {
+		return 1;
+	}
+	const voyage = order.arrivesDay - order.placedDay;
+	return Math.min(1, Math.max(0, (today - order.placedDay) / voyage));
+}
+
+/**
+ * Why Place order waits: every ship the DM allows is out, so one is paid for or cancelled first. The
+ * orders come soonest first, so the first one is the ship to wait for.
+ */
+export function orderWaitText(
+	orders: readonly { arrivesDay: number }[],
+	shipLimit: number,
+	today: number,
+	isDm: boolean,
+): string | null {
+	const soonest = orders[0];
+	if (soonest === undefined || orders.length < shipLimit) {
+		return null;
+	}
+	const allOut =
+		shipLimit === 1 ? "The ship is out" : `All ${formatNumber(shipLimit)} ships are out`;
+	const cancel = isDm ? "cancel one above" : "ask the DM to cancel one";
+	if (isDocked(soonest, today)) {
+		return `${allOut}. Pay for a docked ship, or ${cancel}, to order again.`;
+	}
+	return `${allOut}. The next docks Day ${formatNumber(soonest.arrivesDay)} (${inDays(soonest.arrivesDay - today)}). Pay for it there, or ${cancel}, to order again.`;
+}

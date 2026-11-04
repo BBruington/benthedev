@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { itemKind, offerText, parseUnits, shipLine, unitsText } from "./market";
+import {
+	goodsShipLine,
+	goodsShipProgress,
+	itemKind,
+	offerText,
+	orderWaitText,
+	parseUnits,
+	shipLine,
+	unitsText,
+} from "./market";
 
 const food = { amount: 2, name: "Food", priceGold: 1, resourceKey: "food", roleKey: null };
 const farmer = {
@@ -93,5 +102,39 @@ describe("ship line", () => {
 		expect(shipLine({ arrivesDay: 36 }, 35)).toBe("At sea · docks Day 36 (in 1 day)");
 		expect(shipLine({ arrivesDay: 36 }, 36)).toBe("Docked since Day 36");
 		expect(shipLine({ arrivesDay: 36 }, 40)).toBe("Docked since Day 36");
+	});
+
+	test("the dial's arc fills from the order day to the docking day, and stays full at the docks", () => {
+		const order = { arrivesDay: 36, placedDay: 22 };
+		expect(goodsShipProgress(order, 22)).toBe(0);
+		expect(goodsShipProgress(order, 29)).toBe(0.5);
+		expect(goodsShipProgress(order, 40)).toBe(1);
+		// A day corrected back before the order doesn't run the arc backwards.
+		expect(goodsShipProgress(order, 20)).toBe(0);
+		// A zero-day voyage docks the day it's placed.
+		expect(goodsShipProgress({ arrivesDay: 22, placedDay: 22 }, 22)).toBe(1);
+	});
+
+	test("the board names the soonest ship's day, then waits for payment once it docks", () => {
+		expect(goodsShipLine({ arrivesDay: 36 }, 22)).toBe("Next shipment arrives at Day 36");
+		expect(goodsShipLine({ arrivesDay: 36 }, 36)).toBe(
+			"Shipment has arrived and is awaiting payment",
+		);
+	});
+});
+
+describe("order wait note", () => {
+	test("appears only once every allowed ship is out, and names the next one to dock", () => {
+		const orders = [{ arrivesDay: 36 }, { arrivesDay: 40 }];
+		expect(orderWaitText([], 1, 22, false)).toBeNull();
+		expect(orderWaitText(orders, 3, 22, false)).toBeNull();
+		expect(orderWaitText(orders, 2, 22, false)).toBe(
+			"All 2 ships are out. The next docks Day 36 (in 14 days). Pay for it there, or ask the DM to cancel one, to order again.",
+		);
+		expect(orderWaitText(orders.slice(0, 1), 1, 36, true)).toBe(
+			"The ship is out. Pay for a docked ship, or cancel one above, to order again.",
+		);
+		// A limit the DM lowered below the ships already out still waits.
+		expect(orderWaitText(orders, 1, 22, true)).not.toBeNull();
 	});
 });

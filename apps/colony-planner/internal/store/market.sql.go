@@ -73,6 +73,17 @@ func (q *Queries) CountMarketItems(ctx context.Context, campaignID uuid.UUID) (C
 	return i, err
 }
 
+const countOpenMarketOrders = `-- name: CountOpenMarketOrders :one
+SELECT count(*)::integer FROM market_order WHERE campaign_id = $1 AND status = 'UNPAID'
+`
+
+func (q *Queries) CountOpenMarketOrders(ctx context.Context, campaignID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countOpenMarketOrders, campaignID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createColonistOffers = `-- name: CreateColonistOffers :exec
 INSERT INTO market_item (campaign_id, role_key, price_gold)
 SELECT role.campaign_id, role.key, $1::integer FROM role WHERE role.campaign_id = $2
@@ -322,52 +333,19 @@ func (q *Queries) GetMarketOrderForUpdate(ctx context.Context, arg GetMarketOrde
 	return i, err
 }
 
-const getMarketVoyageDays = `-- name: GetMarketVoyageDays :one
-SELECT market_voyage_days FROM settings WHERE campaign_id = $1
+const getMarketSettings = `-- name: GetMarketSettings :one
+SELECT market_voyage_days, market_ship_limit FROM settings WHERE campaign_id = $1
 `
 
-func (q *Queries) GetMarketVoyageDays(ctx context.Context, campaignID uuid.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, getMarketVoyageDays, campaignID)
-	var market_voyage_days int32
-	err := row.Scan(&market_voyage_days)
-	return market_voyage_days, err
+type GetMarketSettingsRow struct {
+	MarketVoyageDays int32
+	MarketShipLimit  int32
 }
 
-const getOpenMarketOrder = `-- name: GetOpenMarketOrder :one
-SELECT market_order.id, market_order.status, market_order.placed_day, market_order.arrives_day, market_order.placed_by, market_order.total_gold, market_order.paid_day, market_order.paid_by, market_order.paid_group_id, market_order.cancelled_day, market_order.created_at, market_order.campaign_id,
-       placer.character_name AS placed_by_character_name,
-       placer_account.display_name AS placed_by_display_name
-FROM market_order
-JOIN campaign_member AS placer ON placer.campaign_id = market_order.campaign_id AND placer.id = market_order.placed_by
-JOIN account AS placer_account ON placer_account.id = placer.account_id
-WHERE market_order.campaign_id = $1 AND market_order.status = 'UNPAID'
-`
-
-type GetOpenMarketOrderRow struct {
-	MarketOrder           MarketOrder
-	PlacedByCharacterName *string
-	PlacedByDisplayName   string
-}
-
-func (q *Queries) GetOpenMarketOrder(ctx context.Context, campaignID uuid.UUID) (GetOpenMarketOrderRow, error) {
-	row := q.db.QueryRow(ctx, getOpenMarketOrder, campaignID)
-	var i GetOpenMarketOrderRow
-	err := row.Scan(
-		&i.MarketOrder.ID,
-		&i.MarketOrder.Status,
-		&i.MarketOrder.PlacedDay,
-		&i.MarketOrder.ArrivesDay,
-		&i.MarketOrder.PlacedBy,
-		&i.MarketOrder.TotalGold,
-		&i.MarketOrder.PaidDay,
-		&i.MarketOrder.PaidBy,
-		&i.MarketOrder.PaidGroupID,
-		&i.MarketOrder.CancelledDay,
-		&i.MarketOrder.CreatedAt,
-		&i.MarketOrder.CampaignID,
-		&i.PlacedByCharacterName,
-		&i.PlacedByDisplayName,
-	)
+func (q *Queries) GetMarketSettings(ctx context.Context, campaignID uuid.UUID) (GetMarketSettingsRow, error) {
+	row := q.db.QueryRow(ctx, getMarketSettings, campaignID)
+	var i GetMarketSettingsRow
+	err := row.Scan(&i.MarketVoyageDays, &i.MarketShipLimit)
 	return i, err
 }
 
@@ -521,6 +499,59 @@ func (q *Queries) ListMarketOrderLines(ctx context.Context, arg ListMarketOrderL
 	return items, nil
 }
 
+const listOpenMarketOrders = `-- name: ListOpenMarketOrders :many
+SELECT market_order.id, market_order.status, market_order.placed_day, market_order.arrives_day, market_order.placed_by, market_order.total_gold, market_order.paid_day, market_order.paid_by, market_order.paid_group_id, market_order.cancelled_day, market_order.created_at, market_order.campaign_id,
+       placer.character_name AS placed_by_character_name,
+       placer_account.display_name AS placed_by_display_name
+FROM market_order
+JOIN campaign_member AS placer ON placer.campaign_id = market_order.campaign_id AND placer.id = market_order.placed_by
+JOIN account AS placer_account ON placer_account.id = placer.account_id
+WHERE market_order.campaign_id = $1 AND market_order.status = 'UNPAID'
+ORDER BY market_order.arrives_day, market_order.created_at, market_order.id
+`
+
+type ListOpenMarketOrdersRow struct {
+	MarketOrder           MarketOrder
+	PlacedByCharacterName *string
+	PlacedByDisplayName   string
+}
+
+// The soonest to dock first, so the board shows the next ship and a docked one before any at sea.
+func (q *Queries) ListOpenMarketOrders(ctx context.Context, campaignID uuid.UUID) ([]ListOpenMarketOrdersRow, error) {
+	rows, err := q.db.Query(ctx, listOpenMarketOrders, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenMarketOrdersRow
+	for rows.Next() {
+		var i ListOpenMarketOrdersRow
+		if err := rows.Scan(
+			&i.MarketOrder.ID,
+			&i.MarketOrder.Status,
+			&i.MarketOrder.PlacedDay,
+			&i.MarketOrder.ArrivesDay,
+			&i.MarketOrder.PlacedBy,
+			&i.MarketOrder.TotalGold,
+			&i.MarketOrder.PaidDay,
+			&i.MarketOrder.PaidBy,
+			&i.MarketOrder.PaidGroupID,
+			&i.MarketOrder.CancelledDay,
+			&i.MarketOrder.CreatedAt,
+			&i.MarketOrder.CampaignID,
+			&i.PlacedByCharacterName,
+			&i.PlacedByDisplayName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentMarketOrders = `-- name: ListRecentMarketOrders :many
 SELECT id, status, placed_day, arrives_day, placed_by, total_gold, paid_day, paid_by, paid_group_id, cancelled_day, created_at, campaign_id FROM market_order
 WHERE campaign_id = $1 AND status <> 'UNPAID'
@@ -559,6 +590,28 @@ func (q *Queries) ListRecentMarketOrders(ctx context.Context, campaignID uuid.UU
 		return nil, err
 	}
 	return items, nil
+}
+
+const marketOrderHasDocked = `-- name: MarketOrderHasDocked :one
+SELECT EXISTS (
+    SELECT 1 FROM timeline_event
+    WHERE campaign_id = $1 AND kind = 'MARKET_ORDER_DOCKED' AND undone_at IS NULL
+      AND data->>'orderId' = $2::text
+)
+`
+
+type MarketOrderHasDockedParams struct {
+	CampaignID uuid.UUID
+	OrderID    string
+}
+
+// An order docks once: a day corrected back and advanced past it again writes no second entry, but an
+// undone advance's entry doesn't count, so advancing again docks it anew.
+func (q *Queries) MarketOrderHasDocked(ctx context.Context, arg MarketOrderHasDockedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, marketOrderHasDocked, arg.CampaignID, arg.OrderID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const payMarketOrder = `-- name: PayMarketOrder :exec
@@ -634,17 +687,19 @@ func (q *Queries) SetMarketItemArchived(ctx context.Context, arg SetMarketItemAr
 	return i, err
 }
 
-const setMarketVoyageDays = `-- name: SetMarketVoyageDays :exec
-UPDATE settings SET market_voyage_days = $1 WHERE campaign_id = $2
+const setMarketSettings = `-- name: SetMarketSettings :exec
+UPDATE settings SET market_voyage_days = $1, market_ship_limit = $2
+WHERE campaign_id = $3
 `
 
-type SetMarketVoyageDaysParams struct {
+type SetMarketSettingsParams struct {
 	MarketVoyageDays int32
+	MarketShipLimit  int32
 	CampaignID       uuid.UUID
 }
 
-func (q *Queries) SetMarketVoyageDays(ctx context.Context, arg SetMarketVoyageDaysParams) error {
-	_, err := q.db.Exec(ctx, setMarketVoyageDays, arg.MarketVoyageDays, arg.CampaignID)
+func (q *Queries) SetMarketSettings(ctx context.Context, arg SetMarketSettingsParams) error {
+	_, err := q.db.Exec(ctx, setMarketSettings, arg.MarketVoyageDays, arg.MarketShipLimit, arg.CampaignID)
 	return err
 }
 

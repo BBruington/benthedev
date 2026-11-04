@@ -22,11 +22,11 @@ import { Route as SignedInCCampaignSlugShellRouteImport } from "./routes/_signed
 import { Route as SignedInCCampaignSlugPendingRouteImport } from "./routes/_signedIn/c.$campaignSlug/pending"
 import { Route as SignedInCCampaignSlugShellIndexRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/index"
 import { Route as SignedInCCampaignSlugShellExploreRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/explore"
-import { Route as SignedInCCampaignSlugShellMarketRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/market"
 import { Route as SignedInCCampaignSlugShellPeopleRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/people"
 import { Route as SignedInCCampaignSlugShellPlayersRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/players"
 import { Route as SignedInCCampaignSlugShellRequestsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/requests"
 import { Route as SignedInCCampaignSlugShellSettingsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/settings"
+import { Route as SignedInCCampaignSlugShellShipmentsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/shipments"
 import { Route as SignedInCCampaignSlugShellTimelineRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/timeline"
 import { Route as SignedInCCampaignSlugShellMapsIndexRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/maps.index"
 import { Route as SignedInCCampaignSlugShellMapsMapIdRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/maps.$mapId"
@@ -108,12 +108,6 @@ const SignedInCCampaignSlugShellExploreRoute =
     path: "/explore",
     getParentRoute: () => SignedInCCampaignSlugShellRoute,
   } as any)
-const SignedInCCampaignSlugShellMarketRoute =
-  SignedInCCampaignSlugShellMarketRouteImport.update({
-    id: "/market",
-    path: "/market",
-    getParentRoute: () => SignedInCCampaignSlugShellRoute,
-  } as any)
 const SignedInCCampaignSlugShellPeopleRoute =
   SignedInCCampaignSlugShellPeopleRouteImport.update({
     id: "/people",
@@ -136,6 +130,12 @@ const SignedInCCampaignSlugShellSettingsRoute =
   SignedInCCampaignSlugShellSettingsRouteImport.update({
     id: "/settings",
     path: "/settings",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellShipmentsRoute =
+  SignedInCCampaignSlugShellShipmentsRouteImport.update({
+    id: "/shipments",
+    path: "/shipments",
     getParentRoute: () => SignedInCCampaignSlugShellRoute,
   } as any)
 const SignedInCCampaignSlugShellTimelineRoute =
@@ -227,11 +227,11 @@ export interface FileRoutesByFullPath {
   "/join/$inviteCode": typeof SignedInAccountJoinInviteCodeRoute
   "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
-  "/c/$campaignSlug/market": typeof SignedInCCampaignSlugShellMarketRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
   "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
+  "/c/$campaignSlug/shipments": typeof SignedInCCampaignSlugShellShipmentsRoute
   "/c/$campaignSlug/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
   "/c/$campaignSlug/": typeof SignedInCCampaignSlugShellIndexRoute
   "/c/$campaignSlug/maps/$mapId": typeof SignedInCCampaignSlugShellMapsMapIdRoute
@@ -257,11 +257,11 @@ export interface FileRoutesByTo {
   "/join/$inviteCode": typeof SignedInAccountJoinInviteCodeRoute
   "/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
-  "/c/$campaignSlug/market": typeof SignedInCCampaignSlugShellMarketRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
   "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
+  "/c/$campaignSlug/shipments": typeof SignedInCCampaignSlugShellShipmentsRoute
   "/c/$campaignSlug/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
   "/c/$campaignSlug/maps/$mapId": typeof SignedInCCampaignSlugShellMapsMapIdRoute
   "/c/$campaignSlug/npcs/$npcId": typeof SignedInCCampaignSlugShellNpcsNpcIdRoute
@@ -290,11 +290,11 @@ export interface FileRoutesById {
   "/_signedIn/c/$campaignSlug/_shell": typeof SignedInCCampaignSlugShellRouteWithChildren
   "/_signedIn/c/$campaignSlug/pending": typeof SignedInCCampaignSlugPendingRoute
   "/_signedIn/c/$campaignSlug/_shell/explore": typeof SignedInCCampaignSlugShellExploreRoute
-  "/_signedIn/c/$campaignSlug/_shell/market": typeof SignedInCCampaignSlugShellMarketRoute
   "/_signedIn/c/$campaignSlug/_shell/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/_signedIn/c/$campaignSlug/_shell/players": typeof SignedInCCampaignSlugShellPlayersRoute
   "/_signedIn/c/$campaignSlug/_shell/requests": typeof SignedInCCampaignSlugShellRequestsRoute
   "/_signedIn/c/$campaignSlug/_shell/settings": typeof SignedInCCampaignSlugShellSettingsRoute
+  "/_signedIn/c/$campaignSlug/_shell/shipments": typeof SignedInCCampaignSlugShellShipmentsRoute
   "/_signedIn/c/$campaignSlug/_shell/timeline": typeof SignedInCCampaignSlugShellTimelineRoute
   "/_signedIn/c/$campaignSlug/_shell/": typeof SignedInCCampaignSlugShellIndexRoute
   "/_signedIn/c/$campaignSlug/_shell/maps/$mapId": typeof SignedInCCampaignSlugShellMapsMapIdRoute
@@ -322,11 +322,11 @@ export interface FileRouteTypes {
     | "/join/$inviteCode"
     | "/c/$campaignSlug/pending"
     | "/c/$campaignSlug/explore"
-    | "/c/$campaignSlug/market"
     | "/c/$campaignSlug/people"
     | "/c/$campaignSlug/players"
     | "/c/$campaignSlug/requests"
     | "/c/$campaignSlug/settings"
+    | "/c/$campaignSlug/shipments"
     | "/c/$campaignSlug/timeline"
     | "/c/$campaignSlug/"
     | "/c/$campaignSlug/maps/$mapId"
@@ -352,11 +352,11 @@ export interface FileRouteTypes {
     | "/join/$inviteCode"
     | "/c/$campaignSlug/pending"
     | "/c/$campaignSlug/explore"
-    | "/c/$campaignSlug/market"
     | "/c/$campaignSlug/people"
     | "/c/$campaignSlug/players"
     | "/c/$campaignSlug/requests"
     | "/c/$campaignSlug/settings"
+    | "/c/$campaignSlug/shipments"
     | "/c/$campaignSlug/timeline"
     | "/c/$campaignSlug/maps/$mapId"
     | "/c/$campaignSlug/npcs/$npcId"
@@ -384,11 +384,11 @@ export interface FileRouteTypes {
     | "/_signedIn/c/$campaignSlug/_shell"
     | "/_signedIn/c/$campaignSlug/pending"
     | "/_signedIn/c/$campaignSlug/_shell/explore"
-    | "/_signedIn/c/$campaignSlug/_shell/market"
     | "/_signedIn/c/$campaignSlug/_shell/people"
     | "/_signedIn/c/$campaignSlug/_shell/players"
     | "/_signedIn/c/$campaignSlug/_shell/requests"
     | "/_signedIn/c/$campaignSlug/_shell/settings"
+    | "/_signedIn/c/$campaignSlug/_shell/shipments"
     | "/_signedIn/c/$campaignSlug/_shell/timeline"
     | "/_signedIn/c/$campaignSlug/_shell/"
     | "/_signedIn/c/$campaignSlug/_shell/maps/$mapId"
@@ -504,13 +504,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SignedInCCampaignSlugShellExploreRouteImport
       parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
-    "/_signedIn/c/$campaignSlug/_shell/market": {
-      id: "/_signedIn/c/$campaignSlug/_shell/market"
-      path: "/market"
-      fullPath: "/c/$campaignSlug/market"
-      preLoaderRoute: typeof SignedInCCampaignSlugShellMarketRouteImport
-      parentRoute: typeof SignedInCCampaignSlugShellRoute
-    }
     "/_signedIn/c/$campaignSlug/_shell/people": {
       id: "/_signedIn/c/$campaignSlug/_shell/people"
       path: "/people"
@@ -537,6 +530,13 @@ declare module "@tanstack/react-router" {
       path: "/settings"
       fullPath: "/c/$campaignSlug/settings"
       preLoaderRoute: typeof SignedInCCampaignSlugShellSettingsRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/shipments": {
+      id: "/_signedIn/c/$campaignSlug/_shell/shipments"
+      path: "/shipments"
+      fullPath: "/c/$campaignSlug/shipments"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellShipmentsRouteImport
       parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
     "/_signedIn/c/$campaignSlug/_shell/timeline": {
@@ -653,11 +653,11 @@ const SignedInAccountRouteWithChildren = SignedInAccountRoute._addFileChildren(
 
 interface SignedInCCampaignSlugShellRouteChildren {
   SignedInCCampaignSlugShellExploreRoute: typeof SignedInCCampaignSlugShellExploreRoute
-  SignedInCCampaignSlugShellMarketRoute: typeof SignedInCCampaignSlugShellMarketRoute
   SignedInCCampaignSlugShellPeopleRoute: typeof SignedInCCampaignSlugShellPeopleRoute
   SignedInCCampaignSlugShellPlayersRoute: typeof SignedInCCampaignSlugShellPlayersRoute
   SignedInCCampaignSlugShellRequestsRoute: typeof SignedInCCampaignSlugShellRequestsRoute
   SignedInCCampaignSlugShellSettingsRoute: typeof SignedInCCampaignSlugShellSettingsRoute
+  SignedInCCampaignSlugShellShipmentsRoute: typeof SignedInCCampaignSlugShellShipmentsRoute
   SignedInCCampaignSlugShellTimelineRoute: typeof SignedInCCampaignSlugShellTimelineRoute
   SignedInCCampaignSlugShellIndexRoute: typeof SignedInCCampaignSlugShellIndexRoute
   SignedInCCampaignSlugShellMapsMapIdRoute: typeof SignedInCCampaignSlugShellMapsMapIdRoute
@@ -678,8 +678,6 @@ const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteCh
   {
     SignedInCCampaignSlugShellExploreRoute:
       SignedInCCampaignSlugShellExploreRoute,
-    SignedInCCampaignSlugShellMarketRoute:
-      SignedInCCampaignSlugShellMarketRoute,
     SignedInCCampaignSlugShellPeopleRoute:
       SignedInCCampaignSlugShellPeopleRoute,
     SignedInCCampaignSlugShellPlayersRoute:
@@ -688,6 +686,8 @@ const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteCh
       SignedInCCampaignSlugShellRequestsRoute,
     SignedInCCampaignSlugShellSettingsRoute:
       SignedInCCampaignSlugShellSettingsRoute,
+    SignedInCCampaignSlugShellShipmentsRoute:
+      SignedInCCampaignSlugShellShipmentsRoute,
     SignedInCCampaignSlugShellTimelineRoute:
       SignedInCCampaignSlugShellTimelineRoute,
     SignedInCCampaignSlugShellIndexRoute: SignedInCCampaignSlugShellIndexRoute,

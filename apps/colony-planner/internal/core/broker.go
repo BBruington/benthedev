@@ -46,7 +46,7 @@ const (
 	// TopicSessions is /sessions, every session page, the board's next session and last recap, and
 	// the NPC pages that name a first session.
 	TopicSessions Topic = "sessions"
-	// TopicMarket is /market and the board's goods ship card.
+	// TopicMarket is /market and the goods ship on the board's day dial.
 	TopicMarket Topic = "market"
 )
 

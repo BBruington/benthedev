@@ -45,14 +45,15 @@ import { useSheetState } from "@/hooks/use-sheet-state";
 import { cachedMe, canUseDmTools, type Me, tableName } from "@/lib/access";
 import { dayName, shipmentLine, voyageProgress } from "@/lib/colony";
 import { focusFirstVisible } from "@/lib/focus";
+import { goodsShipLine, goodsShipProgress } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
 import { artSource } from "@/maps/art";
-import { BoardMarket } from "@/market/board-market";
 import { BoardSessions } from "@/sessions/board-sessions";
 import { MyRequestsCard, PendingRequestsCard } from "@/ventures/board-ventures";
 
 type ColonyBoard = Schemas["ColonyBoard"];
+type MarketOrder = Schemas["MarketOrder"];
 
 export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/")({
 	component: ColonyPage,
@@ -85,6 +86,8 @@ function ColonyPage() {
 	const me = useMe();
 	const campaignId = useCampaignId();
 	const board = useQuery(colonyBoardQuery(campaignId));
+	// Open orders come soonest first, so the board follows the next ship to dock.
+	const order = useQuery(marketQuery(campaignId)).data?.orders[0] ?? null;
 	const recent = useQuery(recentTimelineQuery(campaignId));
 	// The viewer's own map list: players never get a hidden Mainland, so its art can't show here (C6).
 	const mainland = useQuery(mapsQuery(campaignId)).data?.maps.find(
@@ -118,6 +121,7 @@ function ColonyPage() {
 				backdropSource={mainland ? artSource(campaignId, mainland) : null}
 				board={data}
 				me={me}
+				order={order}
 			/>
 			<section aria-labelledby="stockpile-heading" className="flex flex-col gap-3">
 				<h2 className="sr-only" id="stockpile-heading">
@@ -126,7 +130,6 @@ function ColonyPage() {
 				<ResourceTiles resources={data.resources} />
 			</section>
 			<ColonistsStrip board={data} />
-			<BoardMarket day={data.day} />
 			{canUseDmTools(me) ? (
 				<PendingRequestsCard resources={data.resources} />
 			) : (
@@ -158,8 +161,14 @@ function BoardSkeleton() {
 	);
 }
 
-/** "Day 44 · next ship Day 47, in 3 days" (spec §6.2). */
-function clockLine(board: ColonyBoard): string {
+/**
+ * "Day 44 · next ship Day 47, in 3 days" (spec §6.2). The party's soonest goods ship takes the line
+ * while an order is out, since that's the ship the party waits on.
+ */
+function clockLine(board: ColonyBoard, order: MarketOrder | null): string {
+	if (order) {
+		return goodsShipLine(order, board.day);
+	}
 	const shipments = shipmentLine(board.shipments);
 	return `${dayName(board.day)} · ${shipments.charAt(0).toLowerCase()}${shipments.slice(1)}`;
 }
@@ -168,10 +177,12 @@ function clockLine(board: ColonyBoard): string {
 function ClockCard({
 	backdropSource,
 	board,
+	order,
 	me,
 }: {
 	backdropSource: string | null;
 	board: ColonyBoard;
+	order: MarketOrder | null;
 	me: Me;
 }) {
 	const showDmTools = canUseDmTools(me);
@@ -194,13 +205,18 @@ function ClockCard({
 				)}
 			>
 				<div className="flex flex-col items-center gap-2">
-					<DayDial day={board.day} shipmentProgress={voyageProgress(board.shipments)} />
+					<DayDial
+						day={board.day}
+						shipmentProgress={
+							order ? goodsShipProgress(order, board.day) : voyageProgress(board.shipments)
+						}
+					/>
 					<h2
 						className="text-balance text-center font-display font-semibold text-gilt-ink text-lg tracking-wide outline-none"
 						id={boardHeadingId}
 						tabIndex={-1}
 					>
-						{clockLine(board)}
+						{clockLine(board, order)}
 					</h2>
 				</div>
 				{showDmTools ? <BoardTools board={board} /> : null}

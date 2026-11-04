@@ -181,7 +181,7 @@ Colony Planner is a private website for colony campaigns; the author's **Colony 
 | Maps and places | revealed only; no `dm_notes` | CRUD, pins, image uploads |
 | Hex map | paint, label, erase (no history: F6) | same |
 | Sessions, recaps, ICS link | read | series CRUD, cancel or restore dates, recaps, mark played, regenerate the ICS token |
-| Market (§3.3) | read unarchived items and orders; edit the party cart, place an order, pay a docked one | same, plus item CRUD and archive, the voyage length, cancel an order, undo a payment |
+| Market (§3.3) | read unarchived items and orders; edit the party cart, place an order, pay a docked one | same, plus item create, edit and archive, the voyage length and ship limit, cancel an order, undo a payment |
 | Members | active members' display and character names | approve, deny, remove, re-admit, set character names |
 | Settings | — | yes |
 | Own profile | character name, theme, sign out, sign out everywhere | same, plus view as player |
@@ -247,7 +247,7 @@ The **site owner** (F8) has a third column: nothing inside a campaign they aren'
 
 ### 3.3 The Market (the player store, added after M6)
 
-**The Market** (`/c/{slug}/market`, "Market" in the Colony nav group after People, for everyone) is how the party buys colonists, food, building supplies and unique items from the mainland. It answers Open Question 18 (decided on 2026-11-03). It isn't called "store", which would collide with `internal/store`; what a ship carries is an **order**.
+**The Market** (`/c/{slug}/shipments`, shown as "Shipments" in the Colony nav group after People, for everyone) is how the party buys colonists, food, building supplies and unique items from the mainland. It answers Open Question 18 (decided on 2026-11-03). It isn't called "store", which would collide with `internal/store`; what a ship carries is an **order**. The code, the API (`/api/campaigns/{campaignId}/market/...`) and the tables keep the name market; only the page, its address and its labels say Shipments.
 
 - **Catalog.** Three kinds of row, told apart by their columns (no kind column):
   - **Supply offers**, one per buyable resource (any active resource but gold and morale: the market charges gold, and morale isn't goods). An offer sells in lots: one purchase brings `amount` units (1 to 1,000,000) for `price_gold`. Its name is the resource's label.
@@ -257,20 +257,20 @@ The **site owner** (F8) has a third column: nothing inside a campaign they aren'
   - Nothing in the catalog is secret: a new row is visible to players at once. Rows are archived, never deleted, and an archived row, or an offer whose resource or role is archived, reaches only the DM.
 - **One shared party cart.** Any active member changes it (1 to 10,000 purchases a line, at most the item's limit; 0 removes the line), and it shows who changed it last. Players type supplies and colonists in units ("500" food), which must be a whole number of lots and are never rounded; a special item steps one at a time. Every line, order and timeline entry shows units ("500 food", "12 Farmers"). Editing the cart writes no timeline entry and takes no colony lock.
 - **Place order.** Any active member confirms the cart. The order snapshots each line (name, unit price, quantity, grants, colonists, role), so later price edits don't change it, and the cart empties.
-  - It docks on `arrives_day = day placed + voyage days`. The voyage is one DM setting per campaign (`settings.market_voyage_days`, 1 to 3650, default 14). The supply-ship cadence (§5.3) is unchanged.
+  - It docks on `arrives_day = day placed + voyage days`. The voyage is one DM setting per campaign (`settings.market_voyage_days`, 1 to 3650, default 14). The supply-ship cadence (§5.3) is unchanged. Each order is its own ship with its own voyage.
   - Gold isn't checked here. The confirm sheet warns when gold on hand is below the total, and confirming is still allowed.
-  - **One ship at a time:** a campaign has at most one UNPAID order (a partial unique index). A second order is refused with 409 "The ship is still out. Pay for it at the docks first." A cart whose total changed since the sheet opened is 409 "The cart changed. Review it and confirm again."
+  - **Ship limit:** a campaign has at most `settings.market_ship_limit` UNPAID orders (a DM setting, 1 to 100, default 1), counted under the colony lock. One more is refused with 409 "The ship is still out. Pay for it at the docks or cancel it before placing another order." (with a limit of 1) or "All 3 ships are out. Pay for one at the docks or cancel one before placing another order.". Lowering the limit below the open count cancels nothing; it only blocks new orders until enough are paid or cancelled. A cart whose total changed since the sheet opened is 409 "The cart changed. Review it and confirm again."
   - Placing takes the colony lock and writes a PUBLIC `MARKET_ORDER_PLACED` entry but, like Mark played (§5.11), leaves the version and the undo slot alone.
-- **At sea and docked.** Both are UNPAID; docked is derived from the colony day (`day >= arrives_day`). An Advance that crosses the arrival day writes a PUBLIC `MARKET_ORDER_DOCKED` entry on that day in its group, and its preview names the docking ("The goods ship docks on Day 36."). Undoing the advance marks the entry undone, and the order is at sea again. Correct day writes no docked entry, as it writes no arrivals.
+- **At sea and docked.** Both are UNPAID; docked is derived from the colony day (`day >= arrives_day`). An Advance that crosses an order's arrival day writes a PUBLIC `MARKET_ORDER_DOCKED` entry on that day in its group, one per order, and its preview names the docking ("The goods ship docks on Day 36.", or "Goods ships dock on Day 36, Day 40." for several). Undoing the advance marks the entries undone, and the orders are at sea again. Correct day writes no docked entry, as it writes no arrivals.
 - **Pay (unload).** Any active member pays a docked order. It is a colony change (§5.1) at member level, with a server preview of gold, every granted resource and every role, before and after:
   - gold is STRICT: when it is short, Pay is refused with the shortfall named ("Not enough gold: the colony has 40, needs 65"), the ship waits at the docks, and nothing else happens;
   - grants cap at their maximum, and colonists land in their item's role (the one exception to decision 8, §5.5);
   - a grant whose resource or role was archived after the order was placed is refused, never skipped; the DM unarchives it or cancels the order;
   - it writes a PUBLIC `MARKET_ORDER_PAID` entry with the deltas, the colonists per role and the special items, and the order becomes PAID;
-  - the DM can undo it like any colony change, which puts the order back at the docks. If a newer order is open by then, the undo is 409 "A newer order is open. Cancel it before undoing this payment."
+  - the DM can undo it like any colony change, which puts the order back at the docks. If every allowed ship is out by then, the undo is 409 "The ship is still out. Pay for it at the docks or cancel it before undoing this payment." (or the "All N ships are out" form).
 - **Cancel (DM only).** Cancels an order at sea or docked: nothing is charged, the lines don't return to the cart, and a PUBLIC `MARKET_ORDER_CANCELLED` entry is written. Like Place, it takes the colony lock without a version bump or undo slot. Players can't cancel.
 - **Not tracked.** The app keeps no inventory and no characters: a magic item is recorded in the order and the timeline, and the DM decides who holds it (character sheets, the VTT). Named NPCs for bought colonists go through People as today. Nothing happens if a ship sits at the docks for a long time, and Advance is never blocked by it.
-- **Screens.** The Market page has the ship card, the party cart, the catalog (Supplies, Colonists and Special items; DM: set and edit prices, Stop selling, New special item, the archived special items) and past orders, plus the DM's voyage setting. The colony board shows a goods-ship card while an order is open ("Goods ship · docks Day 36 (in 5 days)" or "Goods ship docked · 65 gold due"). Beny Bot is unchanged.
+- **Screens.** The Shipments page ("Order additional supplies from the Mainland") has Ship(s), one card per open order soonest first, the Party Shipment Draft (the shared cart), the catalog (Supplies, Colonists and Special items, each collapsible and open at first; DM: set and edit prices, Stop selling, New special item, the archived special items) and past orders, plus the DM's Shipping setting (voyage days and ship limit). Place order waits, with a note naming the next ship to dock, only while every allowed ship is out. While an order is open, the colony board's day dial follows the soonest one instead of the supply-ship schedule ("Next shipment arrives at Day 36", or "Shipment has arrived and is awaiting payment" once it docks, its arc filling from the order day to the docking day). Beny Bot is unchanged.
 
 ### 3.4 Disposition of every old feature
 
@@ -930,7 +930,7 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
 | `/places`, `/places/$placeId` | List and detail; CRUD; reveal; `dm_notes`; pin (arrives in M4) | Visible places, redacted; NPCs who are here |
 | `/npcs`, `/npcs/$npcId` | Roster with search and filters; full edit; reveal; colony role; first-encountered session (arrives in M5) | Revealed NPCs under their display name, redacted |
 | `/sessions`, `/sessions/$sessionId` | Series CRUD; upcoming dates (cancel or restore); history; recap editor; mark played or end session; edit day stamps; ICS link | Upcoming dates (cancelled ones struck through) in local time; history with recaps and "Days 36–41"; ICS link |
-| `/market` (§3.3) | Catalog (new item, edit, archive, archived list); voyage days; the party cart; place order; pay a docked order; cancel an order; past orders | Catalog without archived items; the party cart; place order; pay a docked order; past orders |
+| `/shipments` (§3.3) | Catalog (new item, edit, archive, archived list); shipping (voyage days, ship limit); the party shipment draft; place order; pay a docked order; cancel an order; past orders | Catalog without archived items; the party shipment draft; place order; pay a docked order; past orders |
 | `/players` | Pending (approve or deny); active (character names, remove); removed, left or denied, each labeled so (re-admit) | 403 |
 | `/settings` | Campaign and colony name; timezone; resources (add, rename, icon, bounds, archive); roles; Discord channels and event location; bot invite link; ICS token | 403 |
 | Profile menu | Character name, theme, **View as player**, sign out, sign out everywhere | Character name, theme, sign out, sign out everywhere |
@@ -1776,7 +1776,7 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
     | Question | Decision |
     |---|---|
     | Timer | Each order has its own voyage. It docks a set number of days after it is confirmed (one DM setting per campaign, default 14). The supply-ship cadence stays exactly as it is. |
-    | Short on gold at arrival | The ship waits at the docks. The goods unload only when someone pays in full (STRICT gold). Until then no new order can be placed. The DM can cancel the order. Advance is never blocked. |
+    | Short on gold at arrival | The ship waits at the docks. The goods unload only when someone pays in full (STRICT gold). While every allowed ship is out (the DM's ship limit, default 1), no new order can be placed. The DM can cancel an order. Advance is never blocked. |
     | Who orders and pays | One shared party cart. Any active member edits it, and anyone confirms it; colony gold pays on arrival. |
     | Typed colonists | A bought Farmer lands in Farmers. This is a Market-only exception to decision 8; generic colonists still land in Unassigned. |
     | Magic and unique items | Recorded only, in the order and the timeline. The app tracks no inventory and no characters. |

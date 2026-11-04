@@ -38,7 +38,7 @@ export type NavigationItem = {
 	to:
 		| "/c/$campaignSlug"
 		| "/c/$campaignSlug/people"
-		| "/c/$campaignSlug/market"
+		| "/c/$campaignSlug/shipments"
 		| "/c/$campaignSlug/timeline"
 		| "/c/$campaignSlug/quests"
 		| "/c/$campaignSlug/patrons"
@@ -77,8 +77,8 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 	market: {
 		icon: StoreIcon,
 		id: "market",
-		label: "Market",
-		to: "/c/$campaignSlug/market",
+		label: "Shipments",
+		to: "/c/$campaignSlug/shipments",
 	},
 	npcs: {
 		icon: DramaIcon,

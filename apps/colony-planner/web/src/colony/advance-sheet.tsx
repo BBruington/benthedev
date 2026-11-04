@@ -214,11 +214,15 @@ function AdvancePreviewPanel({
 				{preview.colonists === 1 ? "colonist" : "colonists"}
 			</p>
 			<ArrivalsLine preview={preview} />
-			{preview.marketDocksDay === null ? null : (
+			{preview.marketDocksDays.length === 0 ? null : (
 				<p className="flex items-start gap-2 rounded-lg border border-verdigris/35 bg-verdigris/10 px-3 py-2 text-sm">
 					<StoreIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-verdigris-ink" />
 					<span className="font-semibold">
-						The goods ship docks on Day {formatNumber(preview.marketDocksDay)}.
+						{preview.marketDocksDays.length === 1 ? "The goods ship docks" : "Goods ships dock"} on{" "}
+						{[...new Set(preview.marketDocksDays)]
+							.map((day) => `Day ${formatNumber(day)}`)
+							.join(", ")}
+						.
 					</span>
 				</p>
 			)}

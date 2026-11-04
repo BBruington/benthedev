@@ -874,6 +874,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/market/shipping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set how many days a new order is at sea and how many orders may be out at once */
+        put: operations["setMarketShipping"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/market/supplies/{resourceKey}": {
         parameters: {
             query?: never;
@@ -884,23 +901,6 @@ export interface paths {
         get?: never;
         /** Price a resource's standing offer, putting it on sale */
         put: operations["setSupplyOffer"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/campaigns/{campaignId}/market/voyage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Set how many days a new order is at sea */
-        put: operations["setMarketVoyage"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2309,11 +2309,8 @@ export interface components {
             days: number;
             /** Format: int64 */
             fromDay: number;
-            /**
-             * Format: int64
-             * @description The day the open market order docks during this advance; null when it doesn't
-             */
-            marketDocksDay: number | null;
+            /** @description The days open market orders dock during this advance, soonest first; empty when none does */
+            marketDocksDays: number[];
             resources: components["schemas"]["ResourceChangePreview"][];
             /** @description null when no shipment schedule is set */
             shipmentsAfter: components["schemas"]["ShipmentSchedule"];
@@ -2854,8 +2851,13 @@ export interface components {
             goldOnHand: number;
             history: components["schemas"]["MarketOrderSummary"][];
             items: components["schemas"]["MarketItem"][];
-            /** @description The unpaid order; null when no ship is out */
-            order: components["schemas"]["MarketOrder"];
+            /** @description The unpaid orders, soonest to dock first */
+            orders: components["schemas"]["MarketOrder"][];
+            /**
+             * Format: int64
+             * @description How many orders may be out at once
+             */
+            shipLimit: number;
             /** Format: int64 */
             voyageDays: number;
         };
@@ -2869,12 +2871,17 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
-        MarketVoyageInput: {
+        MarketShippingInput: {
+            /**
+             * Format: int64
+             * @description How many orders may be out at once, 1 to 100
+             */
+            shipLimit: number;
             /**
              * Format: int64
              * @description Days at sea, 1 to 3650
              */
-            days: number;
+            voyageDays: number;
         };
         Member: {
             avatarUrl: string | null;
@@ -5959,20 +5966,19 @@ export interface operations {
             };
         };
     };
-    setSupplyOffer: {
+    setMarketShipping: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
                 campaignId: string;
-                resourceKey: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SupplyOfferInput"];
+                "application/json": components["schemas"]["MarketShippingInput"];
             };
         };
         responses: {
@@ -5996,19 +6002,20 @@ export interface operations {
             };
         };
     };
-    setMarketVoyage: {
+    setSupplyOffer: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
                 campaignId: string;
+                resourceKey: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MarketVoyageInput"];
+                "application/json": components["schemas"]["SupplyOfferInput"];
             };
         };
         responses: {

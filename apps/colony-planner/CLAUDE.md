@@ -42,7 +42,7 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 |---|---|
 | `cmd/colony/main.go` | subcommands serve, migrate up/status, openapi, seed, reset; `cmd/colony/config.go` reads every env var |
 | `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`); `internal/game/market.go` holds an order's total, its docking day and `Unload` (the payment) |
-| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market (items, the party cart, orders, the voyage setting) |
+| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market, shown as Shipments (items, the party cart, orders, the voyage and ship limit settings) |
 | `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table, security headers), `internal/app/compress.go` (gzip for JSON, html, css, js and svg; never the event stream, images, fonts or the ICS feed), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
@@ -52,7 +52,7 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
-| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it), `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue), `web/src/sessions/` (the series sheet, session times, the calendar link card, the board's next game night; helpers in `web/src/lib/sessions.ts`) and `web/src/market/` (the catalog, the party cart, the ship card, the item, voyage, place-order and pay sheets, the board's goods-ship card; helpers in `web/src/lib/market.ts`) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
+| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it), `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue), `web/src/sessions/` (the series sheet, session times, the calendar link card, the board's next game night; helpers in `web/src/lib/sessions.ts`) and `web/src/market/` (the Shipments page's catalog, party shipment draft and ship list, and its item, shipping, place-order and pay sheets; helpers in `web/src/lib/market.ts`) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (plain govulncheck: it fails only on a vulnerability our code reaches, and accepts none) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the test bot that also serves the live site for now), `docs/cutover.md` (the author's M6 runbook) and `docs/checklists/` |
 
@@ -224,9 +224,10 @@ web/src/** -> web/src/api -> the Go API
     sessions only stamp colony days; nothing else happens.
 19. The Market. Items, the cart and orders have no secrets and no hidden rows: every active member reads
     them, view as player included, and an archived item reaches only the DM's projection (archiving is
-    the only way to withdraw one; items are never deleted). A campaign has at most one UNPAID order (a
-    partial unique index); at sea and docked are both UNPAID, and docked is derived from the colony day.
-    Any active member edits the cart, places an order and pays; editing items, the voyage and Cancel are
+    the only way to withdraw one; items are never deleted). A campaign has at most `market_ship_limit`
+    UNPAID orders (a DM setting, default 1, checked under the colony lock by Place and by undoing a
+    payment); at sea and docked are both UNPAID, and docked is derived from the colony day.
+    Any active member edits the cart, places an order and pays; editing items, shipping and Cancel are
     the DM's. Place and Cancel take the colony lock and write a PUBLIC entry but, like Mark played, leave
     the version and undo slot alone. Pay is a member-level colony change (`runColonyMutation` takes the
     access level): STRICT gold, grants capped at their max, bought colonists into their item's role

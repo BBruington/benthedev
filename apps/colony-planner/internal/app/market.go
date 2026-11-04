@@ -68,13 +68,13 @@ func (handlers *handlers) registerMarket(api huma.API) {
 	})
 
 	Register(api, AccessDm, huma.Operation{
-		OperationID: "setMarketVoyage",
+		OperationID: "setMarketShipping",
 		Method:      http.MethodPut,
-		Path:        "/api/campaigns/{campaignId}/market/voyage",
-		Summary:     "Set how many days a new order is at sea",
+		Path:        "/api/campaigns/{campaignId}/market/shipping",
+		Summary:     "Set how many days a new order is at sea and how many orders may be out at once",
 		Tags:        []string{"market"},
-	}, func(requestContext context.Context, input *campaignBodyInput[core.MarketVoyageInput]) (*bodyOutput[core.MarketPage], error) {
-		page, err := handlers.core.SetMarketVoyageDays(requestContext, viewerFrom(requestContext), input.Body)
+	}, func(requestContext context.Context, input *campaignBodyInput[core.MarketShippingInput]) (*bodyOutput[core.MarketPage], error) {
+		page, err := handlers.core.SetMarketShipping(requestContext, viewerFrom(requestContext), input.Body)
 		if err != nil {
 			return nil, handlers.fail(requestContext, err)
 		}

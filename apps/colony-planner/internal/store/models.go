@@ -1400,6 +1400,7 @@ type Settings struct {
 	DiscordEventLocation     string
 	IcsToken                 string
 	MarketVoyageDays         int32
+	MarketShipLimit          int32
 }
 
 type TimelineEvent struct {

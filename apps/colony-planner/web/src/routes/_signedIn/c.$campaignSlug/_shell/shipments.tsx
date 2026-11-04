@@ -22,6 +22,7 @@ import { useMe } from "@/hooks/use-me";
 import { useSheetState } from "@/hooks/use-sheet-state";
 import { canUseDmTools } from "@/lib/access";
 import { formatNumber } from "@/lib/colony";
+import { orderWaitText } from "@/lib/market";
 import { countOf } from "@/lib/words";
 import { CartPanel } from "@/market/cart-panel";
 import { CatalogList, type OfferTarget } from "@/market/catalog-list";
@@ -29,15 +30,15 @@ import { ItemSheet } from "@/market/item-sheet";
 import { OfferSheet } from "@/market/offer-sheet";
 import { PaySheet } from "@/market/pay-sheet";
 import { PlaceOrderSheet } from "@/market/place-order-sheet";
-import { CancelOrderDialog, ShipCard } from "@/market/ship-card";
-import { VoyageSheet } from "@/market/voyage-sheet";
+import { CancelOrderDialog, ShipList } from "@/market/ship-card";
+import { ShippingSheet } from "@/market/shipping-sheet";
 import { focusAfterClose } from "@/people/colonist-actions";
 
 type MarketItem = Schemas["MarketItem"];
 type MarketOrder = Schemas["MarketOrder"];
 type MarketPage = Schemas["MarketPage"];
 
-export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/market")({
+export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/shipments")({
 	component: MarketScreen,
 	loader: ({ context: { campaignId, queryClient } }) => {
 		if (!campaignId) {
@@ -51,11 +52,12 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/market")
 const marketHeadingId = "market-heading";
 
 /**
- * /market: the party's orders from the mainland. One ship at a time; any member fills the shared cart
- * and places the order, anyone pays when it docks, and the DM keeps the catalog and the voyage length.
+ * /shipments: the party's orders from the mainland. Any member fills the shared draft and places an
+ * order while a ship is free, anyone pays when one docks, and the DM keeps the catalog, the voyage
+ * length and how many ships may be out at once.
  */
 function MarketScreen() {
-	useDocumentTitle("Market", useCampaignName() ?? fallbackCampaignName);
+	useDocumentTitle("Shipments", useCampaignName() ?? fallbackCampaignName);
 	const me = useMe();
 	const isDm = canUseDmTools(me);
 	const campaignId = useCampaignId();
@@ -64,7 +66,7 @@ function MarketScreen() {
 	const board = useQuery(colonyBoardQuery(campaignId));
 	const changes = useColonyChanges();
 	const itemSheet = useSheetState<MarketItem | "new">();
-	const voyageSheet = useSheetState<number>();
+	const shippingSheet = useSheetState<{ voyageDays: number; shipLimit: number }>();
 	const offerSheet = useSheetState<OfferTarget>();
 	const paySheet = useSheetState<MarketOrder>();
 	const placeSheet = useSheetState<true>();
@@ -135,7 +137,7 @@ function MarketScreen() {
 		cancel.mutate(
 			{ params: { path: { campaignId, orderId: order.id } } },
 			{
-				onSuccess: () => {
+				onSettled: () => {
 					focusAfterClose(marketHeadingId);
 				},
 			},
@@ -154,9 +156,9 @@ function MarketScreen() {
 	} else if (market.isError || board.isError) {
 		body = (
 			<StatusPanel
-				description={problemMessage(market.error ?? board.error, "The market couldn't be loaded.")}
+				description={problemMessage(market.error ?? board.error, "Shipments couldn't be loaded.")}
 				icon={StoreIcon}
-				title="The market couldn't be loaded"
+				title="Shipments couldn't be loaded"
 				tone="ember"
 			/>
 		);
@@ -164,27 +166,26 @@ function MarketScreen() {
 		const page = market.data;
 		const colony = board.data;
 		const cartQuantities = new Map(page.cart.lines.map((line) => [line.itemId, line.quantity]));
-		const hasOpenOrder = Boolean(page.order);
 		body = (
 			<div className="flex flex-col gap-8">
-				<ShipCard
+				<ShipList
 					goldOnHand={page.goldOnHand}
 					isDm={isDm}
 					onCancel={setCancelTarget}
 					onPay={paySheet.show}
-					order={page.order}
+					orders={page.orders}
 					today={colony.day}
 					voyageDays={page.voyageDays}
 				/>
 				<CartPanel
 					cart={page.cart}
-					hasOpenOrder={hasOpenOrder}
 					isUpdating={setQuantity.isPending}
 					items={page.items}
 					onPlace={() => {
 						placeSheet.show(true);
 					}}
 					onSetQuantity={handleSetQuantity}
+					orderWaitNote={orderWaitText(page.orders, page.shipLimit, colony.day, isDm)}
 				/>
 				<CatalogList
 					cartQuantities={cartQuantities}
@@ -239,18 +240,22 @@ function MarketScreen() {
 					isDm && market.data ? (
 						<Button
 							onClick={() => {
-								voyageSheet.show(market.data.voyageDays);
+								shippingSheet.show({
+									shipLimit: market.data.shipLimit,
+									voyageDays: market.data.voyageDays,
+								});
 							}}
 							variant="outline"
 						>
 							<ShipIcon />
-							Voyage {countOf(market.data.voyageDays, "day")}
+							Shipping · {countOf(market.data.voyageDays, "day")},{" "}
+							{countOf(market.data.shipLimit, "ship")}
 						</Button>
 					) : null
 				}
-				description="Order from the mainland. One ship at a time; you pay when it docks."
+				description="Order additional supplies from the Mainland"
 				headingId={marketHeadingId}
-				title="Market"
+				title="Shipments"
 			/>
 			{body}
 			{isDm ? (
@@ -262,13 +267,16 @@ function MarketScreen() {
 						onOpenChange={itemSheet.onOpenChange}
 						open={itemSheet.open}
 					/>
-					<VoyageSheet
-						campaignId={campaignId}
-						key={`voyage-${voyageSheet.session}`}
-						onOpenChange={voyageSheet.onOpenChange}
-						open={voyageSheet.open}
-						voyageDays={voyageSheet.value ?? market.data?.voyageDays ?? 14}
-					/>
+					{shippingSheet.value ? (
+						<ShippingSheet
+							campaignId={campaignId}
+							key={`shipping-${shippingSheet.session}`}
+							onOpenChange={shippingSheet.onOpenChange}
+							open={shippingSheet.open}
+							shipLimit={shippingSheet.value.shipLimit}
+							voyageDays={shippingSheet.value.voyageDays}
+						/>
+					) : null}
 					{offerSheet.value ? (
 						<OfferSheet
 							campaignId={campaignId}

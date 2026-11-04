@@ -47,7 +47,7 @@ func (q *Queries) GetBoardHeader(ctx context.Context, campaignID uuid.UUID) (Get
 }
 
 const getSettings = `-- name: GetSettings :one
-SELECT timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days FROM settings WHERE campaign_id = $1
+SELECT timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days, market_ship_limit FROM settings WHERE campaign_id = $1
 `
 
 func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settings, error) {
@@ -62,6 +62,7 @@ func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settin
 		&i.DiscordEventLocation,
 		&i.IcsToken,
 		&i.MarketVoyageDays,
+		&i.MarketShipLimit,
 	)
 	return i, err
 }
@@ -74,7 +75,7 @@ SET timezone = $1,
     discord_reminder_channel_id = $4,
     discord_dm_channel_id = $5
 WHERE campaign_id = $6
-RETURNING timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days
+RETURNING timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days, market_ship_limit
 `
 
 type UpdateSettingsParams struct {
@@ -105,6 +106,7 @@ func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) 
 		&i.DiscordEventLocation,
 		&i.IcsToken,
 		&i.MarketVoyageDays,
+		&i.MarketShipLimit,
 	)
 	return i, err
 }

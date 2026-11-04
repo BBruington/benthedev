@@ -940,15 +940,15 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		t.Fatalf("fill A's cart: %v", err)
 	}
 	passFourOrder, err := testHarness.core.PlaceMarketOrder(testHarness.context, dmViewerA, core.PlaceMarketOrderInput{ExpectedTotalGold: cart.Cart.TotalGold})
-	if err != nil || passFourOrder.Order == nil {
-		t.Fatalf("place A's pass 4 order: %+v, %v", passFourOrder.Order, err)
+	if err != nil || len(passFourOrder.Orders) != 1 {
+		t.Fatalf("place A's pass 4 order: %+v, %v", passFourOrder.Orders, err)
 	}
 	if _, err := testHarness.database.Pool.Exec(testHarness.context,
 		"UPDATE market_order SET placed_day = placed_day - 1, arrives_day = placed_day WHERE campaign_id = $1 AND id = $2",
-		campaignA.id, passFourOrder.Order.ID); err != nil {
+		campaignA.id, passFourOrder.Orders[0].ID); err != nil {
 		t.Fatalf("dock A's pass 4 order: %v", err)
 	}
-	campaignA.pathIDs["orderId"] = passFourOrder.Order.ID.String()
+	campaignA.pathIDs["orderId"] = passFourOrder.Orders[0].ID.String()
 	validBodies["/market/orders/{orderId}/pay"] = func() map[string]any {
 		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version}
 	}

@@ -17,14 +17,14 @@ export const cartHeadingId = "market-cart-heading";
 export function CartPanel({
 	cart,
 	items,
-	hasOpenOrder,
+	orderWaitNote,
 	isUpdating,
 	onSetQuantity,
 	onPlace,
 }: {
 	cart: MarketCart;
 	items: readonly MarketItem[];
-	hasOpenOrder: boolean;
+	orderWaitNote: string | null;
 	isUpdating: boolean;
 	onSetQuantity: (itemId: string, quantity: number) => void;
 	onPlace: () => void;
@@ -40,7 +40,7 @@ export function CartPanel({
 				tabIndex={-1}
 			>
 				<ShoppingCartIcon aria-hidden="true" className="size-5 text-gilt-ink" />
-				Party cart
+				Party Shipment Draft
 			</h2>
 			{cart.lines.length === 0 ? (
 				<p className="text-muted-foreground">
@@ -139,15 +139,15 @@ export function CartPanel({
 				</p>
 				<Button
 					className="h-12 text-base"
-					disabled={cart.lines.length === 0 || hasOpenOrder || isUpdating}
+					disabled={cart.lines.length === 0 || orderWaitNote !== null || isUpdating}
 					onClick={onPlace}
 					size="lg"
 				>
 					Place order
 				</Button>
 			</div>
-			{hasOpenOrder && cart.lines.length > 0 ? (
-				<p className="text-muted-foreground text-sm">Pay for the ship at the docks first.</p>
+			{orderWaitNote && cart.lines.length > 0 ? (
+				<p className="text-muted-foreground text-sm">{orderWaitNote}</p>
 			) : null}
 		</section>
 	);

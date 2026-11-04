@@ -89,14 +89,28 @@ WHERE campaign_id = @campaign_id AND item_id = @item_id AND quantity > @max_per_
 -- name: ClearCart :exec
 DELETE FROM market_cart_line WHERE campaign_id = @campaign_id;
 
--- name: GetOpenMarketOrder :one
+-- The soonest to dock first, so the board shows the next ship and a docked one before any at sea.
+-- name: ListOpenMarketOrders :many
 SELECT sqlc.embed(market_order),
        placer.character_name AS placed_by_character_name,
        placer_account.display_name AS placed_by_display_name
 FROM market_order
 JOIN campaign_member AS placer ON placer.campaign_id = market_order.campaign_id AND placer.id = market_order.placed_by
 JOIN account AS placer_account ON placer_account.id = placer.account_id
-WHERE market_order.campaign_id = @campaign_id AND market_order.status = 'UNPAID';
+WHERE market_order.campaign_id = @campaign_id AND market_order.status = 'UNPAID'
+ORDER BY market_order.arrives_day, market_order.created_at, market_order.id;
+
+-- name: CountOpenMarketOrders :one
+SELECT count(*)::integer FROM market_order WHERE campaign_id = @campaign_id AND status = 'UNPAID';
+
+-- An order docks once: a day corrected back and advanced past it again writes no second entry, but an
+-- undone advance's entry doesn't count, so advancing again docks it anew.
+-- name: MarketOrderHasDocked :one
+SELECT EXISTS (
+    SELECT 1 FROM timeline_event
+    WHERE campaign_id = @campaign_id AND kind = 'MARKET_ORDER_DOCKED' AND undone_at IS NULL
+      AND data->>'orderId' = @order_id::text
+);
 
 -- name: GetMarketOrder :one
 SELECT * FROM market_order WHERE campaign_id = @campaign_id AND id = @id;
@@ -141,8 +155,9 @@ UPDATE market_order
 SET status = 'UNPAID', paid_day = NULL, paid_by = NULL, paid_group_id = NULL
 WHERE campaign_id = @campaign_id AND id = @id AND status = 'PAID';
 
--- name: GetMarketVoyageDays :one
-SELECT market_voyage_days FROM settings WHERE campaign_id = @campaign_id;
+-- name: GetMarketSettings :one
+SELECT market_voyage_days, market_ship_limit FROM settings WHERE campaign_id = @campaign_id;
 
--- name: SetMarketVoyageDays :exec
-UPDATE settings SET market_voyage_days = @market_voyage_days WHERE campaign_id = @campaign_id;
+-- name: SetMarketSettings :exec
+UPDATE settings SET market_voyage_days = @market_voyage_days, market_ship_limit = @market_ship_limit
+WHERE campaign_id = @campaign_id;

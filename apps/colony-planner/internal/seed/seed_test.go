@@ -85,7 +85,7 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	// The market: the default offers (Mages raised to 80 gp), the Boots the DM added, Thorin's order
 	// out until Day 36, and Sela's cart.
 	market, err := service.GetMarket(testContext, dm)
-	if err != nil || market.VoyageDays != 14 {
+	if err != nil || market.VoyageDays != 14 || market.ShipLimit != 1 {
 		t.Fatalf("market = %+v, %v", market, err)
 	}
 	offers := map[string]int64{}
@@ -96,13 +96,16 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		}
 		offers[item.Name] = item.PriceGold
 	}
-	if specials != 1 || offers["Food"] != 1 || offers["Materials"] != 5 || offers["Farmer"] != 30 || offers["Mage"] != 80 || offers["Boots of Striding"] != 120 {
+	if specials != 1 || offers["Food"] != 1 || offers["Materials"] != 5 || offers["Farmer"] != 30 || offers["Healer"] != 30 || offers["Mage"] != 80 || offers["Boots of Striding"] != 120 {
 		t.Fatalf("market items = %+v", market.Items)
 	}
-	order := market.Order
-	if order == nil || order.Status != core.MarketOrderStatusUnpaid || order.PlacedDay != 22 ||
+	if len(market.Orders) != 1 {
+		t.Fatalf("the open orders = %+v", market.Orders)
+	}
+	order := market.Orders[0]
+	if order.Status != core.MarketOrderStatusUnpaid || order.PlacedDay != 22 ||
 		order.ArrivesDay != 36 || order.Docked || order.TotalGold != 70 || len(order.Lines) != 2 {
-		t.Fatalf("the open order = %+v", market.Order)
+		t.Fatalf("the open order = %+v", order)
 	}
 	quantities := map[string]int64{}
 	for _, line := range order.Lines {
@@ -111,7 +114,11 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	if quantities["Food"] != 10 || quantities["Farmer"] != 2 {
 		t.Fatalf("the open order's lines = %+v", order.Lines)
 	}
-	if len(market.Cart.Lines) != 2 || market.Cart.TotalGold != 125 || len(market.History) != 0 {
+	cartQuantities := map[string]int64{}
+	for _, line := range market.Cart.Lines {
+		cartQuantities[line.Name] = line.Quantity
+	}
+	if len(market.Cart.Lines) != 2 || cartQuantities["Food"] != 5 || cartQuantities["Boots of Striding"] != 1 || market.Cart.TotalGold != 125 || len(market.History) != 0 {
 		t.Fatalf("cart = %+v, history = %+v", market.Cart, market.History)
 	}
 	dmTimeline, err := service.ListTimeline(testContext, dm, core.TimelineRangeInput{FromDay: 0, ToDay: 30})

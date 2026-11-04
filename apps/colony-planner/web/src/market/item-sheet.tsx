@@ -72,7 +72,11 @@ export function ItemSheet({
 			? "Enter a limit from 1 to 10,000, or leave it blank."
 			: undefined;
 	const canSave =
-		name.trim() !== "" && priceProblem === undefined && limitProblem === undefined && !isSaving;
+		name.trim() !== "" &&
+		typeof price === "number" &&
+		priceProblem === undefined &&
+		limitProblem === undefined &&
+		!isSaving;
 
 	function edited() {
 		forgetFailedSaves(create, update, archive);

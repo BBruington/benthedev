@@ -1,5 +1,5 @@
 import { ChevronDownIcon, PencilIcon, PlusIcon } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import type { Schemas } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { formatNumber } from "@/lib/colony";
@@ -176,15 +176,38 @@ function CatalogSection({
 	action?: ReactNode;
 	children: ReactNode;
 }) {
+	const [isOpen, setOpen] = useState(true);
+	const listId = useId();
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex min-h-9 items-center justify-between gap-3">
-				<h3 className="font-medium text-muted-foreground text-sm">{title}</h3>
+				<h3 className="font-medium text-muted-foreground text-sm">
+					<button
+						aria-controls={listId}
+						aria-expanded={isOpen}
+						className="-mx-2 flex min-h-11 cursor-pointer items-center gap-1 rounded-md px-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/45"
+						onClick={() => {
+							setOpen((current) => !current);
+						}}
+						type="button"
+					>
+						{title}
+						<ChevronDownIcon
+							aria-hidden="true"
+							className={isOpen ? "size-4 rotate-180" : "size-4"}
+						/>
+					</button>
+				</h3>
 				{action}
 			</div>
-			<ul className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card">
-				{children}
-			</ul>
+			{isOpen ? (
+				<ul
+					className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card"
+					id={listId}
+				>
+					{children}
+				</ul>
+			) : null}
 		</div>
 	);
 }

@@ -2,15 +2,17 @@
 
 -- The market (spec §3.3): standing offers on supplies and colonists the DM prices, special items the
 -- DM adds, one shared party cart, and orders that each sail for the campaign's voyage length and unload
--- when someone pays in full. Items are archived, never deleted, so an order's snapshot lines keep their
--- link (NO ACTION, as patrons are in 0003).
+-- when someone pays in full; the DM sets how many ships may be out at once. Items are archived, never
+-- deleted, so an order's snapshot lines keep their link (NO ACTION, as patrons are in 0003).
 
 -- At sea and docked are both UNPAID: docked is derived from the colony day.
 CREATE TYPE market_order_status AS ENUM ('UNPAID', 'PAID', 'CANCELLED');
 
 ALTER TABLE settings
     ADD COLUMN market_voyage_days integer NOT NULL DEFAULT 14
-        CONSTRAINT settings_market_voyage_days_range CHECK (market_voyage_days BETWEEN 1 AND 3650);
+        CONSTRAINT settings_market_voyage_days_range CHECK (market_voyage_days BETWEEN 1 AND 3650),
+    ADD COLUMN market_ship_limit integer NOT NULL DEFAULT 1
+        CONSTRAINT settings_market_ship_limit_range CHECK (market_ship_limit BETWEEN 1 AND 100);
 
 -- Three kinds in one table, so the cart and orders point at one thing: a supply offer (resource_key and
 -- amount: "2 food for 1 gp"), a colonist offer (role_key: one colonist of that role per purchase) and a
@@ -82,7 +84,7 @@ CREATE TABLE market_order (
     CONSTRAINT market_order_paid_by_fkey FOREIGN KEY (campaign_id, paid_by) REFERENCES campaign_member (campaign_id, id)
 );
 
-CREATE UNIQUE INDEX market_order_one_unpaid ON market_order (campaign_id) WHERE status = 'UNPAID';
+CREATE INDEX market_order_campaign_unpaid_idx ON market_order (campaign_id, arrives_day) WHERE status = 'UNPAID';
 CREATE INDEX market_order_campaign_created_idx ON market_order (campaign_id, created_at);
 
 -- A snapshot taken when the order is placed: later edits to the item never change it.
@@ -124,4 +126,4 @@ DROP TABLE market_order;
 DROP TABLE market_cart_line;
 DROP TABLE market_item;
 DROP TYPE market_order_status;
-ALTER TABLE settings DROP COLUMN market_voyage_days;
+ALTER TABLE settings DROP COLUMN market_ship_limit, DROP COLUMN market_voyage_days;

@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/BBruington/colony-planner/internal/game"
 	"github.com/BBruington/colony-planner/internal/store"
@@ -64,7 +63,7 @@ type MarketOrderLine struct {
 	RoleKey   *string          `json:"roleKey" nullable:"true"`
 }
 
-// MarketOrder is the one open order: at sea until its arrival day, then docked until someone pays.
+// MarketOrder is an open order: at sea until its arrival day, then docked until someone pays.
 type MarketOrder struct {
 	ID           uuid.UUID         `json:"id" format:"uuid"`
 	Status       MarketOrderStatus `json:"status"`
@@ -89,13 +88,15 @@ type MarketOrderSummary struct {
 	Summary      string            `json:"summary"`
 }
 
-// MarketPage is /market: the catalog, the cart, the open order and the last 20 past orders.
+// MarketPage is /market: the catalog, the cart, the open orders (soonest to dock first) and the last 20
+// past orders.
 type MarketPage struct {
 	Items      []MarketItem         `json:"items"`
 	Cart       MarketCart           `json:"cart"`
-	Order      *MarketOrder         `json:"order" doc:"The unpaid order; null when no ship is out"`
+	Orders     []MarketOrder        `json:"orders" doc:"The unpaid orders, soonest to dock first"`
 	History    []MarketOrderSummary `json:"history"`
 	VoyageDays int64                `json:"voyageDays"`
+	ShipLimit  int64                `json:"shipLimit" doc:"How many orders may be out at once"`
 	GoldOnHand int64                `json:"goldOnHand"`
 }
 
@@ -135,8 +136,9 @@ type ColonistOfferInput struct {
 	PriceGold int64 `json:"priceGold" doc:"Gold per colonist, 0 or more"`
 }
 
-type MarketVoyageInput struct {
-	Days int64 `json:"days" doc:"Days at sea, 1 to 3650"`
+type MarketShippingInput struct {
+	VoyageDays int64 `json:"voyageDays" doc:"Days at sea, 1 to 3650"`
+	ShipLimit  int64 `json:"shipLimit" doc:"How many orders may be out at once, 1 to 100"`
 }
 
 type CartQuantityInput struct {
@@ -163,6 +165,7 @@ const (
 	marketMaxQuantity        = 10000
 	marketMaxOfferAmount     = 1000000
 	marketMaxVoyageDays      = 3650
+	marketMaxShipLimit       = 100
 	// defaultColonistPriceGold prices every role's colonist offer until the DM changes it.
 	defaultColonistPriceGold = 30
 )
@@ -176,13 +179,20 @@ var (
 		" market items, the most it can hold. Archive one first.")
 	errMarketItemTotalLimit = Conflict("This campaign has kept " + formatNumber(MarketItemLimitIncludingArchived) +
 		" market items, archived ones included, the most it can hold.")
-	errMarketShipOut     = Conflict("The ship is still out. Pay for it at the docks first.")
 	errMarketCartChanged = Conflict("The cart changed. Review it and confirm again.")
 	errMarketNotUnpaid   = Conflict("That order isn't waiting for payment.")
-	errMarketNewerOrder  = Conflict("A newer order is open. Cancel it before undoing this payment.")
 	errMarketNoGold      = Conflict("This colony has no gold to pay with.")
 	errMarketCartEmpty   = Invalid("The cart is empty. Add something first.")
 )
+
+// shipsOutError refuses an order, or an undone payment's reopening, that would put more ships out
+// than the DM allows.
+func shipsOutError(shipLimit int32, action string) error {
+	if shipLimit == 1 {
+		return Conflict("The ship is still out. Pay for it at the docks or cancel it before " + action + ".")
+	}
+	return Conflict("All " + formatNumber(int64(shipLimit)) + " ships are out. Pay for one at the docks or cancel one before " + action + ".")
+}
 
 // GetMarket is /market as the viewer's projection sees it.
 func (service *Service) GetMarket(requestContext context.Context, viewer Viewer) (MarketPage, error) {
@@ -211,25 +221,25 @@ func readMarket(requestContext context.Context, queries *store.Queries, viewer V
 	if page.Cart, err = readCart(requestContext, queries, colony); err != nil {
 		return MarketPage{}, err
 	}
-	voyageDays, err := queries.GetMarketVoyageDays(requestContext, viewer.campaignID)
+	settings, err := queries.GetMarketSettings(requestContext, viewer.campaignID)
 	if err != nil {
 		return MarketPage{}, campaignGone(err)
 	}
-	page.VoyageDays = int64(voyageDays)
+	page.VoyageDays = int64(settings.MarketVoyageDays)
+	page.ShipLimit = int64(settings.MarketShipLimit)
 	page.GoldOnHand = colony.state.Resources[game.GoldResourceKey].Amount
 
-	orderIDs := []uuid.UUID{}
-	open, err := queries.GetOpenMarketOrder(requestContext, viewer.campaignID)
-	hasOpen := err == nil
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	open, err := queries.ListOpenMarketOrders(requestContext, viewer.campaignID)
+	if err != nil {
 		return MarketPage{}, err
-	}
-	if hasOpen {
-		orderIDs = append(orderIDs, open.MarketOrder.ID)
 	}
 	past, err := queries.ListRecentMarketOrders(requestContext, viewer.campaignID)
 	if err != nil {
 		return MarketPage{}, err
+	}
+	orderIDs := make([]uuid.UUID, 0, len(open)+len(past))
+	for _, row := range open {
+		orderIDs = append(orderIDs, row.MarketOrder.ID)
 	}
 	for _, order := range past {
 		orderIDs = append(orderIDs, order.ID)
@@ -238,22 +248,24 @@ func readMarket(requestContext context.Context, queries *store.Queries, viewer V
 	if err != nil {
 		return MarketPage{}, err
 	}
-	if hasOpen {
-		order := open.MarketOrder
-		page.Order = &MarketOrder{
+	page.Orders = make([]MarketOrder, 0, len(open))
+	for _, row := range open {
+		order := row.MarketOrder
+		orderLines := lines[order.ID]
+		if orderLines == nil {
+			orderLines = []MarketOrderLine{}
+		}
+		page.Orders = append(page.Orders, MarketOrder{
 			ID:           order.ID,
 			Status:       order.Status,
 			PlacedDay:    int64(order.PlacedDay),
 			ArrivesDay:   int64(order.ArrivesDay),
 			Docked:       game.Docked(colony.state.Day, int64(order.ArrivesDay)),
 			TotalGold:    int64(order.TotalGold),
-			Lines:        lines[order.ID],
-			PlacedByName: memberName(open.PlacedByCharacterName, open.PlacedByDisplayName),
-			Summary:      orderSummaryText(colony, lines[order.ID]),
-		}
-		if page.Order.Lines == nil {
-			page.Order.Lines = []MarketOrderLine{}
-		}
+			Lines:        orderLines,
+			PlacedByName: memberName(row.PlacedByCharacterName, row.PlacedByDisplayName),
+			Summary:      orderSummaryText(colony, orderLines),
+		})
 	}
 	for _, order := range past {
 		page.History = append(page.History, MarketOrderSummary{
@@ -682,16 +694,27 @@ func marketOrderGone(err error) error {
 	return err
 }
 
-// SetMarketVoyageDays sets how many days an order is at sea. Orders already placed keep their day.
-func (service *Service) SetMarketVoyageDays(requestContext context.Context, viewer Viewer, input MarketVoyageInput) (MarketPage, error) {
+// SetMarketShipping sets how many days an order is at sea and how many may be out at once. Orders
+// already placed keep their day, and a lower limit leaves the ships already out sailing.
+func (service *Service) SetMarketShipping(requestContext context.Context, viewer Viewer, input MarketShippingInput) (MarketPage, error) {
 	if err := requireDm(viewer); err != nil {
 		return MarketPage{}, err
 	}
-	if input.Days < 1 || input.Days > marketMaxVoyageDays {
-		message := "Use a voyage from 1 to 3,650 days."
-		return MarketPage{}, Invalid(message, FieldError{Field: "days", Message: message})
+	fieldErrors := []FieldError{}
+	if input.VoyageDays < 1 || input.VoyageDays > marketMaxVoyageDays {
+		fieldErrors = append(fieldErrors, FieldError{Field: "voyageDays", Message: "Use a voyage from 1 to 3,650 days."})
 	}
-	if err := service.queries.SetMarketVoyageDays(requestContext, store.SetMarketVoyageDaysParams{CampaignID: viewer.campaignID, MarketVoyageDays: int32(input.Days)}); err != nil {
+	if input.ShipLimit < 1 || input.ShipLimit > marketMaxShipLimit {
+		fieldErrors = append(fieldErrors, FieldError{Field: "shipLimit", Message: "Use from 1 to 100 ships."})
+	}
+	if len(fieldErrors) > 0 {
+		return MarketPage{}, Invalid(fieldErrors[0].Message, fieldErrors...)
+	}
+	if err := service.queries.SetMarketSettings(requestContext, store.SetMarketSettingsParams{
+		CampaignID:       viewer.campaignID,
+		MarketVoyageDays: int32(input.VoyageDays),
+		MarketShipLimit:  int32(input.ShipLimit),
+	}); err != nil {
 		return MarketPage{}, err
 	}
 	service.broker.Publish(viewer.campaignID, TopicMarket)
@@ -757,12 +780,17 @@ func (service *Service) PlaceMarketOrder(requestContext context.Context, viewer 
 		if err != nil {
 			return err
 		}
-		open, err := openMarketOrder(requestContext, queries, viewer.campaignID)
+		settings, err := queries.GetMarketSettings(requestContext, viewer.campaignID)
+		if err != nil {
+			return campaignGone(err)
+		}
+		// The colony lock above serializes placing, so two members can't both take the last ship.
+		shipsOut, err := queries.CountOpenMarketOrders(requestContext, viewer.campaignID)
 		if err != nil {
 			return err
 		}
-		if open != nil {
-			return errMarketShipOut
+		if shipsOut >= settings.MarketShipLimit {
+			return shipsOutError(settings.MarketShipLimit, "placing another order")
 		}
 		cart, err := queries.ListCartLines(requestContext, viewer.campaignID)
 		if err != nil {
@@ -807,11 +835,7 @@ func (service *Service) PlaceMarketOrder(requestContext context.Context, viewer 
 		if err := requireGold(colony); err != nil {
 			return err
 		}
-		voyageDays, err := queries.GetMarketVoyageDays(requestContext, viewer.campaignID)
-		if err != nil {
-			return campaignGone(err)
-		}
-		arrivesDay, err := game.ArrivesDay(colony.state.Day, int64(voyageDays))
+		arrivesDay, err := game.ArrivesDay(colony.state.Day, int64(settings.MarketVoyageDays))
 		if err != nil {
 			return gameError(err, nil)
 		}
@@ -823,10 +847,6 @@ func (service *Service) PlaceMarketOrder(requestContext context.Context, viewer 
 			TotalGold:  int32(total),
 		})
 		if err != nil {
-			var postgresError *pgconn.PgError
-			if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "market_order_one_unpaid" {
-				return errMarketShipOut
-			}
 			return err
 		}
 		for position, line := range lines {
@@ -1094,31 +1114,41 @@ func (service *Service) CancelMarketOrder(requestContext context.Context, viewer
 	return readMarket(requestContext, service.queries, viewer)
 }
 
-// openMarketOrder is the campaign's unpaid order, or nil when no ship is out.
-func openMarketOrder(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) (*store.MarketOrder, error) {
-	row, err := queries.GetOpenMarketOrder(requestContext, campaignID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
+// ordersDockingDuring is the open orders that reach the docks on a day after fromDay, up to toDay.
+func ordersDockingDuring(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, fromDay int64, toDay int64) ([]store.MarketOrder, error) {
+	open, err := queries.ListOpenMarketOrders(requestContext, campaignID)
 	if err != nil {
 		return nil, err
 	}
-	return &row.MarketOrder, nil
+	docking := []store.MarketOrder{}
+	for _, row := range open {
+		if game.DocksDuring(fromDay, toDay, int64(row.MarketOrder.ArrivesDay)) {
+			docking = append(docking, row.MarketOrder)
+		}
+	}
+	return docking, nil
 }
 
-// restoreMarketOrders puts paid ships back at the docks. Only one order may wait unpaid, so a newer
-// open order blocks the undo rather than being silently replaced.
+// restoreMarketOrders puts paid ships back at the docks. A reopened ship counts against the DM's limit,
+// so ships ordered since the payment block the undo rather than putting more out than allowed.
 func restoreMarketOrders(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, before map[uuid.UUID]marketOrderBefore) error {
+	if len(before) == 0 {
+		return nil
+	}
+	settings, err := queries.GetMarketSettings(requestContext, campaignID)
+	if err != nil {
+		return err
+	}
 	for _, orderID := range slices.SortedFunc(maps.Keys(before), compareIDs) {
 		if _, err := queries.GetMarketOrderForUpdate(requestContext, store.GetMarketOrderForUpdateParams{CampaignID: campaignID, ID: orderID}); err != nil {
 			return err
 		}
-		open, err := openMarketOrder(requestContext, queries, campaignID)
+		shipsOut, err := queries.CountOpenMarketOrders(requestContext, campaignID)
 		if err != nil {
 			return err
 		}
-		if open != nil && open.ID != orderID {
-			return errMarketNewerOrder
+		if shipsOut >= settings.MarketShipLimit {
+			return shipsOutError(settings.MarketShipLimit, "undoing this payment")
 		}
 		if err := queries.ReopenPaidMarketOrder(requestContext, store.ReopenPaidMarketOrderParams{CampaignID: campaignID, ID: orderID}); err != nil {
 			return err
