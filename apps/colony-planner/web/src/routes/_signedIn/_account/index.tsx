@@ -96,7 +96,10 @@ function PickerPage() {
 			<CampaignList campaigns={campaigns} />
 			<div className="grid gap-4 lg:grid-cols-2">
 				<InviteLinkCard />
-				<RunYourOwnCard request={myRequest.data?.request ?? null} />
+				<RunYourOwnCard
+					isSiteOwner={account.isSiteOwner}
+					request={myRequest.data?.request ?? null}
+				/>
 			</div>
 		</div>
 	);
@@ -269,9 +272,17 @@ function InviteLinkCard() {
 	);
 }
 
-function RunYourOwnCard({ request }: { request: CampaignRequestView | null }) {
-	let status: ReactNode = "Ask the site owner, and you'll DM your own colony here.";
-	let action = "Ask to run a campaign";
+function RunYourOwnCard({
+	isSiteOwner,
+	request,
+}: {
+	isSiteOwner: boolean;
+	request: CampaignRequestView | null;
+}) {
+	let status: ReactNode = isSiteOwner
+		? "Create one now, and you'll DM your own colony here."
+		: "Ask the site owner, and you'll DM your own colony here.";
+	let action = isSiteOwner ? "Create a campaign" : "Ask to run a campaign";
 	if (request?.status === "PENDING") {
 		status = (
 			<>
@@ -284,7 +295,7 @@ function RunYourOwnCard({ request }: { request: CampaignRequestView | null }) {
 		status = `The site owner said no to ${request.campaignName} this time. You can ask again.`;
 	} else if (request?.status === "APPROVED" && request.campaign) {
 		status = `${request.campaign.name} is ready. You're its DM.`;
-		action = "Ask for another";
+		action = isSiteOwner ? "Create another" : "Ask for another";
 	}
 	return (
 		<section
@@ -294,7 +305,7 @@ function RunYourOwnCard({ request }: { request: CampaignRequestView | null }) {
 			<div className="flex items-center gap-2.5">
 				<SparklesIcon aria-hidden="true" className="size-5 text-gilt-ink" />
 				<h2 className="font-display font-semibold text-xl tracking-wide" id="run-your-own-heading">
-					Run your own campaign
+					{isSiteOwner ? "Create a campaign" : "Run your own campaign"}
 				</h2>
 			</div>
 			<p className="flex-1 text-muted-foreground">{status}</p>

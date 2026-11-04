@@ -6,6 +6,7 @@ import {
 	CircleXIcon,
 	HourglassIcon,
 	SendIcon,
+	SparklesIcon,
 	Undo2Icon,
 } from "lucide-react";
 import { type FormEvent, useState } from "react";
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle } from "@/hooks/use-document-title";
+import { useAccount } from "@/hooks/use-me";
 import { slugFromName, slugProblem } from "@/lib/campaigns";
 import { focusFirstVisible } from "@/lib/focus";
 import { formatAbsoluteTime } from "@/lib/time";
@@ -42,7 +44,9 @@ export const Route = createFileRoute("/_signedIn/_account/request")({
 });
 
 function RequestPage() {
-	useDocumentTitle("Run your own campaign", "Colony Planner");
+	const { isSiteOwner } = useAccount();
+	const title = isSiteOwner ? "Create a campaign" : "Run your own campaign";
+	useDocumentTitle(title, "Colony Planner");
 	const myRequest = useQuery(myCampaignRequestQuery);
 
 	let body = (
@@ -67,7 +71,10 @@ function RequestPage() {
 			) : (
 				<>
 					{request ? <Outcome request={request} /> : null}
-					<RequestForm askingAgain={request !== null && request.status !== "WITHDRAWN"} />
+					<RequestForm
+						askingAgain={request !== null && request.status !== "WITHDRAWN"}
+						isSiteOwner={isSiteOwner}
+					/>
 				</>
 			);
 	}
@@ -75,9 +82,13 @@ function RequestPage() {
 	return (
 		<div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
 			<PageHeader
-				description="Ask the site owner for a campaign of your own. Once they approve it, you're its DM: you invite your players and keep the colony's books."
+				description={
+					isSiteOwner
+						? "A new campaign of your own, ready at once. You're its DM: you invite your players and keep the colony's books."
+						: "Ask the site owner for a campaign of your own. Once they approve it, you're its DM: you invite your players and keep the colony's books."
+				}
 				eyebrow="Colony Planner"
-				title="Run your own campaign"
+				title={title}
 			/>
 			{body}
 		</div>
@@ -206,7 +217,7 @@ function WaitingForOwner({ request }: { request: CampaignRequestView }) {
 	);
 }
 
-function RequestForm({ askingAgain }: { askingAgain: boolean }) {
+function RequestForm({ askingAgain, isSiteOwner }: { askingAgain: boolean; isSiteOwner: boolean }) {
 	const queryClient = useQueryClient();
 	const [campaignName, setCampaignName] = useState("");
 	const [slug, setSlug] = useState("");
@@ -266,16 +277,22 @@ function RequestForm({ askingAgain }: { askingAgain: boolean }) {
 					id={formHeadingId}
 					tabIndex={-1}
 				>
-					{askingAgain ? "Ask again" : "Your campaign"}
+					{askingAgain && !isSiteOwner ? "Ask again" : "Your campaign"}
 				</h2>
-				<p className="mt-1 max-w-prose text-muted-foreground text-sm">
-					The site owner runs the server and Beny Bot. The app never shows them what happens in your
-					campaign.
-				</p>
+				{isSiteOwner ? null : (
+					<p className="mt-1 max-w-prose text-muted-foreground text-sm">
+						The site owner runs the server and Beny Bot. The app never shows them what happens in
+						your campaign.
+					</p>
+				)}
 			</div>
 			<form className="grid gap-6 px-5 py-6 md:px-7" noValidate onSubmit={handleSubmit}>
 				<Field
-					description="You can rename it later in Settings. The site owner sees this name."
+					description={
+						isSiteOwner
+							? "You can rename it later in Settings."
+							: "You can rename it later in Settings. The site owner sees this name."
+					}
 					error={serverErrors.campaignName}
 					id="request-campaign-name"
 					label="Campaign name"
@@ -293,7 +310,11 @@ function RequestForm({ askingAgain }: { askingAgain: boolean }) {
 					/>
 				</Field>
 				<Field
-					description="Your campaign's address on this site. It can't change once approved."
+					description={
+						isSiteOwner
+							? "Your campaign's address on this site. It can't change later."
+							: "Your campaign's address on this site. It can't change once approved."
+					}
 					error={slugError}
 					id="request-slug"
 					label="Address"
@@ -319,35 +340,45 @@ function RequestForm({ askingAgain }: { askingAgain: boolean }) {
 						/>
 					</div>
 				</Field>
-				<Field
-					description={`Up to ${noteLimit} characters, for the site owner only.`}
-					error={serverErrors.note}
-					id="request-note"
-					label="A note to the site owner"
-					optional
-				>
-					<textarea
-						{...fieldInputProps("request-note", serverErrors.note, true)}
-						className={cn(
-							"min-h-24 w-full min-w-0 rounded-md border border-input bg-surface-raised/70 px-3 py-2 text-base text-foreground outline-none transition-[color,border-color,box-shadow] placeholder:text-muted-foreground/70 dark:bg-surface-sunken/60",
-							"focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35",
-							"aria-invalid:border-ember-ink aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
-						)}
-						maxLength={noteLimit}
-						onChange={(event) => {
-							setNote(event.target.value);
-						}}
-						placeholder="Who you'll play with, what kind of campaign it is…"
-						value={note}
-					/>
-				</Field>
+				{isSiteOwner ? null : (
+					<Field
+						description={`Up to ${noteLimit} characters, for the site owner only.`}
+						error={serverErrors.note}
+						id="request-note"
+						label="A note to the site owner"
+						optional
+					>
+						<textarea
+							{...fieldInputProps("request-note", serverErrors.note, true)}
+							className={cn(
+								"min-h-24 w-full min-w-0 rounded-md border border-input bg-surface-raised/70 px-3 py-2 text-base text-foreground outline-none transition-[color,border-color,box-shadow] placeholder:text-muted-foreground/70 dark:bg-surface-sunken/60",
+								"focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35",
+								"aria-invalid:border-ember-ink aria-invalid:ring-[3px] aria-invalid:ring-destructive/20",
+							)}
+							maxLength={noteLimit}
+							onChange={(event) => {
+								setNote(event.target.value);
+							}}
+							placeholder="Who you'll play with, what kind of campaign it is…"
+							value={note}
+						/>
+					</Field>
+				)}
 				<div>
 					<Button disabled={!canSend} type="submit">
-						<SendIcon />
-						{mutation.isPending ? "Sending…" : "Ask the site owner"}
+						{isSiteOwner ? <SparklesIcon /> : <SendIcon />}
+						{isSiteOwner ? createLabel(mutation.isPending) : sendLabel(mutation.isPending)}
 					</Button>
 				</div>
 			</form>
 		</section>
 	);
+}
+
+function createLabel(pending: boolean): string {
+	return pending ? "Creating…" : "Create campaign";
+}
+
+function sendLabel(pending: boolean): string {
+	return pending ? "Sending…" : "Ask the site owner";
 }
