@@ -1156,11 +1156,14 @@ type Map struct {
 	CampaignID  uuid.UUID
 }
 
+type MarketCart struct {
+	UpdatedBy  uuid.UUID
+	CampaignID uuid.UUID
+}
+
 type MarketCartLine struct {
 	ItemID     uuid.UUID
 	Quantity   int32
-	UpdatedBy  uuid.UUID
-	UpdatedAt  time.Time
 	CampaignID uuid.UUID
 }
 

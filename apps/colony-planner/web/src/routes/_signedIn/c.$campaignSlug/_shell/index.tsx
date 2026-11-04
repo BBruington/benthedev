@@ -86,8 +86,10 @@ function ColonyPage() {
 	const me = useMe();
 	const campaignId = useCampaignId();
 	const board = useQuery(colonyBoardQuery(campaignId));
-	// Open orders come soonest first, so the board follows the next ship to dock.
-	const order = useQuery(marketQuery(campaignId)).data?.orders[0] ?? null;
+	const market = useQuery(marketQuery(campaignId));
+	// Open orders come soonest first, so the board follows the next ship to dock. Undefined until the
+	// market loads, so the supply ship never stands in for a goods ship the board can't see yet.
+	const order = market.isSuccess ? (market.data.orders[0] ?? null) : undefined;
 	const recent = useQuery(recentTimelineQuery(campaignId));
 	// The viewer's own map list: players never get a hidden Mainland, so its art can't show here (C6).
 	const mainland = useQuery(mapsQuery(campaignId)).data?.maps.find(
@@ -163,14 +165,27 @@ function BoardSkeleton() {
 
 /**
  * "Day 44 · next ship Day 47, in 3 days" (spec §6.2). The party's soonest goods ship takes the line
- * while an order is out, since that's the ship the party waits on.
+ * while an order is out, since that's the ship the party waits on; just the day while that's unknown.
  */
-function clockLine(board: ColonyBoard, order: MarketOrder | null): string {
+function clockLine(board: ColonyBoard, order: MarketOrder | null | undefined): string {
 	if (order) {
 		return goodsShipLine(order, board.day);
 	}
+	if (order === undefined) {
+		return dayName(board.day);
+	}
 	const shipments = shipmentLine(board.shipments);
 	return `${dayName(board.day)} · ${shipments.charAt(0).toLowerCase()}${shipments.slice(1)}`;
+}
+
+function shipProgress(board: ColonyBoard, order: MarketOrder | null | undefined): number {
+	if (order) {
+		return goodsShipProgress(order, board.day);
+	}
+	if (order === undefined) {
+		return 0;
+	}
+	return voyageProgress(board.shipments);
 }
 
 /** The day dial with the shipment countdown, and the DM's tools beside it, over the Mainland's art. */
@@ -182,7 +197,7 @@ function ClockCard({
 }: {
 	backdropSource: string | null;
 	board: ColonyBoard;
-	order: MarketOrder | null;
+	order: MarketOrder | null | undefined;
 	me: Me;
 }) {
 	const showDmTools = canUseDmTools(me);
@@ -205,12 +220,7 @@ function ClockCard({
 				)}
 			>
 				<div className="flex flex-col items-center gap-2">
-					<DayDial
-						day={board.day}
-						shipmentProgress={
-							order ? goodsShipProgress(order, board.day) : voyageProgress(board.shipments)
-						}
-					/>
+					<DayDial day={board.day} shipmentProgress={shipProgress(board, order)} />
 					<h2
 						className="text-balance text-center font-display font-semibold text-gilt-ink text-lg tracking-wide outline-none"
 						id={boardHeadingId}

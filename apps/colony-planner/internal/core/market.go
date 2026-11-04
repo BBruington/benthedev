@@ -291,8 +291,7 @@ func readCart(requestContext context.Context, queries *store.Queries, colony col
 	}
 	sortMarketItems(colony, rows, func(row store.ListCartLinesRow) store.MarketItem { return row.MarketItem })
 	cart := MarketCart{Lines: make([]MarketCartLine, 0, len(rows))}
-	var latest *store.ListCartLinesRow
-	for index, row := range rows {
+	for _, row := range rows {
 		if !marketItemOnSale(colony, row.MarketItem) {
 			continue
 		}
@@ -308,14 +307,16 @@ func readCart(requestContext context.Context, queries *store.Queries, colony col
 			RoleKey:     row.MarketItem.RoleKey,
 		})
 		cart.TotalGold += lineTotal
-		if latest == nil || row.MarketCartLine.UpdatedAt.After(latest.MarketCartLine.UpdatedAt) {
-			latest = &rows[index]
-		}
 	}
-	if latest != nil {
-		name := memberName(latest.UpdatedByCharacterName, latest.UpdatedByDisplayName)
-		cart.UpdatedByName = &name
+	if len(cart.Lines) == 0 {
+		return cart, nil
 	}
+	editor, err := queries.GetMarketCartEditor(requestContext, colony.campaignID)
+	if err != nil {
+		return MarketCart{}, err
+	}
+	name := memberName(editor.CharacterName, editor.DisplayName)
+	cart.UpdatedByName = &name
 	return cart, nil
 }
 
@@ -491,7 +492,11 @@ func (service *Service) UpdateMarketItem(requestContext context.Context, viewer 
 			return marketItemGone(err)
 		}
 		if row.MaxPerOrder != nil {
-			if err := queries.ClampCartLine(requestContext, store.ClampCartLineParams{MaxPerOrder: *row.MaxPerOrder, CampaignID: viewer.campaignID, ItemID: itemID}); err != nil {
+			clamped, err := queries.ClampCartLine(requestContext, store.ClampCartLineParams{MaxPerOrder: *row.MaxPerOrder, CampaignID: viewer.campaignID, ItemID: itemID})
+			if err != nil {
+				return err
+			}
+			if err := touchCartIf(requestContext, queries, viewer, clamped > 0); err != nil {
 				return err
 			}
 		}
@@ -536,7 +541,11 @@ func (service *Service) SetMarketItemArchived(requestContext context.Context, vi
 			return marketItemGone(err)
 		}
 		if archived {
-			if err := queries.DeleteCartLine(requestContext, store.DeleteCartLineParams{CampaignID: viewer.campaignID, ItemID: itemID}); err != nil {
+			removed, err := queries.DeleteCartLine(requestContext, store.DeleteCartLineParams{CampaignID: viewer.campaignID, ItemID: itemID})
+			if err != nil {
+				return err
+			}
+			if err := touchCartIf(requestContext, queries, viewer, removed > 0); err != nil {
 				return err
 			}
 		}
@@ -742,7 +751,11 @@ func (service *Service) SetCartQuantity(requestContext context.Context, viewer V
 			return marketItemGone(err)
 		}
 		if input.Quantity == 0 {
-			return queries.DeleteCartLine(requestContext, store.DeleteCartLineParams{CampaignID: viewer.campaignID, ItemID: itemID})
+			removed, err := queries.DeleteCartLine(requestContext, store.DeleteCartLineParams{CampaignID: viewer.campaignID, ItemID: itemID})
+			if err != nil {
+				return err
+			}
+			return touchCartIf(requestContext, queries, viewer, removed > 0)
 		}
 		name := marketItemName(colony, item)
 		if item.Archived || !marketItemOnSale(colony, item) {
@@ -755,18 +768,28 @@ func (service *Service) SetCartQuantity(requestContext context.Context, viewer V
 			message := "An order carries at most " + formatNumber(int64(*item.MaxPerOrder)) + " of " + name + "."
 			return Invalid(message, FieldError{Field: "quantity", Message: message})
 		}
-		return queries.UpsertCartLine(requestContext, store.UpsertCartLineParams{
+		if err := queries.UpsertCartLine(requestContext, store.UpsertCartLineParams{
 			CampaignID: viewer.campaignID,
 			ItemID:     itemID,
 			Quantity:   int32(input.Quantity),
-			UpdatedBy:  viewer.memberID,
-		})
+		}); err != nil {
+			return err
+		}
+		return touchCartIf(requestContext, queries, viewer, true)
 	})
 	if err != nil {
 		return MarketPage{}, err
 	}
 	service.broker.Publish(viewer.campaignID, TopicMarket)
 	return readMarket(requestContext, service.queries, viewer)
+}
+
+// touchCartIf records the viewer as whoever changed the cart last, when the cart did change.
+func touchCartIf(requestContext context.Context, queries *store.Queries, viewer Viewer, changed bool) error {
+	if !changed {
+		return nil
+	}
+	return queries.TouchMarketCart(requestContext, store.TouchMarketCartParams{CampaignID: viewer.campaignID, UpdatedBy: viewer.memberID})
 }
 
 // PlaceMarketOrder sends the cart to the mainland. Like Mark played it takes the colony lock for the

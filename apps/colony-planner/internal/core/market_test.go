@@ -322,6 +322,27 @@ func TestArchivingAnItemClearsItsCartLines(t *testing.T) {
 	}
 }
 
+func TestRemovingACartLineCreditsTheRemover(t *testing.T) {
+	test := newColonyTest(t)
+	food := test.marketItemID("Food")
+	materials := test.marketItemID("Materials")
+	dmName := test.setCart(test.dm, materials, 1).Cart.UpdatedByName
+	playerName := test.setCart(test.player, food, 2).Cart.UpdatedByName
+	if dmName == nil || playerName == nil || *dmName == *playerName {
+		t.Fatalf("editors = %v, %v; want two different names", dmName, playerName)
+	}
+	if removed := test.setCart(test.dm, food, 0).Cart.UpdatedByName; removed == nil || *removed != *dmName {
+		t.Fatalf("after the DM removes a line, updatedByName = %v; want %q", removed, *dmName)
+	}
+	test.setCart(test.player, food, 2)
+	if _, err := test.service.SetMarketItemArchived(test.context, test.dm, food, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	if archived := test.market(test.player).Cart.UpdatedByName; archived == nil || *archived != *dmName {
+		t.Fatalf("after archiving a carted item, updatedByName = %v; want %q", archived, *dmName)
+	}
+}
+
 func TestSettingAnOfferPutsItBackOnSale(t *testing.T) {
 	test := newColonyTest(t)
 	food := test.marketItemID("Food")

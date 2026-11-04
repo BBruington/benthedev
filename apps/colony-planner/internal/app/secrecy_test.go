@@ -1064,7 +1064,7 @@ func (testHarness *harness) fingerprint(campaign *campaignFixture, onlyThere ...
 		tables = append(tables, table)
 	}
 	rows.Close()
-	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request", "map", "hex", "image", "session_series", "session", "market_item", "market_cart_line", "market_order", "market_order_line"} {
+	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request", "map", "hex", "image", "session_series", "session", "market_item", "market_cart_line", "market_cart", "market_order", "market_order_line"} {
 		if !slices.Contains(tables, required) {
 			testHarness.t.Fatalf("found only %v with a campaign_id column; %s is missing", tables, required)
 		}

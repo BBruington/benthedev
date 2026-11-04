@@ -51,7 +51,7 @@ The steps build on each other, so do them in order. A private window counts as a
    - The preview has the line "The goods ship docks on Day N."
    - After advancing, the timeline has "Goods ship docked · N gold due" on that day, the ship card says it's docked, and the board's dial reads "Shipment has arrived and is awaiting payment" with a full arc.
 8. **Short on gold.** As Sample DM, use **Adjust** to set gold below the order's total.
-   - As Ana, press **Pay**: the sheet shows gold, food and Farmers before and after, a box "Not enough gold: the colony has …, needs …", and Pay is disabled.
+   - As Ana, press **Pay**: the sheet shows only a box "Not enough gold: the colony has …, needs …", and Pay is disabled.
    - Advance one more day as Sample DM: Advance isn't blocked, and the ship keeps waiting.
 9. **Pay.** As Sample DM, put gold back above the total. As Ana, open **Pay** again and pay.
    - Gold drops by the total, food rises by the food in the order (capped at its max if it would pass it), and **Farmers** has one more colonist (not Unassigned).

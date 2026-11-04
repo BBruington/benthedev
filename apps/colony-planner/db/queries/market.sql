@@ -62,32 +62,38 @@ SELECT role.campaign_id, role.key, @price_gold::integer FROM role WHERE role.cam
 ON CONFLICT (campaign_id, role_key) WHERE role_key IS NOT NULL DO NOTHING;
 
 -- name: ListCartLines :many
-SELECT sqlc.embed(market_cart_line), sqlc.embed(market_item),
-       member.character_name AS updated_by_character_name,
-       member_account.display_name AS updated_by_display_name
+SELECT sqlc.embed(market_cart_line), sqlc.embed(market_item)
 FROM market_cart_line
 JOIN market_item ON market_item.campaign_id = market_cart_line.campaign_id AND market_item.id = market_cart_line.item_id
-JOIN campaign_member AS member ON member.campaign_id = market_cart_line.campaign_id AND member.id = market_cart_line.updated_by
-JOIN account AS member_account ON member_account.id = member.account_id
 WHERE market_cart_line.campaign_id = @campaign_id
 ORDER BY market_item.sort_order, lower(market_item.name), market_item.id;
 
 -- name: UpsertCartLine :exec
-INSERT INTO market_cart_line (campaign_id, item_id, quantity, updated_by)
-VALUES (@campaign_id, @item_id, @quantity, @updated_by)
-ON CONFLICT (campaign_id, item_id) DO UPDATE
-SET quantity = excluded.quantity, updated_by = excluded.updated_by, updated_at = now();
+INSERT INTO market_cart_line (campaign_id, item_id, quantity)
+VALUES (@campaign_id, @item_id, @quantity)
+ON CONFLICT (campaign_id, item_id) DO UPDATE SET quantity = excluded.quantity;
 
--- name: DeleteCartLine :exec
+-- name: DeleteCartLine :execrows
 DELETE FROM market_cart_line WHERE campaign_id = @campaign_id AND item_id = @item_id;
 
 -- An item's lower limit trims the cart to it, so the cart stays orderable.
--- name: ClampCartLine :exec
-UPDATE market_cart_line SET quantity = @max_per_order, updated_at = now()
+-- name: ClampCartLine :execrows
+UPDATE market_cart_line SET quantity = @max_per_order
 WHERE campaign_id = @campaign_id AND item_id = @item_id AND quantity > @max_per_order;
 
 -- name: ClearCart :exec
 DELETE FROM market_cart_line WHERE campaign_id = @campaign_id;
+
+-- name: TouchMarketCart :exec
+INSERT INTO market_cart (campaign_id, updated_by) VALUES (@campaign_id, @updated_by)
+ON CONFLICT (campaign_id) DO UPDATE SET updated_by = excluded.updated_by;
+
+-- name: GetMarketCartEditor :one
+SELECT member.character_name, member_account.display_name
+FROM market_cart
+JOIN campaign_member AS member ON member.campaign_id = market_cart.campaign_id AND member.id = market_cart.updated_by
+JOIN account AS member_account ON member_account.id = member.account_id
+WHERE market_cart.campaign_id = @campaign_id;
 
 -- The soonest to dock first, so the board shows the next ship and a docked one before any at sea.
 -- name: ListOpenMarketOrders :many

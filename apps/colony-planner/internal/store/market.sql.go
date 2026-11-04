@@ -28,8 +28,8 @@ func (q *Queries) CancelMarketOrder(ctx context.Context, arg CancelMarketOrderPa
 	return err
 }
 
-const clampCartLine = `-- name: ClampCartLine :exec
-UPDATE market_cart_line SET quantity = $1, updated_at = now()
+const clampCartLine = `-- name: ClampCartLine :execrows
+UPDATE market_cart_line SET quantity = $1
 WHERE campaign_id = $2 AND item_id = $3 AND quantity > $1
 `
 
@@ -40,9 +40,12 @@ type ClampCartLineParams struct {
 }
 
 // An item's lower limit trims the cart to it, so the cart stays orderable.
-func (q *Queries) ClampCartLine(ctx context.Context, arg ClampCartLineParams) error {
-	_, err := q.db.Exec(ctx, clampCartLine, arg.MaxPerOrder, arg.CampaignID, arg.ItemID)
-	return err
+func (q *Queries) ClampCartLine(ctx context.Context, arg ClampCartLineParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clampCartLine, arg.MaxPerOrder, arg.CampaignID, arg.ItemID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const clearCart = `-- name: ClearCart :exec
@@ -230,7 +233,7 @@ func (q *Queries) CreateMarketOrderLine(ctx context.Context, arg CreateMarketOrd
 	return err
 }
 
-const deleteCartLine = `-- name: DeleteCartLine :exec
+const deleteCartLine = `-- name: DeleteCartLine :execrows
 DELETE FROM market_cart_line WHERE campaign_id = $1 AND item_id = $2
 `
 
@@ -239,9 +242,32 @@ type DeleteCartLineParams struct {
 	ItemID     uuid.UUID
 }
 
-func (q *Queries) DeleteCartLine(ctx context.Context, arg DeleteCartLineParams) error {
-	_, err := q.db.Exec(ctx, deleteCartLine, arg.CampaignID, arg.ItemID)
-	return err
+func (q *Queries) DeleteCartLine(ctx context.Context, arg DeleteCartLineParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCartLine, arg.CampaignID, arg.ItemID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getMarketCartEditor = `-- name: GetMarketCartEditor :one
+SELECT member.character_name, member_account.display_name
+FROM market_cart
+JOIN campaign_member AS member ON member.campaign_id = market_cart.campaign_id AND member.id = market_cart.updated_by
+JOIN account AS member_account ON member_account.id = member.account_id
+WHERE market_cart.campaign_id = $1
+`
+
+type GetMarketCartEditorRow struct {
+	CharacterName *string
+	DisplayName   string
+}
+
+func (q *Queries) GetMarketCartEditor(ctx context.Context, campaignID uuid.UUID) (GetMarketCartEditorRow, error) {
+	row := q.db.QueryRow(ctx, getMarketCartEditor, campaignID)
+	var i GetMarketCartEditorRow
+	err := row.Scan(&i.CharacterName, &i.DisplayName)
+	return i, err
 }
 
 const getMarketItem = `-- name: GetMarketItem :one
@@ -350,22 +376,16 @@ func (q *Queries) GetMarketSettings(ctx context.Context, campaignID uuid.UUID) (
 }
 
 const listCartLines = `-- name: ListCartLines :many
-SELECT market_cart_line.item_id, market_cart_line.quantity, market_cart_line.updated_by, market_cart_line.updated_at, market_cart_line.campaign_id, market_item.id, market_item.name, market_item.description, market_item.price_gold, market_item.resource_key, market_item.amount, market_item.role_key, market_item.max_per_order, market_item.archived, market_item.sort_order, market_item.created_at, market_item.updated_at, market_item.campaign_id,
-       member.character_name AS updated_by_character_name,
-       member_account.display_name AS updated_by_display_name
+SELECT market_cart_line.item_id, market_cart_line.quantity, market_cart_line.campaign_id, market_item.id, market_item.name, market_item.description, market_item.price_gold, market_item.resource_key, market_item.amount, market_item.role_key, market_item.max_per_order, market_item.archived, market_item.sort_order, market_item.created_at, market_item.updated_at, market_item.campaign_id
 FROM market_cart_line
 JOIN market_item ON market_item.campaign_id = market_cart_line.campaign_id AND market_item.id = market_cart_line.item_id
-JOIN campaign_member AS member ON member.campaign_id = market_cart_line.campaign_id AND member.id = market_cart_line.updated_by
-JOIN account AS member_account ON member_account.id = member.account_id
 WHERE market_cart_line.campaign_id = $1
 ORDER BY market_item.sort_order, lower(market_item.name), market_item.id
 `
 
 type ListCartLinesRow struct {
-	MarketCartLine         MarketCartLine
-	MarketItem             MarketItem
-	UpdatedByCharacterName *string
-	UpdatedByDisplayName   string
+	MarketCartLine MarketCartLine
+	MarketItem     MarketItem
 }
 
 func (q *Queries) ListCartLines(ctx context.Context, campaignID uuid.UUID) ([]ListCartLinesRow, error) {
@@ -380,8 +400,6 @@ func (q *Queries) ListCartLines(ctx context.Context, campaignID uuid.UUID) ([]Li
 		if err := rows.Scan(
 			&i.MarketCartLine.ItemID,
 			&i.MarketCartLine.Quantity,
-			&i.MarketCartLine.UpdatedBy,
-			&i.MarketCartLine.UpdatedAt,
 			&i.MarketCartLine.CampaignID,
 			&i.MarketItem.ID,
 			&i.MarketItem.Name,
@@ -396,8 +414,6 @@ func (q *Queries) ListCartLines(ctx context.Context, campaignID uuid.UUID) ([]Li
 			&i.MarketItem.CreatedAt,
 			&i.MarketItem.UpdatedAt,
 			&i.MarketItem.CampaignID,
-			&i.UpdatedByCharacterName,
-			&i.UpdatedByDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -703,6 +719,21 @@ func (q *Queries) SetMarketSettings(ctx context.Context, arg SetMarketSettingsPa
 	return err
 }
 
+const touchMarketCart = `-- name: TouchMarketCart :exec
+INSERT INTO market_cart (campaign_id, updated_by) VALUES ($1, $2)
+ON CONFLICT (campaign_id) DO UPDATE SET updated_by = excluded.updated_by
+`
+
+type TouchMarketCartParams struct {
+	CampaignID uuid.UUID
+	UpdatedBy  uuid.UUID
+}
+
+func (q *Queries) TouchMarketCart(ctx context.Context, arg TouchMarketCartParams) error {
+	_, err := q.db.Exec(ctx, touchMarketCart, arg.CampaignID, arg.UpdatedBy)
+	return err
+}
+
 const updateMarketItem = `-- name: UpdateMarketItem :one
 UPDATE market_item
 SET name = $1, description = $2, price_gold = $3,
@@ -751,26 +782,19 @@ func (q *Queries) UpdateMarketItem(ctx context.Context, arg UpdateMarketItemPara
 }
 
 const upsertCartLine = `-- name: UpsertCartLine :exec
-INSERT INTO market_cart_line (campaign_id, item_id, quantity, updated_by)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (campaign_id, item_id) DO UPDATE
-SET quantity = excluded.quantity, updated_by = excluded.updated_by, updated_at = now()
+INSERT INTO market_cart_line (campaign_id, item_id, quantity)
+VALUES ($1, $2, $3)
+ON CONFLICT (campaign_id, item_id) DO UPDATE SET quantity = excluded.quantity
 `
 
 type UpsertCartLineParams struct {
 	CampaignID uuid.UUID
 	ItemID     uuid.UUID
 	Quantity   int32
-	UpdatedBy  uuid.UUID
 }
 
 func (q *Queries) UpsertCartLine(ctx context.Context, arg UpsertCartLineParams) error {
-	_, err := q.db.Exec(ctx, upsertCartLine,
-		arg.CampaignID,
-		arg.ItemID,
-		arg.Quantity,
-		arg.UpdatedBy,
-	)
+	_, err := q.db.Exec(ctx, upsertCartLine, arg.CampaignID, arg.ItemID, arg.Quantity)
 	return err
 }
 

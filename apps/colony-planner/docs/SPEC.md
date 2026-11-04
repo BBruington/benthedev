@@ -1358,7 +1358,7 @@ On the web, Biome allows the server transports (fetch, EventSource, XMLHttpReque
 | Buildings | New tables; `BUILDING_*` timeline kinds; `Effects` for anything that changes stock; a `Step` if buildings act over days | none expected |
 | Sickness | NPC `health` (already has SICK); DM-defined resources or roles; a `Step` if it changes over days; `SICKNESS_*` kinds. If per-colonist state is needed, `game.Colonists` is the one function to revisit. | none expected |
 | Events | `EVENT_*` kinds; `Effects` for outcomes; a `Step` if events trigger on their own | none expected |
-| Store | Built as the Market (§3.3): its own catalog, cart and order tables, not `request` | `settings` gained `market_voyage_days` (additive) |
+| Store | Built as the Market (§3.3): its own catalog, cart and order tables, not `request` | `settings` gained `market_voyage_days` and `market_ship_limit` (additive) |
 | New resource or role | `/settings` | **no code** |
 
 ### 8.7 How many places to add one field

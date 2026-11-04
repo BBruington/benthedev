@@ -51,12 +51,17 @@ CREATE UNIQUE INDEX market_item_colonist_offer ON market_item (campaign_id, role
 CREATE TABLE market_cart_line (
     item_id uuid NOT NULL,
     quantity integer NOT NULL CHECK (quantity BETWEEN 1 AND 10000),
-    updated_by uuid NOT NULL,
-    updated_at timestamptz NOT NULL DEFAULT now(),
     campaign_id uuid NOT NULL REFERENCES campaign (id) ON DELETE CASCADE,
     PRIMARY KEY (campaign_id, item_id),
-    CONSTRAINT market_cart_line_item_fkey FOREIGN KEY (campaign_id, item_id) REFERENCES market_item (campaign_id, id),
-    CONSTRAINT market_cart_line_updated_by_fkey FOREIGN KEY (campaign_id, updated_by) REFERENCES campaign_member (campaign_id, id)
+    CONSTRAINT market_cart_line_item_fkey FOREIGN KEY (campaign_id, item_id) REFERENCES market_item (campaign_id, id)
+);
+
+-- Who changed the cart last lives on the cart, not its lines, so removing a line credits its remover.
+CREATE TABLE market_cart (
+    updated_by uuid NOT NULL,
+    campaign_id uuid NOT NULL REFERENCES campaign (id) ON DELETE CASCADE,
+    PRIMARY KEY (campaign_id),
+    CONSTRAINT market_cart_updated_by_fkey FOREIGN KEY (campaign_id, updated_by) REFERENCES campaign_member (campaign_id, id)
 );
 
 CREATE TABLE market_order (
@@ -123,6 +128,7 @@ SELECT role.campaign_id, role.key, 30 FROM role;
 
 DROP TABLE market_order_line;
 DROP TABLE market_order;
+DROP TABLE market_cart;
 DROP TABLE market_cart_line;
 DROP TABLE market_item;
 DROP TYPE market_order_status;
