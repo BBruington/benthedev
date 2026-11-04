@@ -304,7 +304,6 @@ func TestExampleFRewardsClampAndColonistsLandInUnassigned(t *testing.T) {
 		Deltas:    map[string]int64{"food": 20, "morale": 5},
 		SetTo:     map[string]int64{},
 		Colonists: 3,
-		Reason:    "Clear the Wolf Den",
 		Public:    true,
 	}
 	preview, err := test.service.PreviewAdjustStock(test.context, test.dm, input)
@@ -323,7 +322,7 @@ func TestExampleFRewardsClampAndColonistsLandInUnassigned(t *testing.T) {
 	if entry.Deltas.Resources["morale"] != 2 || entry.Deltas.Resources["food"] != 20 || entry.Deltas.Colonists != 3 {
 		t.Fatalf("logged deltas = %+v; want only the applied ones", entry.Deltas)
 	}
-	if entry.Body != "Food +20 · Morale +2 · 3 colonists (Unassigned)\nClear the Wolf Den" {
+	if entry.Body != "Food +20 · Morale +2 · 3 colonists (Unassigned)" {
 		t.Errorf("entry body = %q", entry.Body)
 	}
 	board := test.board()
@@ -425,7 +424,6 @@ func TestAdjustRefusesBadInput(t *testing.T) {
 		"cargo on a missing one":   {core.AdjustInput{Source: core.AdjustSourceShipment, ArrivalEntryID: &arrivalID, Deltas: map[string]int64{"food": 1}}, "arrivalEntryId"},
 		"an adjustment naming one": {core.AdjustInput{Source: core.AdjustSourceAdjustment, ArrivalEntryID: &arrivalID, Deltas: map[string]int64{"food": 1}}, "arrivalEntryId"},
 		"negative colonists":       {core.AdjustInput{Source: core.AdjustSourceAdjustment, Colonists: -1}, "colonists"},
-		"a two-line reason":        {core.AdjustInput{Source: core.AdjustSourceAdjustment, Deltas: map[string]int64{"food": 1}, Reason: "one\ntwo"}, "reason"},
 		"too much gold":            {core.AdjustInput{Source: core.AdjustSourceAdjustment, Deltas: map[string]int64{"gold": 1 << 40}}, "deltas"},
 	} {
 		testCase.input.ExpectedVersion = version

@@ -704,6 +704,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/market": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The market: catalog, the party's cart, the open order and past orders */
+        get: operations["getMarket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/cart/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set how many of an item the party's cart holds; 0 removes it */
+        put: operations["setCartQuantity"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/colonists/{roleKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Price a role's colonist offer, putting it on sale */
+        put: operations["setColonistOffer"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add an item to the catalog */
+        post: operations["createMarketItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/items/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace an item's record (archiving has its own operation); placed orders keep their snapshot */
+        put: operations["updateMarketItem"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/items/{itemId}/archived": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Archive an item (gone from the catalog and the cart, history kept) or bring it back */
+        put: operations["setMarketItemArchived"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send the cart to the mainland; it docks after the voyage and is paid for then */
+        post: operations["placeMarketOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/orders/{orderId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel the open order; nothing was charged */
+        post: operations["cancelMarketOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/orders/{orderId}/pay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pay for a docked order in full and unload it; the DM may undo it */
+        post: operations["payMarketOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/orders/{orderId}/pay-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What paying for a docked order would change, without writing */
+        post: operations["previewPayMarketOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/shipping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set how many days a new order is at sea and how many orders may be out at once */
+        put: operations["setMarketShipping"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/market/supplies/{resourceKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Price a resource's standing offer, putting it on sale */
+        put: operations["setSupplyOffer"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/me": {
         parameters: {
             query?: never;
@@ -2031,8 +2235,6 @@ export interface components {
             /** Format: int64 */
             expectedVersion: number;
             public: boolean;
-            /** @description At most 200 characters after trimming; may be blank */
-            reason: string;
             /** @description Resource key to new amount, turned into a delta under the colony lock; {} for none. A key may not also be in deltas. */
             setTo: {
                 [key: string]: number;
@@ -2107,6 +2309,8 @@ export interface components {
             days: number;
             /** Format: int64 */
             fromDay: number;
+            /** @description The days open market orders dock during this advance, soonest first; empty when none does */
+            marketDocksDays: number[];
             resources: components["schemas"]["ResourceChangePreview"][];
             /** @description null when no shipment schedule is set */
             shipmentsAfter: components["schemas"]["ShipmentSchedule"];
@@ -2187,6 +2391,13 @@ export interface components {
             slug: string;
             status: components["schemas"]["CampaignStatus"];
         };
+        CartQuantityInput: {
+            /**
+             * Format: int64
+             * @description 0 removes the line; otherwise 1 to 10000
+             */
+            quantity: number;
+        };
         ChangeColonyRoleInput: {
             /** Format: int64 */
             expectedVersion: number;
@@ -2200,6 +2411,13 @@ export interface components {
         ClearShipmentScheduleInput: {
             /** Format: int64 */
             expectedVersion: number;
+        };
+        ColonistOfferInput: {
+            /**
+             * Format: int64
+             * @description Gold per colonist, 0 or more
+             */
+            priceGold: number;
         };
         ColonyBoard: {
             campaignName: string;
@@ -2512,6 +2730,158 @@ export interface components {
              * @description 0 (top edge) to 1 (bottom edge)
              */
             y: number;
+        };
+        MarketCart: {
+            lines: components["schemas"]["MarketCartLine"][];
+            /** Format: int64 */
+            totalGold: number;
+            updatedByName: string | null;
+        };
+        MarketCartLine: {
+            /** Format: int64 */
+            amount: number | null;
+            /** Format: uuid */
+            itemId: string;
+            /** Format: int64 */
+            lineTotal: number;
+            name: string;
+            /** Format: int64 */
+            quantity: number;
+            resourceKey: string | null;
+            roleKey: string | null;
+            /** Format: int64 */
+            unitPrice: number;
+        };
+        MarketItem: {
+            /**
+             * Format: int64
+             * @description How much of the resource one purchase brings; null unless a supply offer
+             */
+            amount: number | null;
+            archived: boolean;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: int64
+             * @description The most one order may carry; null is no limit
+             */
+            maxPerOrder: number | null;
+            name: string;
+            /**
+             * Format: int64
+             * @description Gold per purchase
+             */
+            priceGold: number;
+            /** @description The resource a supply offer sells; null otherwise */
+            resourceKey: string | null;
+            /** @description The role a colonist offer's colonist joins; null otherwise */
+            roleKey: string | null;
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        MarketItemInput: {
+            /** @description At most 4000 characters; may be blank */
+            description: string;
+            /**
+             * Format: int64
+             * @description The most one order may carry, 1 to 10000; null is no limit
+             */
+            maxPerOrder?: number | null;
+            /** @description 1 to 80 characters */
+            name: string;
+            /**
+             * Format: int64
+             * @description Gold per unit, 0 or more
+             */
+            priceGold: number;
+        };
+        MarketOrder: {
+            /** Format: int64 */
+            arrivesDay: number;
+            docked: boolean;
+            /** Format: uuid */
+            id: string;
+            lines: components["schemas"]["MarketOrderLine"][];
+            placedByName: string;
+            /** Format: int64 */
+            placedDay: number;
+            status: components["schemas"]["MarketOrderStatus"];
+            /** @description e.g. 20 food, 3 Farmers, Boots of Striding */
+            summary: string;
+            /** Format: int64 */
+            totalGold: number;
+        };
+        MarketOrderLine: {
+            /** Format: int64 */
+            colonists: number;
+            /** Format: uuid */
+            itemId: string;
+            name: string;
+            /** Format: int64 */
+            quantity: number;
+            resources: {
+                [key: string]: number;
+            };
+            roleKey: string | null;
+            /** Format: int64 */
+            unitPrice: number;
+        };
+        /** @enum {string} */
+        MarketOrderStatus: "UNPAID" | "PAID" | "CANCELLED";
+        MarketOrderSummary: {
+            /** Format: int64 */
+            arrivesDay: number;
+            /** Format: int64 */
+            cancelledDay: number | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            paidDay: number | null;
+            /** Format: int64 */
+            placedDay: number;
+            status: components["schemas"]["MarketOrderStatus"];
+            summary: string;
+            /** Format: int64 */
+            totalGold: number;
+        };
+        MarketPage: {
+            cart: components["schemas"]["MarketCart"];
+            /** Format: int64 */
+            goldOnHand: number;
+            history: components["schemas"]["MarketOrderSummary"][];
+            items: components["schemas"]["MarketItem"][];
+            /** @description The unpaid orders, soonest to dock first */
+            orders: components["schemas"]["MarketOrder"][];
+            /**
+             * Format: int64
+             * @description How many orders may be out at once
+             */
+            shipLimit: number;
+            /** Format: int64 */
+            voyageDays: number;
+        };
+        MarketPayPreview: {
+            affordable: boolean;
+            resources: components["schemas"]["ResourceChangePreview"][];
+            roles: components["schemas"]["RoleChangePreview"][];
+            /** @description Empty when the colony can pay */
+            shortfall: string;
+            summary: string;
+            /** Format: int64 */
+            version: number;
+        };
+        MarketShippingInput: {
+            /**
+             * Format: int64
+             * @description How many orders may be out at once, 1 to 100
+             */
+            shipLimit: number;
+            /**
+             * Format: int64
+             * @description Days at sea, 1 to 3650
+             */
+            voyageDays: number;
         };
         Member: {
             avatarUrl: string | null;
@@ -2957,6 +3327,10 @@ export interface components {
             id: string;
             name: string;
         } | null;
+        PayMarketOrderInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+        };
         PinInput: {
             /** Format: uuid */
             mapId: string;
@@ -2999,6 +3373,10 @@ export interface components {
         };
         PlaceList: {
             places: components["schemas"]["Place"][];
+        };
+        PlaceMarketOrderInput: {
+            /** Format: int64 */
+            expectedTotalGold: number;
         };
         PlacePin: {
             /** Format: uuid */
@@ -3266,6 +3644,14 @@ export interface components {
         RevealInput: {
             revealed: boolean;
         };
+        RoleChangePreview: {
+            /** Format: int64 */
+            after: number;
+            /** Format: int64 */
+            before: number;
+            key: string;
+            label: string;
+        };
         RoleHeadcount: {
             icon: components["schemas"]["ColonyIcon"];
             isSystem: boolean;
@@ -3502,6 +3888,18 @@ export interface components {
              */
             nextDay: number | null;
         };
+        SupplyOfferInput: {
+            /**
+             * Format: int64
+             * @description How much of the resource one purchase brings, 1 to 1000000
+             */
+            amount: number;
+            /**
+             * Format: int64
+             * @description Gold per purchase, 0 or more
+             */
+            priceGold: number;
+        };
         /** @enum {string} */
         Terrain: "FOREST" | "PLAINS" | "WATER" | "MOUNTAIN" | "DESERT" | "SWAMP" | "TUNDRA" | "VOLCANIC";
         TimelineEntry: {
@@ -3575,7 +3973,7 @@ export interface components {
             visibility: components["schemas"]["TimelineVisibility"];
         };
         /** @enum {string} */
-        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED";
         TimelinePage: {
             /**
              * Format: int64
@@ -3602,7 +4000,7 @@ export interface components {
         /** @enum {string} */
         TimelineVisibility: "PUBLIC" | "DM";
         /** @enum {string} */
-        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions";
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions" | "market";
         TransferInput: {
             /**
              * Format: int64
@@ -5200,6 +5598,434 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorldMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getMarket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setCartQuantity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CartQuantityInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setColonistOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                roleKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ColonistOfferInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createMarketItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketItemInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketItem"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateMarketItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketItemInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketItem"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setMarketItemArchived: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketItem"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    placeMarketOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaceMarketOrderInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    cancelMarketOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    payMarketOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PayMarketOrderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    previewPayMarketOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPayPreview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setMarketShipping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketShippingInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setSupplyOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                resourceKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplyOfferInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketPage"];
                 };
             };
             /** @description Error */

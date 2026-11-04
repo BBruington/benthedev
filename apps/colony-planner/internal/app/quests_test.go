@@ -165,12 +165,17 @@ func TestPlayersSeeOnlyVisibleQuestsPatronsAndRequests(t *testing.T) {
 			for _, action := range append(actions.Actions, page.Actions...) {
 				listed = append(listed, action.ID.String())
 			}
+			var market core.MarketPage
+			decode(label, read(label, token, "/market"), &market)
+			for _, item := range market.Items {
+				listed = append(listed, item.ID.String())
+			}
 			if !slices.Contains(listed, campaign.pathIDs["patronId"]) || !slices.Contains(listed, campaign.pathIDs["actionId"]) {
 				t.Errorf("%s: the revealed patron or action is missing from %v", label, listed)
 			}
 			for _, archivedID := range campaign.archivedIDs {
 				if slices.Contains(listed, archivedID) {
-					t.Errorf("%s: an archived patron or action %s is listed", label, archivedID)
+					t.Errorf("%s: an archived patron, action or market item %s is listed", label, archivedID)
 				}
 			}
 

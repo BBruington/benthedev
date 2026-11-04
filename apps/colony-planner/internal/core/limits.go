@@ -30,6 +30,10 @@ const (
 	PatronLimitIncludingArchived       = 5000
 	PatronActionLimit                  = 2000
 	PatronActionLimitIncludingArchived = 20000
+	// MarketItemLimit and MarketItemLimitIncludingArchived count special items and follow the patron
+	// action rule: items are never deleted, only archived. Offers are one per resource or role.
+	MarketItemLimit                  = 500
+	MarketItemLimitIncludingArchived = 5000
 
 	// ImageBudgetBytes is the image storage of one campaign (docs/design/multi-campaign.md §8), counted
 	// over the images in use, and ImageMaxBytes one upload (spec §8.9).

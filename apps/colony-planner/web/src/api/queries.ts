@@ -267,6 +267,15 @@ export function approveRequestPreviewQuery(
 	);
 }
 
+/** Before → after for paying a docked order, and whether the colony's gold covers it. */
+export function payMarketOrderPreviewQuery(campaignId: string, orderId: string) {
+	return api.queryOptions(
+		"post",
+		"/api/campaigns/{campaignId}/market/orders/{orderId}/pay-preview",
+		{ params: { path: { campaignId, orderId } } },
+	);
+}
+
 // Key prefixes that match every parameterized read of one path in one campaign, for live
 // invalidation. TanStack Query matches the trailing object partially, so the query parameters and
 // bodies of each read don't matter.
@@ -286,6 +295,11 @@ export function mapQuery(campaignId: string, mapId: string) {
 /** Every charted hex; a hexes invalidation refetches the whole map (spec §5.10). */
 export function hexesQuery(campaignId: string) {
 	return api.queryOptions("get", "/api/campaigns/{campaignId}/hexes", inCampaign(campaignId));
+}
+
+/** The Market page: catalog, the party's cart, the open order and past orders. */
+export function marketQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/market", inCampaign(campaignId));
 }
 
 /** Every series and one-off session (spec §4.5), for /sessions and the DM's series editor. */
@@ -427,6 +441,14 @@ export function approveRequestPreviewQueryKeyPrefix(campaignId: string) {
 	return [
 		"post",
 		"/api/campaigns/{campaignId}/requests/{requestId}/approve-preview",
+		inCampaign(campaignId),
+	] as const;
+}
+
+export function payMarketOrderPreviewQueryKeyPrefix(campaignId: string) {
+	return [
+		"post",
+		"/api/campaigns/{campaignId}/market/orders/{orderId}/pay-preview",
 		inCampaign(campaignId),
 	] as const;
 }

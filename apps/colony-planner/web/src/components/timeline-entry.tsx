@@ -3,6 +3,7 @@ import {
 	BadgeCheckIcon,
 	CalendarClockIcon,
 	CircleXIcon,
+	CoinsIcon,
 	CrownIcon,
 	DicesIcon,
 	EyeOffIcon,
@@ -15,11 +16,13 @@ import {
 	ScaleIcon,
 	ScrollTextIcon,
 	ShipIcon,
+	StoreIcon,
 	SunriseIcon,
 	Undo2Icon,
 	UserMinusIcon,
 	UserPlusIcon,
 	UsersIcon,
+	XIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Schemas } from "@/api/client";
@@ -53,6 +56,18 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 	},
 	DAYS_ADVANCED: { icon: SunriseIcon, label: "Days pass", tone: "bg-gilt/12 text-gilt-ink" },
 	FAVOR_ADJUSTED: { icon: CrownIcon, label: "Favor", tone: "bg-gilt/12 text-gilt-ink" },
+	MARKET_ORDER_CANCELLED: {
+		icon: XIcon,
+		label: "Order cancelled",
+		tone: "bg-muted text-muted-foreground",
+	},
+	MARKET_ORDER_DOCKED: {
+		icon: ShipIcon,
+		label: "Goods ship docked",
+		tone: "bg-verdigris/14 text-verdigris-ink",
+	},
+	MARKET_ORDER_PAID: { icon: CoinsIcon, label: "Goods unloaded", tone: "bg-moss/14 text-moss-ink" },
+	MARKET_ORDER_PLACED: { icon: StoreIcon, label: "Order placed", tone: "bg-gilt/12 text-gilt-ink" },
 	PATRON_ACTION: {
 		icon: HandCoinsIcon,
 		label: "Patron's favor",

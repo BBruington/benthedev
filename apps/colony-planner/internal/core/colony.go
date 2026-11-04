@@ -114,11 +114,12 @@ type AdvancePreview struct {
 	ToDay     int64 `json:"toDay"`
 	Colonists int64 `json:"colonists" doc:"The headcount upkeep used"`
 	// Resources lists every resource the advance changes (food, in v1).
-	Resources      []ResourceChangePreview `json:"resources"`
-	ArrivalCount   int64                   `json:"arrivalCount"`
-	Arrivals       []ArrivalRun            `json:"arrivals" doc:"Every arrival day in the span, as runs"`
-	ShipmentsAfter *ShipmentSchedule       `json:"shipmentsAfter" doc:"null when no shipment schedule is set"`
-	Summary        string                  `json:"summary" doc:"e.g. Day 12 → 17 · Food 140 → 80 · 1 shipment arrival (Day 14)"`
+	Resources       []ResourceChangePreview `json:"resources"`
+	ArrivalCount    int64                   `json:"arrivalCount"`
+	Arrivals        []ArrivalRun            `json:"arrivals" doc:"Every arrival day in the span, as runs"`
+	ShipmentsAfter  *ShipmentSchedule       `json:"shipmentsAfter" doc:"null when no shipment schedule is set"`
+	Summary         string                  `json:"summary" doc:"e.g. Day 12 → 17 · Food 140 → 80 · 1 shipment arrival (Day 14)"`
+	MarketDocksDays []int64                 `json:"marketDocksDays" doc:"The days open market orders dock during this advance, soonest first; empty when none does"`
 }
 
 // ArrivalRun is the arrival days first, first+every, ... (count of them), ending on last.
@@ -150,7 +151,6 @@ type AdjustInput struct {
 	Deltas         map[string]int64 `json:"deltas" doc:"Resource key to change; {} for none"`
 	SetTo          map[string]int64 `json:"setTo" doc:"Resource key to new amount, turned into a delta under the colony lock; {} for none. A key may not also be in deltas."`
 	Colonists      int64            `json:"colonists" doc:"New colonists, 0 or more; they land in Unassigned"`
-	Reason         string           `json:"reason" doc:"At most 200 characters after trimming; may be blank"`
 	// Public logs the entry on the public timeline. The form defaults it off for ADJUSTMENT and on
 	// for SHIPMENT (spec §5.8).
 	Public bool `json:"public"`
@@ -214,6 +214,8 @@ type undoSnapshot struct {
 	Quests map[uuid.UUID]questBefore `json:"quests,omitempty"`
 	// Requests is each request the change approved, keyed by request ID (spec §5.7).
 	Requests map[uuid.UUID]requestBefore `json:"requests,omitempty"`
+	// MarketOrders is each market order the change paid for, keyed by order ID.
+	MarketOrders map[uuid.UUID]marketOrderBefore `json:"marketOrders,omitempty"`
 }
 
 // questBefore is a quest's status as it was before a colony mutation resolved or reopened it.
@@ -250,17 +252,29 @@ func (service *Service) PreviewAdvance(requestContext context.Context, viewer Vi
 	if err != nil {
 		return AdvancePreview{}, gameError(err, nil)
 	}
-	return advancePreview(colony, result), nil
+	docking, err := ordersDockingDuring(requestContext, service.queries, viewer.campaignID, colony.state.Day, result.After.Day)
+	if err != nil {
+		return AdvancePreview{}, err
+	}
+	marketDocksDays := make([]int64, 0, len(docking))
+	for _, order := range docking {
+		marketDocksDays = append(marketDocksDays, int64(order.ArrivesDay))
+	}
+	return advancePreview(colony, result, marketDocksDays), nil
 }
 
 // Advance moves the clock N days: upkeep, then shipments (spec §5.2), on the write path of §5.1.
 func (service *Service) Advance(requestContext context.Context, viewer Viewer, input AdvanceInput) (ColonyChange, error) {
-	return service.mutateColony(requestContext, viewer, input.ExpectedVersion, func(colony colonySnapshot, _ *store.Queries) (colonyOutcome, error) {
+	return service.mutateColony(requestContext, viewer, input.ExpectedVersion, func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error) {
 		result, err := game.Advance(colony.state, input.Days)
 		if err != nil {
 			return colonyOutcome{}, gameError(err, nil)
 		}
-		entries := make([]plannedEntry, 0, len(result.ArrivalEntries)+1)
+		docking, err := ordersDockingDuring(requestContext, queries, viewer.campaignID, colony.state.Day, result.After.Day)
+		if err != nil {
+			return colonyOutcome{}, err
+		}
+		entries := make([]plannedEntry, 0, len(result.ArrivalEntries)+len(docking)+1)
 		for _, arrival := range result.ArrivalEntries {
 			title := "Shipment arrived · " + dayText(arrival.Day)
 			if arrival.Folded {
@@ -274,6 +288,26 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 				data:       arrivalData{First: arrival.Run.First, Every: arrival.Run.Every, Count: arrival.Run.Count},
 			})
 		}
+		var topics []Topic
+		for _, order := range docking {
+			alreadyDocked, err := queries.MarketOrderHasDocked(requestContext, store.MarketOrderHasDockedParams{CampaignID: viewer.campaignID, OrderID: order.ID.String()})
+			if err != nil {
+				return colonyOutcome{}, err
+			}
+			if alreadyDocked {
+				continue
+			}
+			entries = append(entries, plannedEntry{
+				day:        int64(order.ArrivesDay),
+				kind:       TimelineKindMarketOrderDocked,
+				title:      dockedTitle(int64(order.TotalGold)),
+				visibility: TimelineVisibilityPublic,
+				data:       dockedData{OrderID: order.ID},
+			})
+		}
+		if len(docking) > 0 {
+			topics = append(topics, TopicMarket)
+		}
 		title := daysPassTitle(result.Days, result.After.Day)
 		entries = append(entries, plannedEntry{
 			day:        result.After.Day,
@@ -283,7 +317,7 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 			visibility: TimelineVisibilityPublic,
 			deltas:     result.Applied,
 		})
-		return colonyOutcome{after: result.After, label: title, entries: entries}, nil
+		return colonyOutcome{after: result.After, label: title, entries: entries, topics: topics}, nil
 	})
 }
 
@@ -346,7 +380,7 @@ func (service *Service) AdjustStock(requestContext context.Context, viewer Viewe
 			day:        colony.state.Day,
 			kind:       TimelineKindStockAdjusted,
 			title:      "Stock adjusted",
-			body:       joinLines(summary, planned.reason),
+			body:       summary,
 			visibility: TimelineVisibilityDm,
 			deltas:     applied,
 		}
@@ -468,6 +502,9 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err != nil {
 			return err
 		}
+		if err := restoreMarketOrders(requestContext, queries, viewer.campaignID, record.Before.MarketOrders); err != nil {
+			return err
+		}
 		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
 		if err != nil {
 			return err
@@ -539,7 +576,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	if err != nil {
 		return ColonyChange{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicQuests, TopicPatrons, TopicRequests)
+	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicQuests, TopicPatrons, TopicRequests, TopicMarket)
 	for _, outcome := range undoneRequests {
 		service.requestNotifier.RequestDecided(requestContext, outcome)
 	}
@@ -774,6 +811,8 @@ type colonyOutcome struct {
 	// quests and requests are the rows decide moved past their status guard, as they were before.
 	quests   map[uuid.UUID]questBefore
 	requests map[uuid.UUID]requestBefore
+	// marketOrders are the market orders decide paid, as they were before.
+	marketOrders map[uuid.UUID]marketOrderBefore
 	// topics are published after commit beside the colony's own.
 	topics []Topic
 	// afterCommit runs once the transaction has committed (Beny Bot's best-effort posts).
@@ -798,7 +837,7 @@ type npcRoleChange struct {
 func (service *Service) mutateColony(requestContext context.Context, viewer Viewer, expectedVersion int64,
 	decide func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error),
 ) (ColonyChange, error) {
-	return service.runColonyMutation(requestContext, viewer, &expectedVersion, decide)
+	return service.runColonyMutation(requestContext, viewer, requireDm, &expectedVersion, decide)
 }
 
 // mutateColonyGuardedByStatus is the same write path for quest and request decisions, which a status
@@ -806,13 +845,15 @@ func (service *Service) mutateColony(requestContext context.Context, viewer View
 func (service *Service) mutateColonyGuardedByStatus(requestContext context.Context, viewer Viewer,
 	decide func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error),
 ) (ColonyChange, error) {
-	return service.runColonyMutation(requestContext, viewer, nil, decide)
+	return service.runColonyMutation(requestContext, viewer, requireDm, nil, decide)
 }
 
-func (service *Service) runColonyMutation(requestContext context.Context, viewer Viewer, expectedVersion *int64,
+// runColonyMutation takes the access check because paying for a market order is the one colony
+// mutation a player may start.
+func (service *Service) runColonyMutation(requestContext context.Context, viewer Viewer, access func(Viewer) error, expectedVersion *int64,
 	decide func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error),
 ) (ColonyChange, error) {
-	if err := requireDm(viewer); err != nil {
+	if err := access(viewer); err != nil {
 		return ColonyChange{}, err
 	}
 	var change ColonyChange
@@ -860,6 +901,9 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		if len(outcome.requests) > 0 {
 			before.Requests = outcome.requests
 		}
+		if len(outcome.marketOrders) > 0 {
+			before.MarketOrders = outcome.marketOrders
+		}
 		groupID := uuid.New()
 		if outcome.groupID != uuid.Nil {
 			groupID = outcome.groupID
@@ -882,7 +926,7 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		if err != nil {
 			return err
 		}
-		board, err := service.readBoard(requestContext, queries, viewer.campaignID, true)
+		board, err := service.readBoard(requestContext, queries, viewer.campaignID, viewer.SeesDmFields())
 		if err != nil {
 			return err
 		}
@@ -1083,16 +1127,17 @@ func gameError(err error, renames map[string]string) error {
 
 // advancePreview turns a rule result into the preview sheet: "Day 12 → 17 · Food 140 → 80 · 1
 // shipment arrival (Day 14)".
-func advancePreview(colony colonySnapshot, result game.AdvanceResult) AdvancePreview {
+func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDocksDays []int64) AdvancePreview {
 	preview := AdvancePreview{
-		Days:         result.Days,
-		Version:      colony.row.Version,
-		FromDay:      result.Before.Day,
-		ToDay:        result.After.Day,
-		Colonists:    result.Colonists,
-		Resources:    []ResourceChangePreview{},
-		ArrivalCount: result.ArrivalCount,
-		Arrivals:     make([]ArrivalRun, 0, len(result.Arrivals)),
+		Days:            result.Days,
+		Version:         colony.row.Version,
+		FromDay:         result.Before.Day,
+		ToDay:           result.After.Day,
+		Colonists:       result.Colonists,
+		Resources:       []ResourceChangePreview{},
+		ArrivalCount:    result.ArrivalCount,
+		Arrivals:        make([]ArrivalRun, 0, len(result.Arrivals)),
+		MarketDocksDays: marketDocksDays,
 	}
 	if result.After.Schedule != nil {
 		preview.ShipmentsAfter = &ShipmentSchedule{
@@ -1136,6 +1181,13 @@ func advancePreview(colony colonySnapshot, result game.AdvanceResult) AdvancePre
 		parts = append(parts, formatNumber(result.ArrivalCount)+" shipment "+plural(result.ArrivalCount, "arrival", "arrivals")+
 			" ("+arrivalDaysText(result.Arrivals)+")")
 	}
+	if len(marketDocksDays) > 0 {
+		dockingDays := make([]string, 0, len(marketDocksDays))
+		for _, day := range slices.Compact(slices.Clone(marketDocksDays)) {
+			dockingDays = append(dockingDays, dayText(day))
+		}
+		parts = append(parts, plural(int64(len(marketDocksDays)), "Goods ship docks ", "Goods ships dock ")+strings.Join(dockingDays, ", "))
+	}
 	preview.Summary = joinParts(parts...)
 	return preview
 }
@@ -1167,12 +1219,9 @@ func changeText(label string, before int64, after int64, requested int64, clampe
 // plannedAdjustment is an AdjustInput checked and applied to the colony, not yet saved.
 type plannedAdjustment struct {
 	result game.EffectsResult
-	reason string
 	// arrival is the SHIPMENT_ARRIVED entry the cargo came on; nil for an adjustment.
 	arrival *store.TimelineEvent
 }
-
-const adjustReasonMaxLength = 200
 
 // planAdjustment checks an adjustment or cargo and applies it in CLAMP mode (spec §5.4). "Set to"
 // values become deltas against the colony as read here, which is under the lock for a mutation.
@@ -1195,10 +1244,6 @@ func planAdjustment(requestContext context.Context, queries *store.Queries, colo
 		arrival = found
 	default:
 		fieldErrors = append(fieldErrors, FieldError{Field: "source", Message: "Choose ADJUSTMENT or SHIPMENT."})
-	}
-	reason, fieldError := cleanText("reason", input.Reason, adjustReasonMaxLength)
-	if fieldError != nil {
-		fieldErrors = append(fieldErrors, *fieldError)
 	}
 	fieldErrors = append(fieldErrors, adjustableKeys("deltas", input.Deltas, colony)...)
 	fieldErrors = append(fieldErrors, adjustableKeys("setTo", input.SetTo, colony)...)
@@ -1226,7 +1271,7 @@ func planAdjustment(requestContext context.Context, queries *store.Queries, colo
 	if err != nil {
 		return plannedAdjustment{}, gameError(err, map[string]string{"resources": "deltas"})
 	}
-	return plannedAdjustment{result: result, reason: reason, arrival: arrival}, nil
+	return plannedAdjustment{result: result, arrival: arrival}, nil
 }
 
 // adjustableKeys refuses resource keys that don't exist or are archived, naming the field they came in.

@@ -93,6 +93,10 @@ const (
 	TimelineKindPatronAction            TimelineKind = "PATRON_ACTION"
 	TimelineKindFavorAdjusted           TimelineKind = "FAVOR_ADJUSTED"
 	TimelineKindSessionPlayed           TimelineKind = "SESSION_PLAYED"
+	TimelineKindMarketOrderPlaced       TimelineKind = "MARKET_ORDER_PLACED"
+	TimelineKindMarketOrderDocked       TimelineKind = "MARKET_ORDER_DOCKED"
+	TimelineKindMarketOrderPaid         TimelineKind = "MARKET_ORDER_PAID"
+	TimelineKindMarketOrderCancelled    TimelineKind = "MARKET_ORDER_CANCELLED"
 )
 
 // AllTimelineKinds lists every kind, for the API's enum schema and the DM's filter chips.
@@ -116,6 +120,10 @@ func AllTimelineKinds() []TimelineKind {
 		TimelineKindPatronAction,
 		TimelineKindFavorAdjusted,
 		TimelineKindSessionPlayed,
+		TimelineKindMarketOrderPlaced,
+		TimelineKindMarketOrderDocked,
+		TimelineKindMarketOrderPaid,
+		TimelineKindMarketOrderCancelled,
 	}
 }
 

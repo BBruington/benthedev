@@ -120,6 +120,11 @@ type cargoData struct {
 	ArrivalEntryID uuid.UUID `json:"arrivalEntryId"`
 }
 
+// dockedData is a MARKET_ORDER_DOCKED entry's data: {orderId}.
+type dockedData struct {
+	OrderID uuid.UUID `json:"orderId"`
+}
+
 // validateTimelineRange checks a page of days, for the timeline and its session bands alike.
 func validateTimelineRange(input TimelineRangeInput) error {
 	var fieldErrors []FieldError

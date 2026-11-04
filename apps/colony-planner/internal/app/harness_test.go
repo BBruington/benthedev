@@ -117,8 +117,8 @@ type campaignFixture struct {
 	hiddenQuestID   uuid.UUID
 	hiddenPatronID  uuid.UUID
 	hiddenRequestID uuid.UUID
-	// archivedIDs are an archived patron and action: players may still read their history, so they
-	// aren't canaries, but no player list or picker may hold them.
+	// archivedIDs are an archived patron, action and market item: players may still read their
+	// history, so they aren't canaries, but no player list or picker may hold them.
 	archivedIDs []string
 	// failureCost is the revealed quest's DM-only failure cost: its gold delta and failure favor.
 	failureCost []int64

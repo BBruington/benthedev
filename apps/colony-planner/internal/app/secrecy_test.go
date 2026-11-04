@@ -410,9 +410,13 @@ func (testHarness *harness) sweepCampaign(t *testing.T, routes []sweepRoute, doc
 		if expected != 0 && response.Code != expected {
 			t.Errorf("%s (%s): status %d, want %d; body: %s", label, route.access, response.Code, expected, response.Body.String())
 		}
-		if expected == 0 && route.method == http.MethodGet && (route.access == AccessMember || route.access == AccessPending) &&
+		// Pay-preview is a read by POST, and its fixture order is docked, so it too must run its data
+		// path. The DM's own pass cancels that order first, so only other callers are held to it.
+		dmTools := caller.isDM && !caller.viewAsPlayer
+		isRead := route.method == http.MethodGet || (strings.HasSuffix(route.path, "/pay-preview") && !dmTools)
+		if expected == 0 && isRead && (route.access == AccessMember || route.access == AccessPending) &&
 			(response.Code < 200 || response.Code > 299) {
-			// A read that answers 404 or 422 never ran its data path, so the sweep would prove nothing.
+			// A read that answers 404, 409 or 422 never ran its data path, so the sweep would prove nothing.
 			t.Errorf("%s (%s): a member's read answered %d; body: %s", label, route.access, response.Code, response.Body.String())
 		}
 	}
@@ -758,7 +762,7 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			return map[string]any{
 				"expectedVersion": boardOf(dmViewerA).Version, "source": string(core.AdjustSourceShipment),
 				"arrivalEntryId": campaignA.arrivalEntryID.String(), "deltas": map[string]any{"gold": 1},
-				"setTo": map[string]any{}, "colonists": 0, "reason": "", "public": false,
+				"setTo": map[string]any{}, "colonists": 0, "public": false,
 			}
 		},
 		"/colony/undo": func() map[string]any {
@@ -786,8 +790,16 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			"count": 1, "public": false,
 		}
 	}
+	// A count one above the role's own, since paying the market order below also adds to it.
 	validBodies["/people/set-count"] = func() map[string]any {
-		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "roleKey": roleKeyA, "count": 2, "public": false}
+		board := boardOf(dmViewerA)
+		count := int64(1)
+		for _, role := range board.Roles {
+			if role.Key == roleKeyA {
+				count = role.UnnamedCount + 1
+			}
+		}
+		return map[string]any{"expectedVersion": board.Version, "roleKey": roleKeyA, "count": count, "public": false}
 	}
 	// Pass 3 archived A's {patronId} and {actionId} rows with its sample bodies, and an archived patron
 	// or action can't be asked for or used, so these bodies bring them back first.
@@ -902,6 +914,44 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	validBodies["/npcs/{npcId}/first-session"] = func() map[string]any {
 		return map[string]any{"sessionId": campaignA.pathIDs["sessionId"]}
 	}
+	marketItemOfA := func() map[string]any {
+		return map[string]any{"name": "Pass Four", "description": "", "priceGold": 2, "maxPerOrder": 3}
+	}
+	validBodies["/market/items"] = marketItemOfA
+	validBodies["/market/items/{itemId}"] = marketItemOfA
+	validBodies["/market/colonists/{roleKey}"] = func() map[string]any {
+		return map[string]any{"priceGold": 4}
+	}
+	// Pass 3 cancelled A's {orderId} order, so pay gets a fresh docked order of A's own, moved back a
+	// day in SQL as the fixture's is. Paying it runs the unload and records the undo snapshot.
+	itemA := uuid.MustParse(campaignA.pathIDs["itemId"])
+	if _, err := testHarness.core.SetMarketItemArchived(testHarness.context, dmViewerA, itemA, false); err != nil {
+		t.Fatalf("unarchive A's market item: %v", err)
+	}
+	colonistOffersOfA, err := testHarness.core.SetColonistOffer(testHarness.context, dmViewerA, roleKeyA, core.ColonistOfferInput{PriceGold: 4})
+	if err != nil {
+		t.Fatalf("price A's colonist offer: %v", err)
+	}
+	if _, err := testHarness.core.SetCartQuantity(testHarness.context, dmViewerA, marketOfferID(t, colonistOffersOfA, "", roleKeyA), core.CartQuantityInput{Quantity: 1}); err != nil {
+		t.Fatalf("fill A's cart: %v", err)
+	}
+	cart, err := testHarness.core.SetCartQuantity(testHarness.context, dmViewerA, itemA, core.CartQuantityInput{Quantity: 1})
+	if err != nil {
+		t.Fatalf("fill A's cart: %v", err)
+	}
+	passFourOrder, err := testHarness.core.PlaceMarketOrder(testHarness.context, dmViewerA, core.PlaceMarketOrderInput{ExpectedTotalGold: cart.Cart.TotalGold})
+	if err != nil || len(passFourOrder.Orders) != 1 {
+		t.Fatalf("place A's pass 4 order: %+v, %v", passFourOrder.Orders, err)
+	}
+	if _, err := testHarness.database.Pool.Exec(testHarness.context,
+		"UPDATE market_order SET placed_day = placed_day - 1, arrives_day = placed_day WHERE campaign_id = $1 AND id = $2",
+		campaignA.id, passFourOrder.Orders[0].ID); err != nil {
+		t.Fatalf("dock A's pass 4 order: %v", err)
+	}
+	campaignA.pathIDs["orderId"] = passFourOrder.Orders[0].ID.String()
+	validBodies["/market/orders/{orderId}/pay"] = func() map[string]any {
+		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version}
+	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
 		build, found := validBodies[suffix]
@@ -1014,7 +1064,7 @@ func (testHarness *harness) fingerprint(campaign *campaignFixture, onlyThere ...
 		tables = append(tables, table)
 	}
 	rows.Close()
-	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request", "map", "hex", "image", "session_series", "session"} {
+	for _, required := range []string{"colony", "npc", "place", "role", "timeline_event", "quest", "patron", "patron_action", "request", "map", "hex", "image", "session_series", "session", "market_item", "market_cart_line", "market_cart", "market_order", "market_order_line"} {
 		if !slices.Contains(tables, required) {
 			testHarness.t.Fatalf("found only %v with a campaign_id column; %s is missing", tables, required)
 		}

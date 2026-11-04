@@ -288,9 +288,9 @@ var sampleHeadcounts = map[string]int32{
 
 // seedColony plays a colony some weeks in through the same core operations the API uses: founding
 // stores, a 7-day shipment schedule, three weeks of advances, cargo recorded on the first arrival and a
-// DM-only adjustment. It ends on Day 22 with 63 food for 19 colonists and the next ship on Day 28, and
-// the last advance still in the undo slot. The weekly game's last three Fridays are played between the
-// advances, so their bands cover Days 0–7, 14–19 and 19–22.
+// DM-only adjustment. It ends on Day 22 with 63 food for 19 colonists, the next ship on Day 28, a market
+// order out until Day 36 and the last advance still in the undo slot. The weekly game's last three
+// Fridays are played between the advances, so their bands cover Days 0–7, 14–19 and 19–22.
 func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs, now time.Time) error {
 	for key, count := range sampleHeadcounts {
 		if err := queries.SetRoleUnnamedCount(requestContext, store.SetRoleUnnamedCountParams{CampaignID: dm.CampaignID(), Key: key, UnnamedCount: count}); err != nil {
@@ -332,7 +332,6 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 				Source:          core.AdjustSourceAdjustment,
 				Deltas:          map[string]int64{},
 				SetTo:           map[string]int64{"gold": 250, "food": 400, "materials": 120},
-				Reason:          "The founders' stores, unloaded at landing",
 				Public:          true,
 			})
 		}},
@@ -372,7 +371,6 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 				Deltas:          map[string]int64{"food": 60, "materials": 40},
 				SetTo:           map[string]int64{},
 				Colonists:       3,
-				Reason:          "Grain, timber and three settlers from the mainland",
 				Public:          true,
 			})
 		}},
@@ -392,13 +390,15 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 				Source:          core.AdjustSourceAdjustment,
 				Deltas:          map[string]int64{"gold": -40},
 				SetTo:           map[string]int64{},
-				Reason:          "Paid the smuggler at the north cove to keep quiet",
 			})
 		}},
 		{"the third session", table.play(requestContext, dates.third)},
 		{"three days", advanceBy(requestContext, service, dm, 3)},
 		{"the third session ends", table.end(requestContext, dates.third, "The Saltmarsh Survey",
 			"The party mapped the saltmarsh and haggled with Lady Vex's factor at the docks.")},
+		{"the market", func(int64) (core.ColonyChange, error) {
+			return core.ColonyChange{}, seedMarket(requestContext, service, dm, enter)
+		}},
 	}
 	for _, step := range later {
 		expectedVersion, err := version()
@@ -488,7 +488,6 @@ func seedSecondColony(requestContext context.Context, service *core.Service, que
 				Source:          core.AdjustSourceAdjustment,
 				Deltas:          map[string]int64{},
 				SetTo:           map[string]int64{"gold": 90, "food": 194, "materials": 40, "timber": 25},
-				Reason:          "What the mule train carried up",
 				Public:          true,
 			})
 		}},
@@ -502,7 +501,6 @@ func seedSecondColony(requestContext context.Context, service *core.Service, que
 				Source:          core.AdjustSourceAdjustment,
 				Deltas:          map[string]int64{"materials": -10},
 				SetTo:           map[string]int64{},
-				Reason:          "The ridge mine is empty",
 			})
 		}},
 	}

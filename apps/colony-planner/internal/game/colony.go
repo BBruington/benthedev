@@ -17,6 +17,10 @@ const MinStored = math.MinInt32
 const (
 	// FoodResourceKey names the system resource that upkeep consumes.
 	FoodResourceKey = "food"
+	// GoldResourceKey names the resource the market charges.
+	GoldResourceKey = "gold"
+	// MoraleResourceKey names the default resource for the colony's mood, which no market sells.
+	MoraleResourceKey = "morale"
 	// UnassignedRoleKey names the system role where every new colonist lands (spec §5.5).
 	UnassignedRoleKey = "UNASSIGNED"
 	// FoodPerColonistPerDay is the old app's upkeep rule, kept as is (spec §5.2).

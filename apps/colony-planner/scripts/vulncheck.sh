@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # govulncheck over the module: fails when code we call reaches a known vulnerability, so new
 # advisories for Go or a dependency show up in `mise run check` and CI without a manual run. Nothing is
-# accepted: Go 1.27.2 fixed the ten standard-library advisories that were triaged under Go 1.27.1.
+# accepted: Go 1.27.2 fixed the ten standard-library advisories triaged under Go 1.27.1, and 1.27.3 fixed GO-2026-6809.
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

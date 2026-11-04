@@ -744,7 +744,7 @@ old server (a bot that was removed can't, so those stay); a server linked later 
 - **Second Sample** (`/c/second-sample`, colony Ridgehold), created through `RequestCampaign` and
   `ApproveCampaignRequest`: DM Hollis; players Ana (Brisa) and Iko (Tamsin Vale); Jun pending. Its own
   short history on different numbers (Day 9, Food 140), an extra resource Timber, and one DM-only
-  adjustment "The ridge mine is empty", so isolation is easy to see.
+  adjustment (Materials −10), so isolation is easy to see.
 - **A pending campaign request** from Wren: "Sample Sky Isles" (`sample-sky-isles`) with a note.
 - `--hexes N` (M4) paints into Sample Colony.
 
@@ -1026,7 +1026,7 @@ click into their window.
    - Hollis re-admits her.
 10. **A DM elsewhere is a player here.** As Hollis, switch to Sample Colony. He's Pell, a player: no +/−
     buttons, no Players management, no Invite link or Discord cards in Settings, and the Timeline has no
-    "Paid the smuggler at the north cove" entry.
+    "Stock adjusted" entry for Gold −40 on Day 19.
 11. **View as player.** In your Sample Colony turn on **View as player**. Open Site admin: it still works.
     Go back: the banner is still on. Turn it off.
 12. **Pausing a campaign.** On Site admin, **Suspend** Second Sample. Hollis's Second Sample window shows

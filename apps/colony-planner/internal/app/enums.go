@@ -53,6 +53,7 @@ var enumTypes = []enumType{
 	newEnumType("RequestKind", core.AllRequestKinds),
 	newEnumType("Terrain", core.AllTerrainValues),
 	newEnumType("SessionStatus", core.AllSessionStatusValues),
+	newEnumType("MarketOrderStatus", core.AllMarketOrderStatusValues),
 }
 
 var enumNamesByType = func() map[reflect.Type]string {

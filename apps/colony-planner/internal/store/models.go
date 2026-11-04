@@ -359,6 +359,67 @@ func AllColonyIconValues() []ColonyIcon {
 	}
 }
 
+type MarketOrderStatus string
+
+const (
+	MarketOrderStatusUNPAID    MarketOrderStatus = "UNPAID"
+	MarketOrderStatusPAID      MarketOrderStatus = "PAID"
+	MarketOrderStatusCANCELLED MarketOrderStatus = "CANCELLED"
+)
+
+func (e *MarketOrderStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MarketOrderStatus(s)
+	case string:
+		*e = MarketOrderStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MarketOrderStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMarketOrderStatus struct {
+	MarketOrderStatus MarketOrderStatus
+	Valid             bool // Valid is true if MarketOrderStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMarketOrderStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MarketOrderStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MarketOrderStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMarketOrderStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MarketOrderStatus), nil
+}
+
+func (e MarketOrderStatus) Valid() bool {
+	switch e {
+	case MarketOrderStatusUNPAID,
+		MarketOrderStatusPAID,
+		MarketOrderStatusCANCELLED:
+		return true
+	}
+	return false
+}
+
+func AllMarketOrderStatusValues() []MarketOrderStatus {
+	return []MarketOrderStatus{
+		MarketOrderStatusUNPAID,
+		MarketOrderStatusPAID,
+		MarketOrderStatusCANCELLED,
+	}
+}
+
 type MemberStatus string
 
 const (
@@ -1095,6 +1156,61 @@ type Map struct {
 	CampaignID  uuid.UUID
 }
 
+type MarketCart struct {
+	UpdatedBy  uuid.UUID
+	CampaignID uuid.UUID
+}
+
+type MarketCartLine struct {
+	ItemID     uuid.UUID
+	Quantity   int32
+	CampaignID uuid.UUID
+}
+
+type MarketItem struct {
+	ID          uuid.UUID
+	Name        string
+	Description string
+	PriceGold   int32
+	ResourceKey *string
+	Amount      *int32
+	RoleKey     *string
+	MaxPerOrder *int32
+	Archived    bool
+	SortOrder   int32
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CampaignID  uuid.UUID
+}
+
+type MarketOrder struct {
+	ID           uuid.UUID
+	Status       MarketOrderStatus
+	PlacedDay    int32
+	ArrivesDay   int32
+	PlacedBy     uuid.UUID
+	TotalGold    int32
+	PaidDay      *int32
+	PaidBy       *uuid.UUID
+	PaidGroupID  *uuid.UUID
+	CancelledDay *int32
+	CreatedAt    time.Time
+	CampaignID   uuid.UUID
+}
+
+type MarketOrderLine struct {
+	OrderID    uuid.UUID
+	Position   int32
+	ItemID     uuid.UUID
+	Name       string
+	UnitPrice  int32
+	Quantity   int32
+	Resources  []byte
+	Colonists  int32
+	RoleKey    *string
+	CampaignID uuid.UUID
+}
+
 type Npc struct {
 	ID              uuid.UUID
 	Name            string
@@ -1286,6 +1402,8 @@ type Settings struct {
 	CampaignID               uuid.UUID
 	DiscordEventLocation     string
 	IcsToken                 string
+	MarketVoyageDays         int32
+	MarketShipLimit          int32
 }
 
 type TimelineEvent struct {
