@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Schemas } from "@/api/client";
+import { formatAbsoluteTime } from "@/lib/time";
 import {
 	closeTimeText,
 	isPollOpen,
@@ -67,7 +68,7 @@ describe("closeTimeText", () => {
 	test("an early close shows when the DM closed it, not the deadline", () => {
 		const closedEarly = poll({ closed: true, closedAt: "2026-11-03T09:15:00Z" });
 		expect(closeTimeText(closedEarly, now)).toBe(
-			closeTimeText(poll({ closed: true, closesAt: "2026-11-03T09:15:00Z" }), now),
+			`Closed ${formatAbsoluteTime("2026-11-03T09:15:00Z")}`,
 		);
 	});
 	test("a passed deadline nobody recorded yet shows the deadline", () => {
@@ -131,6 +132,9 @@ describe("sameChoice", () => {
 	test("order doesn't matter", () => {
 		expect(sameChoice(["a", "b"], ["b", "a"])).toBe(true);
 		expect(sameChoice(["a"], ["a", "b"])).toBe(false);
+	});
+	test("equal-length choices with different options differ", () => {
+		expect(sameChoice(["a"], ["b"])).toBe(false);
 	});
 });
 

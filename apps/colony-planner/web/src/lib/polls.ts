@@ -6,8 +6,6 @@ type Poll = Schemas["Poll"];
 type PollOption = Schemas["PollOption"];
 
 // Discord's poll limits, which every poll takes so a poll could always be posted there.
-export const pollQuestionMaxLength = 300;
-export const pollOptionMaxLength = 55;
 export const pollFewestOptions = 2;
 export const pollMostOptions = 10;
 

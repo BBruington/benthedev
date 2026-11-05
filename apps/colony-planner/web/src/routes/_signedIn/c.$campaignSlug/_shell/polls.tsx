@@ -51,7 +51,7 @@ function PollsScreen() {
 	const queryClient = useQueryClient();
 	const polls = useQuery(pollsQuery(campaignId));
 	const createSheet = useSheetState<true>();
-	const { vote, votingPollId } = usePollVote();
+	const { vote, isVoting } = usePollVote();
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const [confirmTarget, setConfirmTarget] = useState<{ kind: PollConfirmKind; poll: Poll } | null>(
 		null,
@@ -126,17 +126,21 @@ function PollsScreen() {
 			/>
 		);
 	} else {
-		// A poll that passed its closing time while the page was open is the most recently closed.
+		// A poll that passed its closing time while the page was open joins the closed ones, newest close first.
 		const open = polls.data.open.filter((poll) => isPollOpen(poll, now));
 		const closed = [
 			...polls.data.open.filter((poll) => !isPollOpen(poll, now)),
 			...polls.data.closed,
-		];
+		].sort(
+			(first, second) =>
+				Date.parse(second.closedAt ?? second.closesAt) -
+				Date.parse(first.closedAt ?? first.closesAt),
+		);
 		const renderCard = (poll: Poll) => (
 			<PollCard
 				canManage={canManage}
 				canVote={canVote}
-				isVoting={votingPollId === poll.id}
+				isVoting={isVoting(poll.id)}
 				key={poll.id}
 				now={now}
 				onClose={() => {
@@ -146,7 +150,10 @@ function PollsScreen() {
 					confirm("delete", poll);
 				}}
 				onVote={(optionIds) => {
-					vote(poll.id, optionIds);
+					// The vote form remounts with the new choice, so focus goes to the poll's heading.
+					vote(poll.id, optionIds, () => {
+						focusAfterClose(pollHeadingId(poll.id));
+					});
 				}}
 				poll={poll}
 			/>

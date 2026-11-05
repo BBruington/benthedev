@@ -18,8 +18,6 @@ import {
 	pollDurationChoices,
 	pollFewestOptions,
 	pollMostOptions,
-	pollOptionMaxLength,
-	pollQuestionMaxLength,
 } from "@/lib/polls";
 import { focusAfterClose } from "@/people/colonist-actions";
 import { SheetButtons } from "@/people/workforce-sheets";
@@ -129,7 +127,6 @@ export function CreatePollSheet({
 						{...fieldInputProps("poll-question", serverErrors.question, false)}
 						autoComplete="off"
 						autoFocus
-						maxLength={pollQuestionMaxLength}
 						onChange={(event) => {
 							setQuestion(event.target.value);
 							edited();
@@ -150,7 +147,6 @@ export function CreatePollSheet({
 								aria-label={`Option ${index + 1}`}
 								autoComplete="off"
 								id={`poll-option-${option.key}`}
-								maxLength={pollOptionMaxLength}
 								onChange={(event) => {
 									const label = event.target.value;
 									setOptions((current) =>

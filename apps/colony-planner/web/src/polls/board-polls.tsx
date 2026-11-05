@@ -23,7 +23,7 @@ const boardPollsHeadingId = "board-polls-heading";
 export function BoardPolls({ isDm }: { isDm: boolean }) {
 	const { campaignId, slug } = useCampaign();
 	const polls = useQuery(pollsQuery(campaignId));
-	const { vote, votingPollId } = usePollVote();
+	const { vote, isVoting } = usePollVote();
 	const now = usePollClock();
 	const open = (polls.data?.open ?? []).filter((poll) => isPollOpen(poll, now));
 	if (open.length === 0) {
@@ -60,7 +60,7 @@ export function BoardPolls({ isDm }: { isDm: boolean }) {
 			</div>
 			{toVote.map((poll) => (
 				<BoardVote
-					isSaving={votingPollId === poll.id}
+					isSaving={isVoting(poll.id)}
 					key={poll.id}
 					now={now}
 					onVote={(optionIds) => {

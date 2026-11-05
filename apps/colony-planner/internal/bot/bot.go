@@ -95,6 +95,7 @@ type colonyService interface {
 	PollForDiscord(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID) (core.DiscordPoll, error)
 	RecordPollMessage(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, input core.RecordPollMessageInput) error
 	SyncDiscordPollVotes(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, votes map[int][]string) error
+	DiscordPollsToEnd(requestContext context.Context, campaignID uuid.UUID) ([]core.PollDiscordMessage, error)
 }
 
 var (
@@ -129,15 +130,26 @@ type Bot struct {
 	pollVoteDelay time.Duration
 
 	// pollMutex guards pollWorkers, pollVoteWorkers, pollDeadlines, pollDeadlineSequence, pollLocks,
-	// pollPostRetries, pollMessages, pollsClosing and pollVotesStale. Take it after mutex, never before,
-	// and never hold it while taking a poll's lock.
+	// pollPostRetries, pollVoteRetries, pollPosts, pollEnds, pollReloadRetry, pollMessages, pollsClosing and
+	// pollVotesStale. Take it after mutex, never before, and never hold it while taking a poll's lock.
 	pollMutex            sync.Mutex
 	pollWorkers          map[uuid.UUID]*pollWork
 	pollVoteWorkers      map[uuid.UUID]*pollWork
 	pollDeadlines        map[uuid.UUID]pollDeadline
 	pollDeadlineSequence uint64
 	pollLocks            map[uuid.UUID]*pollLock
-	pollPostRetries      map[uuid.UUID]pollPostRetry
+	pollPostRetries      map[uuid.UUID]pollRetry
+	// pollVoteRetries are the polls whose last vote sync failed, read again after a back-off.
+	pollVoteRetries map[uuid.UUID]pollRetry
+	// pollPosts are what Beny Bot keeps of a poll's earlier unrecorded posts: how many it deleted, which
+	// picks the next post's nonce, and the message it couldn't delete, which goes before any new post.
+	pollPosts map[uuid.UUID]pollPost
+	// pollEnds are the polls the DM closed early that Beny Bot ends in Discord, kept once ended so a
+	// later change doesn't end them again, until Discord's own deadline passes.
+	pollEnds map[uuid.UUID]pollEnd
+	// pollReloadRetry backs off the planner's next reload after a campaign's poll read failed; its zero
+	// value means no reload is pending.
+	pollReloadRetry pollRetry
 	// pollMessages is keyed by Discord message ID.
 	pollMessages map[string]pollMessage
 	// pollsClosing holds the polls whose deadline close is running, so a later tick doesn't start another.
@@ -206,7 +218,10 @@ func newBot(options Options, client discordClient, state gatewayState, now func(
 		pollVoteWorkers:   map[uuid.UUID]*pollWork{},
 		pollDeadlines:     map[uuid.UUID]pollDeadline{},
 		pollLocks:         map[uuid.UUID]*pollLock{},
-		pollPostRetries:   map[uuid.UUID]pollPostRetry{},
+		pollPostRetries:   map[uuid.UUID]pollRetry{},
+		pollVoteRetries:   map[uuid.UUID]pollRetry{},
+		pollPosts:         map[uuid.UUID]pollPost{},
+		pollEnds:          map[uuid.UUID]pollEnd{},
 		pollMessages:      map[string]pollMessage{},
 		pollsClosing:      map[uuid.UUID]bool{},
 		stopSignal:        make(chan struct{}),

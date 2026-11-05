@@ -77,14 +77,15 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 		// The caller's own membership or session changed: their status here, the picker's card, and
 		// view as player (a session toggle that the account read carries too).
 		me: [campaignMeQuery(campaignId).queryKey, myCampaignsQuery.queryKey, meQuery.queryKey],
-		// Requests, a patron's request history among them, and the market's cart and orders name their
-		// member by character name.
+		// Requests, a patron's request history among them, the market's cart and orders, and poll voters
+		// name their member by character name.
 		members: [
 			membersQuery(campaignId).queryKey,
 			requestsQueryKeyPrefix(campaignId),
 			requestQueryKeyPrefix(campaignId),
 			patronQueryKeyPrefix(campaignId),
 			marketQuery(campaignId).queryKey,
+			pollsQuery(campaignId).queryKey,
 		],
 		// Quests show their giver NPC by display name, and only while that NPC is visible.
 		npcs: [
@@ -142,13 +143,15 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 			npcsQueryKeyPrefix(campaignId),
 			npcQueryKeyPrefix(campaignId),
 		],
-		// The Discord card and its channel list live under settings; so does the campaign name.
+		// The Discord card and its channel list live under settings; so does the campaign name. A new
+		// poll's voting follows the server link and its channel.
 		settings: [
 			settingsQuery(campaignId).queryKey,
 			inviteLinkQuery(campaignId).queryKey,
 			discordChannelsQuery(campaignId).queryKey,
 			campaignMeQuery(campaignId).queryKey,
 			myCampaignsQuery.queryKey,
+			pollsQuery(campaignId).queryKey,
 		],
 		timeline: [timelineQueryKeyPrefix(campaignId), recentTimelineQuery(campaignId).queryKey],
 	};

@@ -94,12 +94,26 @@ WHERE campaign_id = @campaign_id AND closed_at IS NULL
 ORDER BY closes_at, id;
 
 -- Only the first post on an open poll is recorded, so a second process's post during a deploy overlap
--- and a post that lost to a close are refused.
+-- and a post that lost to a close are refused. So is a post in a server the campaign is no longer linked
+-- to: unlink deletes the link row without touching poll, so the share lock makes an unlink in flight
+-- finish first and the check then sees it.
 -- name: RecordPollMessage :execrows
 UPDATE poll SET discord_guild_id = @discord_guild_id, discord_channel_id = @discord_channel_id,
   discord_message_id = @discord_message_id, closes_at = @closes_at
-WHERE campaign_id = @campaign_id AND id = @id AND voting = 'DISCORD' AND discord_message_id IS NULL
-  AND closed_at IS NULL;
+WHERE poll.campaign_id = @campaign_id AND poll.id = @id AND poll.voting = 'DISCORD'
+  AND poll.discord_message_id IS NULL AND poll.closed_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM discord_guild_link
+    WHERE discord_guild_link.campaign_id = @campaign_id AND discord_guild_link.guild_id = @discord_guild_id
+    FOR KEY SHARE
+  );
+
+-- A DISCORD poll the DM closed before its Discord poll expires, which Beny Bot still has to end.
+-- name: ListDiscordPollsToEnd :many
+SELECT id, discord_channel_id::text AS discord_channel_id, discord_message_id::text AS discord_message_id FROM poll
+WHERE campaign_id = @campaign_id AND voting = 'DISCORD' AND closed_at IS NOT NULL
+  AND discord_channel_id IS NOT NULL AND discord_message_id IS NOT NULL AND closes_at > @now::timestamptz
+ORDER BY closes_at, id;
 
 -- answer_ids is in option position order.
 -- name: SetPollOptionAnswerIDs :exec

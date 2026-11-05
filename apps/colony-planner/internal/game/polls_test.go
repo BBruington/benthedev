@@ -18,6 +18,7 @@ func TestCheckPollOptions(t *testing.T) {
 		{name: "eleven options", labels: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}, message: "Give 2 to 10 options"},
 		{name: "same ignoring case", labels: []string{"By the river", "by THE river"}, message: "Each option must be different"},
 		{name: "same ignoring spaces", labels: []string{"Mill", " Mill "}, message: "Each option must be different"},
+		{name: "same ignoring final sigma", labels: []string{"ΟΔΟΣ", "οδος"}, message: "Each option must be different"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

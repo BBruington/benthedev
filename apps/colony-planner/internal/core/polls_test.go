@@ -287,6 +287,9 @@ func TestAPollPastItsDeadlineIsClosed(t *testing.T) {
 	}
 
 	test.clock.advance(2 * time.Hour)
+	if list := test.polls(test.player); len(list.Open) != 0 || len(list.Closed) != 1 || !list.Closed[0].Closed || list.Closed[0].CloseRecorded || len(test.pollClosedEntries()) != 0 {
+		t.Fatalf("a read recorded the close: %+v", list)
+	}
 	_, err = test.service.VotePoll(test.context, test.player, poll.ID, []uuid.UUID{poll.Options[0].ID})
 	requireMessage(t, err, core.KindConflict, "This poll is closed.")
 	list := test.polls(test.player)
@@ -434,6 +437,13 @@ func TestASecondDiscordMessageIsRefused(t *testing.T) {
 	wantURL := "https://discord.com/channels/" + pollGuildID + "/" + pollAnnounceChannel + "/" + pollDiscordMessageID
 	if listed := test.polls(test.player).Open; len(listed) != 2 || listed[0].ID != poll.ID || listed[0].DiscordURL == nil || *listed[0].DiscordURL != wantURL || listed[1].DiscordURL != nil {
 		t.Fatalf("player's polls = %+v; want the Discord link", listed)
+	}
+	same := core.RecordPollMessageInput{GuildID: pollGuildID, ChannelID: pollAnnounceChannel, MessageID: pollDiscordMessageID, Expiry: expiry.Add(time.Hour), AnswerIDs: []int{7, 8}}
+	if err := test.service.RecordPollMessage(test.context, test.campaignID, poll.ID, same); err != nil {
+		t.Fatalf("recording the held message again = %v; want nil", err)
+	}
+	if again, err := test.service.PollForDiscord(test.context, test.campaignID, poll.ID); err != nil || !sameInts(again.AnswerIDs, 1, 2) || !again.Poll.ClosesAt.Equal(expiry) {
+		t.Fatalf("after recording the held message again = %+v, %v; want it unchanged", again, err)
 	}
 	other := core.RecordPollMessageInput{GuildID: pollGuildID, ChannelID: pollAnnounceChannel, MessageID: "920000000000000073", Expiry: expiry}
 	if err := test.service.RecordPollMessage(test.context, test.campaignID, uuid.New(), other); !errors.Is(err, core.ErrNoSuchPoll) {
@@ -623,5 +633,65 @@ func TestChangingAVoteKeepsTheVoterOrder(t *testing.T) {
 	after := test.vote(test.player, poll.ID, first, second).Options[0].Voters
 	if len(before) != 2 || len(after) != 2 || before[0] != after[0] || before[1] != after[1] {
 		t.Fatalf("voters after a change = %+v; want %+v", after, before)
+	}
+}
+
+func TestARecordInAServerNoLongerLinkedIsRefused(t *testing.T) {
+	test := newColonyTest(t)
+	test.linkPollServer()
+	poll := test.poll(false, 24, "A", "B")
+	err := test.service.RecordPollMessage(test.context, test.campaignID, poll.ID, core.RecordPollMessageInput{
+		GuildID: "800000000000000099", ChannelID: pollAnnounceChannel, MessageID: pollDiscordMessageID, Expiry: test.clock.Now().Add(24 * time.Hour), AnswerIDs: []int{1, 2},
+	})
+	if !errors.Is(err, core.ErrPollServerChanged) {
+		t.Fatalf("record in another server = %v; want ErrPollServerChanged", err)
+	}
+	discord, err := test.service.PollForDiscord(test.context, test.campaignID, poll.ID)
+	if err != nil || discord.MessageID != "" || discord.GuildID != "" {
+		t.Fatalf("poll after a refused record = %+v, %v; want it unposted", discord, err)
+	}
+}
+
+func TestASingleAnswerSnapshotWithADoubleVoterWritesNothing(t *testing.T) {
+	test := newColonyTest(t)
+	test.linkPollServer()
+	poll := test.poll(false, 24, "A", "B")
+	test.postToDiscord(poll, test.clock.Now().Add(24*time.Hour))
+	test.sync(poll.ID, map[int][]string{1: {"seed:ana"}})
+	err := test.service.SyncDiscordPollVotes(test.context, test.campaignID, poll.ID, map[int][]string{1: {"seed:ana"}, 2: {"seed:ana"}})
+	if !errors.Is(err, core.ErrPollVotesInconsistent) {
+		t.Fatalf("sync with a double voter = %v; want ErrPollVotesInconsistent", err)
+	}
+	if counts := optionCounts(test.polls(test.dm).Open[0]); !slices.Equal(counts, []int64{1, 0}) {
+		t.Fatalf("counts after a refused sync = %v; want the last sync's", counts)
+	}
+}
+
+func TestAnEarlyClosedDiscordPollIsToEndUntilItsExpiry(t *testing.T) {
+	test := newColonyTest(t)
+	test.linkPollServer()
+	poll := test.poll(false, 24, "A", "B")
+	test.postToDiscord(poll, test.clock.Now().Add(24*time.Hour))
+	toEnd := func() []core.PollDiscordMessage {
+		t.Helper()
+		messages, err := test.service.DiscordPollsToEnd(test.context, test.campaignID)
+		if err != nil {
+			t.Fatalf("polls to end: %v", err)
+		}
+		return messages
+	}
+	if messages := toEnd(); len(messages) != 0 {
+		t.Fatalf("an open poll is to end: %+v", messages)
+	}
+	if _, err := test.service.ClosePoll(test.context, test.dm, poll.ID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	want := []core.PollDiscordMessage{{PollID: poll.ID, ChannelID: pollAnnounceChannel, MessageID: pollDiscordMessageID}}
+	if messages := toEnd(); !slices.Equal(messages, want) {
+		t.Fatalf("polls to end after an early close = %+v; want %+v", messages, want)
+	}
+	test.clock.advance(24 * time.Hour)
+	if messages := toEnd(); messages == nil || len(messages) != 0 {
+		t.Fatalf("polls to end after the expiry = %#v; want an empty list", messages)
 	}
 }

@@ -27,13 +27,15 @@ func CheckPollOptions(labels []string) error {
 	if len(labels) < MinPollOptions || len(labels) > MaxPollOptions {
 		return invalid("options", "Give 2 to 10 options")
 	}
-	seen := make(map[string]struct{}, len(labels))
+	trimmed := make([]string, 0, len(labels))
 	for _, label := range labels {
-		folded := strings.ToLower(strings.TrimSpace(label))
-		if _, duplicate := seen[folded]; duplicate {
-			return invalid("options", "Each option must be different")
+		label = strings.TrimSpace(label)
+		for _, earlier := range trimmed {
+			if strings.EqualFold(earlier, label) {
+				return invalid("options", "Each option must be different")
+			}
 		}
-		seen[folded] = struct{}{}
+		trimmed = append(trimmed, label)
 	}
 	return nil
 }

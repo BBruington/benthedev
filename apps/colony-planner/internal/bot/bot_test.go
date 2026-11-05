@@ -66,6 +66,7 @@ type commandOverwrite struct {
 type sentMessage struct {
 	channelID string
 	message   *discordgo.MessageSend
+	nonce     string
 }
 
 // discordAnswers is Discord's one answer per interaction, shared by every process that receives it. A
@@ -111,13 +112,21 @@ type fakeDiscordClient struct {
 	voterError error
 	// voterRead, when set, runs outside the mutex on every voter read and returns the page Discord answers.
 	voterRead func(messageID string, answerID int, rawQuery string, page []byte) ([]byte, error)
-	// pollExpires are the message IDs of polls Beny Bot ended early.
+	// pollExpires are the message IDs of polls Beny Bot ended early, failed tries included.
 	pollExpires []string
+	// expireError, when set, is Discord's answer to ending a poll.
+	expireError error
+	// deleteError, when set, is Discord's answer to deleting a message.
+	deleteError error
 	// now dates a posted poll's expiry, the world's clock in a world.
-	now              func() time.Time
-	answers          *discordAnswers
-	directChannels   []string
-	sendError        error
+	now            func() time.Time
+	answers        *discordAnswers
+	directChannels []string
+	sendError      error
+	// answerLost has Discord post a message but the answer never reach Beny Bot.
+	answerLost error
+	// nonces are the message each enforced nonce returns, deleted since or not.
+	nonces           map[string]*discordgo.Message
 	readError        error
 	openedSignal     chan struct{}
 	openedSignalOnce sync.Once
@@ -137,6 +146,7 @@ func newFakeDiscordClient() *fakeDiscordClient {
 	return &fakeDiscordClient{
 		openedSignal:    make(chan struct{}),
 		posted:          map[string]*discordgo.Message{},
+		nonces:          map[string]*discordgo.Message{},
 		scheduledEvents: map[string][]*discordgo.GuildScheduledEvent{},
 		pollVoters:      map[string]map[int][]string{},
 		now:             time.Now,
@@ -190,7 +200,17 @@ func (fake *fakeDiscordClient) InteractionRespond(interaction *discordgo.Interac
 func (fake *fakeDiscordClient) ChannelMessageSendComplex(channelID string, message *discordgo.MessageSend, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
 	fake.mutex.Lock()
 	defer fake.mutex.Unlock()
-	fake.messages = append(fake.messages, sentMessage{channelID: channelID, message: message})
+	return fake.sendLocked(channelID, message, "")
+}
+
+// sendLocked posts the message; a nonce Discord already posted under returns that message instead, even
+// once it is deleted.
+func (fake *fakeDiscordClient) sendLocked(channelID string, message *discordgo.MessageSend, nonce string) (*discordgo.Message, error) {
+	if posted, found := fake.nonces[nonce]; found && nonce != "" {
+		copied := *posted
+		return &copied, nil
+	}
+	fake.messages = append(fake.messages, sentMessage{channelID: channelID, message: message, nonce: nonce})
 	if fake.sendError != nil {
 		return nil, fake.sendError
 	}
@@ -213,6 +233,12 @@ func (fake *fakeDiscordClient) ChannelMessageSendComplex(channelID string, messa
 		posted.Poll = &poll
 	}
 	fake.posted[posted.ID] = posted
+	if nonce != "" {
+		fake.nonces[nonce] = posted
+	}
+	if fake.answerLost != nil {
+		return nil, fake.answerLost
+	}
 	copied := *posted
 	return &copied, nil
 }
@@ -255,6 +281,9 @@ func (fake *fakeDiscordClient) ChannelMessageDelete(channelID string, messageID 
 	fake.mutex.Lock()
 	defer fake.mutex.Unlock()
 	fake.deletes = append(fake.deletes, messageID)
+	if fake.deleteError != nil {
+		return fake.deleteError
+	}
 	posted, found := fake.posted[messageID]
 	if !found || posted.ChannelID != channelID {
 		return errUnknownMessage
@@ -270,13 +299,30 @@ func (fake *fakeDiscordClient) FollowupMessageCreate(_ *discordgo.Interaction, _
 	return &discordgo.Message{Content: data.Content}, nil
 }
 
-func (fake *fakeDiscordClient) RequestWithBucketID(method string, urlStr string, _ any, _ string, _ ...discordgo.RequestOption) ([]byte, error) {
+func (fake *fakeDiscordClient) RequestWithBucketID(method string, urlStr string, data any, _ string, _ ...discordgo.RequestOption) ([]byte, error) {
 	fake.mutex.Lock()
 	endpoint, rawQuery, _ := strings.Cut(urlStr, "?")
+	if unique, isMessage := data.(uniqueMessageSend); isMessage && method == "POST" && strings.HasSuffix(endpoint, "/messages") {
+		channelID := strings.TrimSuffix(strings.TrimPrefix(endpoint, discordgo.EndpointChannels), "/messages")
+		var posted *discordgo.Message
+		err := errors.New("a nonce without enforce_nonce")
+		if unique.EnforceNonce && endpoint == discordgo.EndpointChannelMessages(channelID) {
+			posted, err = fake.sendLocked(channelID, unique.MessageSend, unique.Nonce)
+		}
+		fake.mutex.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(posted)
+	}
 	for messageID, posted := range fake.posted {
 		if method == "POST" && endpoint == discordgo.EndpointPollExpire(posted.ChannelID, messageID) {
 			fake.pollExpires = append(fake.pollExpires, messageID)
+			expireError := fake.expireError
 			fake.mutex.Unlock()
+			if expireError != nil {
+				return nil, expireError
+			}
 			return []byte("{}"), nil
 		}
 		if method != "GET" || posted.Poll == nil {
@@ -465,6 +511,19 @@ func (fake *fakeDiscordClient) messagesTo(channelID string) []sentMessage {
 	for _, message := range fake.messages {
 		if message.channelID == channelID {
 			found = append(found, message)
+		}
+	}
+	return found
+}
+
+// standingIn is the channel's messages Discord shows now, deleted ones gone.
+func (fake *fakeDiscordClient) standingIn(channelID string) []*discordgo.Message {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	var found []*discordgo.Message
+	for _, posted := range fake.posted {
+		if posted.ChannelID == channelID {
+			found = append(found, posted)
 		}
 	}
 	return found
@@ -970,6 +1029,10 @@ func (failingService) RecordDiscordEventStatus(context.Context, string, string, 
 }
 
 func (failingService) PollDeadlines(context.Context, uuid.UUID) ([]core.PollDeadline, error) {
+	return nil, errDatabaseDown
+}
+
+func (failingService) DiscordPollsToEnd(context.Context, uuid.UUID) ([]core.PollDiscordMessage, error) {
 	return nil, errDatabaseDown
 }
 

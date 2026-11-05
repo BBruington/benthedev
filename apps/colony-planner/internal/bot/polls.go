@@ -2,6 +2,8 @@ package bot
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -28,6 +30,9 @@ const (
 	pollVoteSyncTimeout = 30 * time.Second
 	// pollMaxDurationHours is Discord's longest poll, 32 days.
 	pollMaxDurationHours = 768
+	// discordPollExpiredCode is Discord's "Poll expired": the poll had already ended. discordgo has no
+	// constant for it.
+	discordPollExpiredCode = 520001
 )
 
 // pollWork is one poll's running worker; dirty means another change arrived meanwhile.
@@ -44,11 +49,31 @@ type pollDeadline struct {
 	sequence uint64
 }
 
-// pollPostRetry is when the planner tries again to post a poll whose post failed, and the wait after.
-type pollPostRetry struct {
+// pollRetry is when the planner next tries a poll's failed post, vote read or end, and the wait after.
+type pollRetry struct {
 	campaignID uuid.UUID
 	at         time.Time
 	delay      time.Duration
+}
+
+// pollEnd is a posted poll the DM closed early, which Beny Bot ends in Discord; until ended, the retry
+// is when it tries again.
+type pollEnd struct {
+	pollRetry
+	channelID string
+	messageID string
+	ended     bool
+	// sequence orders this entry against a planner reload that read the database before it was set.
+	sequence uint64
+}
+
+// pollPost is what Beny Bot keeps of a poll's earlier posts that it couldn't record.
+type pollPost struct {
+	// deleted counts the ones it deleted; each changes the next post's nonce.
+	deleted uint16
+	// standingChannelID and standingMessageID are the one it couldn't delete.
+	standingChannelID string
+	standingMessageID string
 }
 
 // pollMessage is the open campaign poll a posted Discord message holds, so vote events for any other
@@ -82,7 +107,8 @@ func (benyBot *Bot) PollChanged(campaignID uuid.UUID, pollID uuid.UUID) {
 	})
 }
 
-// requestPollVoteSync reads a poll's voters from Discord shortly, once for every burst of vote events.
+// requestPollVoteSync reads a poll's voters from Discord shortly, once for every burst of vote events. A
+// read that fails is tried again after a back-off, since no vote event may come to start another.
 func (benyBot *Bot) requestPollVoteSync(campaignID uuid.UUID, pollID uuid.UUID) {
 	benyBot.startPollWorker(benyBot.pollVoteWorkers, "poll votes", pollID, func(service colonyService) {
 		if !benyBot.pause(benyBot.pollVoteDelay) {
@@ -98,8 +124,11 @@ func (benyBot *Bot) requestPollVoteSync(campaignID uuid.UUID, pollID uuid.UUID) 
 		cancel()
 		unlock()
 		if err != nil {
-			benyBot.options.Logger.Warn("Beny Bot couldn't sync a poll's votes", slog.String("campaign_id", campaignID.String()), slog.String("poll_id", pollID.String()), slog.Any("error", err))
+			retryIn := benyBot.schedulePollRetry(benyBot.pollVoteRetries, campaignID, pollID)
+			benyBot.options.Logger.Warn("Beny Bot couldn't sync a poll's votes; it tries again later", slog.String("campaign_id", campaignID.String()), slog.String("poll_id", pollID.String()), slog.Duration("retry_in", retryIn), slog.Any("error", err))
+			return
 		}
+		benyBot.clearPollRetry(benyBot.pollVoteRetries, pollID)
 	})
 }
 
@@ -195,7 +224,8 @@ func (benyBot *Bot) syncPoll(service colonyService, campaignID uuid.UUID, pollID
 	logger := benyBot.options.Logger.With(slog.String("campaign_id", campaignID.String()), slog.String("poll_id", pollID.String()))
 	target, found, err := service.DiscordTargetFor(readContext, campaignID)
 	if err != nil {
-		logger.Error("Beny Bot couldn't read the campaign's Discord server", slog.Any("error", err))
+		retryIn := benyBot.schedulePollRetry(benyBot.pollPostRetries, campaignID, pollID)
+		logger.Error("Beny Bot couldn't read the campaign's Discord server; it tries again later", slog.Duration("retry_in", retryIn), slog.Any("error", err))
 		return
 	}
 	if !found {
@@ -209,15 +239,15 @@ func (benyBot *Bot) syncPoll(service colonyService, campaignID uuid.UUID, pollID
 		return
 	}
 	if err != nil {
-		logger.Error("Beny Bot couldn't read a poll", slog.Any("error", err))
+		retryIn := benyBot.schedulePollRetry(benyBot.pollPostRetries, campaignID, pollID)
+		logger.Error("Beny Bot couldn't read a poll; it tries again later", slog.Duration("retry_in", retryIn), slog.Any("error", err))
 		return
 	}
 	poll := discordPoll.Poll
 	if poll.CloseRecorded {
-		// Only a poll the timer still tracked was open in Discord, so each early close ends it once.
-		tracked := benyBot.forgetPollDeadline(pollID)
-		if tracked && discordPoll.MessageID != "" && poll.ClosedAt != nil && poll.ClosedAt.Before(poll.ClosesAt) {
-			benyBot.expirePoll(readContext, logger, discordPoll)
+		benyBot.forgetPollDeadline(pollID)
+		if discordPoll.MessageID != "" && poll.ClosedAt != nil && poll.ClosedAt.Before(poll.ClosesAt) && poll.ClosesAt.After(benyBot.now()) {
+			benyBot.endPollInDiscord(campaignID, core.PollDiscordMessage{PollID: pollID, ChannelID: discordPoll.ChannelID, MessageID: discordPoll.MessageID})
 		}
 		return
 	}
@@ -260,11 +290,17 @@ func (benyBot *Bot) postPoll(postContext context.Context, logger *slog.Logger, s
 	if !open {
 		return
 	}
+	nonce, cleared := benyBot.clearStandingPost(postContext, logger, poll.ID)
+	if !cleared {
+		retryIn := benyBot.schedulePollRetry(benyBot.pollPostRetries, campaignID, poll.ID)
+		logger.Warn("Beny Bot couldn't delete an earlier post of a poll; it posts the poll once that's gone", slog.Duration("retry_in", retryIn))
+		return
+	}
 	answers := make([]discordgo.PollAnswer, 0, len(poll.Options))
 	for _, option := range poll.Options {
 		answers = append(answers, discordgo.PollAnswer{Media: &discordgo.PollMedia{Text: option.Label}})
 	}
-	posted, failed := benyBot.postToCampaign(postContext, service, campaignID, announceChannel, &discordgo.MessageSend{
+	posted, failed := benyBot.postToCampaignOnce(postContext, service, campaignID, announceChannel, &discordgo.MessageSend{
 		Content: pollAnnouncement(benyBot.pollsURL(target.CampaignSlug)),
 		Poll: &discordgo.Poll{
 			Question:         discordgo.PollMedia{Text: poll.Question},
@@ -272,10 +308,10 @@ func (benyBot *Bot) postPoll(postContext context.Context, logger *slog.Logger, s
 			AllowMultiselect: poll.AllowMultiple,
 			Duration:         duration,
 		},
-	}, nil)
+	}, nil, nonce)
 	if posted == nil {
 		if failed {
-			retryIn := benyBot.schedulePollPostRetry(campaignID, poll.ID)
+			retryIn := benyBot.schedulePollRetry(benyBot.pollPostRetries, campaignID, poll.ID)
 			logger.Warn("Beny Bot couldn't post a poll; it tries again later", slog.Duration("retry_in", retryIn))
 			return
 		}
@@ -308,28 +344,86 @@ func (benyBot *Bot) postPoll(postContext context.Context, logger *slog.Logger, s
 	if err != nil {
 		// An unrecorded poll would never count its votes or be deleted, so it goes rather than linger.
 		lostToAnother := errors.Is(err, core.ErrPollAlreadyPosted) || errors.Is(err, core.ErrPollClosed)
+		serverChanged := errors.Is(err, core.ErrPollServerChanged)
 		switch {
 		case errors.Is(err, core.ErrPollAlreadyPosted):
 			logger.Info("another process posted this poll first; Beny Bot deletes its duplicate message")
 		case errors.Is(err, core.ErrPollClosed):
 			logger.Info("the poll closed before Beny Bot recorded its message; Beny Bot deletes the message")
+		case serverChanged:
+			logger.Info("the campaign's server changed before Beny Bot recorded its poll; Beny Bot deletes the message")
 		default:
 			logger.Warn("Beny Bot couldn't record a poll's message; it deletes the message", slog.Any("error", err))
 		}
-		benyBot.deletePollMessage(recordContext, logger, posted.ChannelID, posted.ID)
-		if lostToAnother {
+		deleted := benyBot.deletePollMessage(recordContext, logger, posted.ChannelID, posted.ID)
+		switch {
+		case lostToAnother:
 			// This worker runs syncPoll again, which caches the winning message and its recorded deadline.
 			benyBot.PollChanged(campaignID, poll.ID)
+		case serverChanged:
+			// The relink re-plans the campaign, which posts the poll in the new server.
+		default:
+			benyBot.keepUnrecordedPost(poll.ID, posted, deleted)
+			retryIn := benyBot.schedulePollRetry(benyBot.pollPostRetries, campaignID, poll.ID)
+			logger.Warn("Beny Bot posts the poll again later", slog.Duration("retry_in", retryIn))
 		}
 		return
 	}
+	benyBot.pollMutex.Lock()
+	delete(benyBot.pollPosts, poll.ID)
+	benyBot.pollMutex.Unlock()
 	benyBot.setPollDeadline(poll.ID, campaignID, input.Expiry)
 	benyBot.rememberPollMessage(posted.ID, pollMessage{guildID: target.GuildID, campaignID: campaignID, pollID: poll.ID})
+	// Votes cast before the message was remembered had their events ignored.
+	benyBot.requestPollVoteSync(campaignID, poll.ID)
+}
+
+// clearStandingPost deletes the poll's earlier post Beny Bot couldn't delete, so a new post never stands
+// beside it, and returns the new post's nonce; cleared is false while that post still stands.
+func (benyBot *Bot) clearStandingPost(postContext context.Context, logger *slog.Logger, pollID uuid.UUID) (nonce string, cleared bool) {
+	benyBot.pollMutex.Lock()
+	post := benyBot.pollPosts[pollID]
+	benyBot.pollMutex.Unlock()
+	if post.standingMessageID != "" {
+		if !benyBot.deletePollMessage(postContext, logger, post.standingChannelID, post.standingMessageID) {
+			return "", false
+		}
+		benyBot.pollMutex.Lock()
+		post = benyBot.pollPosts[pollID]
+		post.standingChannelID, post.standingMessageID = "", ""
+		post.deleted++
+		benyBot.pollPosts[pollID] = post
+		benyBot.pollMutex.Unlock()
+	}
+	return pollNonce(pollID, post.deleted), true
+}
+
+// keepUnrecordedPost notes a post that couldn't be recorded: a deleted one changes the next nonce, and
+// one still standing must go before the poll is posted again.
+func (benyBot *Bot) keepUnrecordedPost(pollID uuid.UUID, posted *discordgo.Message, deleted bool) {
+	benyBot.pollMutex.Lock()
+	defer benyBot.pollMutex.Unlock()
+	post := benyBot.pollPosts[pollID]
+	if deleted {
+		post.deleted++
+	} else {
+		post.standingChannelID, post.standingMessageID = posted.ChannelID, posted.ID
+	}
+	benyBot.pollPosts[pollID] = post
+}
+
+// pollNonce names one post of a poll: Discord answers a repeat within its window of a few minutes with
+// the message already posted, so a send whose answer was lost and is retried soon posts once; a later
+// retry may post twice. deleted, the posts Beny Bot deleted, changes it, since a repeat could be answered
+// with the deleted message. It is 24 characters, within Discord's 25.
+func pollNonce(pollID uuid.UUID, deleted uint16) string {
+	return base64.RawURLEncoding.EncodeToString(binary.BigEndian.AppendUint16(pollID[:], deleted))
 }
 
 var (
-	errPollAnswersMissing = errors.New("discord returned a poll without one answer per option")
-	errPollVotersStuck    = errors.New("discord returned a full page of poll voters that doesn't advance")
+	errPollAnswersMissing  = errors.New("discord returned a poll without one answer per option")
+	errPollVotersStuck     = errors.New("discord returned a full page of poll voters that doesn't advance")
+	errPollVotersTruncated = errors.New("a poll's answer has more voters than Beny Bot reads")
 )
 
 // pollDurationHours is the whole hours, within Discord's limits, that end the poll at or just after
@@ -348,12 +442,71 @@ func pollAnnouncement(pollsURL string) string {
 	return "New poll: vote below. Every poll and its results: " + pollsURL
 }
 
-// expirePoll ends a posted poll the DM closed before its deadline, best effort.
-func (benyBot *Bot) expirePoll(postContext context.Context, logger *slog.Logger, discordPoll core.DiscordPoll) {
-	endpoint := discordgo.EndpointPollExpire(discordPoll.ChannelID, discordPoll.MessageID)
-	if _, err := benyBot.client.RequestWithBucketID("POST", endpoint, nil, endpoint, discordgo.WithContext(postContext)); err != nil {
-		logger.Warn("Beny Bot couldn't end a closed poll in Discord", slog.String("channel_id", discordPoll.ChannelID), slog.String("message_id", discordPoll.MessageID), slog.Any("error", err))
+// endPollInDiscord ends a posted poll the DM closed early, once per poll, in the background.
+func (benyBot *Bot) endPollInDiscord(campaignID uuid.UUID, message core.PollDiscordMessage) {
+	benyBot.pollMutex.Lock()
+	if _, known := benyBot.pollEnds[message.PollID]; known {
+		benyBot.pollMutex.Unlock()
+		return
 	}
+	benyBot.pollDeadlineSequence++
+	// The retry stands in case the first try never runs; a try that fails replaces it.
+	benyBot.pollEnds[message.PollID] = pollEnd{
+		pollRetry: pollRetry{campaignID: campaignID, at: benyBot.now().Add(firstRetryDelay), delay: firstRetryDelay},
+		channelID: message.ChannelID,
+		messageID: message.MessageID,
+		sequence:  benyBot.pollDeadlineSequence,
+	}
+	benyBot.pollMutex.Unlock()
+	benyBot.signalPollsChanged()
+	benyBot.inBackground(context.Background(), "poll end", func(postContext context.Context, _ colonyService) {
+		benyBot.runPollEnd(postContext, message.PollID)
+	})
+}
+
+// runPollEnd asks Discord to end the poll. A poll already gone or ended counts as ended, and so does one
+// Beny Bot may no longer reach, since trying again wouldn't change Discord's answer.
+func (benyBot *Bot) runPollEnd(postContext context.Context, pollID uuid.UUID) {
+	benyBot.pollMutex.Lock()
+	end, found := benyBot.pollEnds[pollID]
+	benyBot.pollMutex.Unlock()
+	if !found || end.ended {
+		return
+	}
+	endpoint := discordgo.EndpointPollExpire(end.channelID, end.messageID)
+	_, err := benyBot.client.RequestWithBucketID("POST", endpoint, nil, endpoint, discordgo.WithContext(postContext))
+	benyBot.pollMutex.Lock()
+	end, found = benyBot.pollEnds[pollID]
+	if !found {
+		benyBot.pollMutex.Unlock()
+		return
+	}
+	if err == nil || isDiscordError(err, discordPollExpiredCode, discordgo.ErrCodeUnknownMessage, discordgo.ErrCodeUnknownChannel,
+		discordgo.ErrCodeMissingAccess, discordgo.ErrCodeMissingPermissions) {
+		end.ended = true
+		benyBot.pollEnds[pollID] = end
+		benyBot.pollMutex.Unlock()
+		return
+	}
+	end.pollRetry = benyBot.backedOff(end.pollRetry, end.campaignID)
+	benyBot.pollEnds[pollID] = end
+	benyBot.pollMutex.Unlock()
+	benyBot.signalPollsChanged()
+	benyBot.options.Logger.Warn("Beny Bot couldn't end a closed poll in Discord; it tries again later", slog.String("campaign_id", end.campaignID.String()), slog.String("poll_id", pollID.String()), slog.String("channel_id", end.channelID), slog.String("message_id", end.messageID), slog.Any("error", err))
+}
+
+// isDiscordError reports whether Discord refused with one of codes.
+func isDiscordError(err error, codes ...int) bool {
+	var restError *discordgo.RESTError
+	if !errors.As(err, &restError) || restError.Message == nil {
+		return false
+	}
+	for _, code := range codes {
+		if restError.Message.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 // handlePollVote syncs the votes of the open campaign poll a vote event names. Only a message Beny Bot
@@ -392,13 +545,12 @@ func (benyBot *Bot) syncPollVotes(syncContext context.Context, service colonySer
 		benyBot.forgetPollMessage(pollID)
 		return nil
 	}
-	logger := benyBot.options.Logger.With(slog.String("campaign_id", campaignID.String()), slog.String("poll_id", pollID.String()))
 	votes := make(map[int][]string, len(discordPoll.AnswerIDs))
 	for _, answerID := range discordPoll.AnswerIDs {
 		if answerID == 0 {
 			continue
 		}
-		voterIDs, err := benyBot.pollAnswerVoters(syncContext, logger, discordPoll.ChannelID, discordPoll.MessageID, answerID)
+		voterIDs, err := benyBot.pollAnswerVoters(syncContext, discordPoll.ChannelID, discordPoll.MessageID, answerID)
 		if err != nil {
 			return err
 		}
@@ -407,8 +559,9 @@ func (benyBot *Bot) syncPollVotes(syncContext context.Context, service colonySer
 	return service.SyncDiscordPollVotes(syncContext, campaignID, pollID, votes)
 }
 
-// pollAnswerVoters reads every page of one answer's voters, up to pollVoterPagesPerAnswer pages.
-func (benyBot *Bot) pollAnswerVoters(syncContext context.Context, logger *slog.Logger, channelID string, messageID string, answerID int) ([]string, error) {
+// pollAnswerVoters reads every page of one answer's voters. Past pollVoterPagesPerAnswer pages it fails
+// rather than have core store a part of them as the whole.
+func (benyBot *Bot) pollAnswerVoters(syncContext context.Context, channelID string, messageID string, answerID int) ([]string, error) {
 	endpoint := discordgo.EndpointPollAnswerVoters(channelID, messageID, answerID)
 	voterIDs := []string{}
 	after := ""
@@ -441,8 +594,7 @@ func (benyBot *Bot) pollAnswerVoters(syncContext context.Context, logger *slog.L
 		}
 		after = last.ID
 	}
-	logger.Warn("Beny Bot read only the first voters of a poll's answer", slog.Int("answer_id", answerID), slog.Int("voters_read", len(voterIDs)))
-	return voterIDs, nil
+	return nil, errPollVotersTruncated
 }
 
 // PollDeleted implements core.PollNotifier: the deleted poll's message goes too, best effort.
@@ -459,10 +611,14 @@ func (benyBot *Bot) PollDeleted(campaignID uuid.UUID, channelID string, messageI
 	})
 }
 
-func (benyBot *Bot) deletePollMessage(postContext context.Context, logger *slog.Logger, channelID string, messageID string) {
-	if err := benyBot.client.ChannelMessageDelete(channelID, messageID, discordgo.WithContext(postContext)); err != nil {
-		logger.Info("Beny Bot couldn't delete a poll's message", slog.String("channel_id", channelID), slog.String("message_id", messageID), slog.Any("error", err))
+// deletePollMessage deletes the message and reports whether it is gone.
+func (benyBot *Bot) deletePollMessage(postContext context.Context, logger *slog.Logger, channelID string, messageID string) bool {
+	err := benyBot.client.ChannelMessageDelete(channelID, messageID, discordgo.WithContext(postContext))
+	if err == nil || isDiscordError(err, discordgo.ErrCodeUnknownMessage, discordgo.ErrCodeUnknownChannel) {
+		return true
 	}
+	logger.Info("Beny Bot couldn't delete a poll's message", slog.String("channel_id", channelID), slog.String("message_id", messageID), slog.Any("error", err))
+	return false
 }
 
 func (benyBot *Bot) pollsURL(campaignSlug string) string {
@@ -493,6 +649,8 @@ func (benyBot *Bot) forgetPollDeadline(pollID uuid.UUID) (tracked bool) {
 	_, tracked = benyBot.pollDeadlines[pollID]
 	delete(benyBot.pollDeadlines, pollID)
 	delete(benyBot.pollPostRetries, pollID)
+	delete(benyBot.pollPosts, pollID)
+	delete(benyBot.pollVoteRetries, pollID)
 	benyBot.forgetPollMessageLocked(pollID)
 	benyBot.pollMutex.Unlock()
 	if tracked {
@@ -531,46 +689,73 @@ func (benyBot *Bot) forgetPollMessageLocked(pollID uuid.UUID) {
 	}
 }
 
-// schedulePollPostRetry has the planner try a failed post again, each wait twice the last up to
-// longestRetryDelay, and returns this wait.
-func (benyBot *Bot) schedulePollPostRetry(campaignID uuid.UUID, pollID uuid.UUID) time.Duration {
+// schedulePollRetry has the planner try the poll's failed work in retries again, each wait twice the
+// last up to longestRetryDelay, and returns this wait.
+func (benyBot *Bot) schedulePollRetry(retries map[uuid.UUID]pollRetry, campaignID uuid.UUID, pollID uuid.UUID) time.Duration {
 	benyBot.pollMutex.Lock()
-	retry, found := benyBot.pollPostRetries[pollID]
-	if !found {
-		retry.delay = firstRetryDelay
-	}
-	wait := retry.delay
-	retry.campaignID = campaignID
-	retry.at = benyBot.now().Add(wait)
-	retry.delay = min(wait*2, longestRetryDelay)
-	benyBot.pollPostRetries[pollID] = retry
+	retry := benyBot.backedOff(retries[pollID], campaignID)
+	retries[pollID] = retry
 	benyBot.pollMutex.Unlock()
 	benyBot.signalPollsChanged()
-	return wait
+	return retry.at.Sub(benyBot.now())
+}
+
+// backedOff is the retry after one more failure: due after the last wait, or firstRetryDelay at first.
+func (benyBot *Bot) backedOff(retry pollRetry, campaignID uuid.UUID) pollRetry {
+	wait := retry.delay
+	if wait == 0 {
+		wait = firstRetryDelay
+	}
+	return pollRetry{campaignID: campaignID, at: benyBot.now().Add(wait), delay: min(wait*2, longestRetryDelay)}
 }
 
 func (benyBot *Bot) clearPollPostRetry(pollID uuid.UUID) {
+	benyBot.clearPollRetry(benyBot.pollPostRetries, pollID)
+}
+
+func (benyBot *Bot) clearPollRetry(retries map[uuid.UUID]pollRetry, pollID uuid.UUID) {
 	benyBot.pollMutex.Lock()
-	delete(benyBot.pollPostRetries, pollID)
+	delete(retries, pollID)
 	benyBot.pollMutex.Unlock()
 }
 
-// retryDuePollPosts tries again every failed poll post whose wait has passed. The next wait is set
-// now, so a retry still running never fires twice; a post that fails again replaces it.
-func (benyBot *Bot) retryDuePollPosts() {
+// retryDuePollWork tries again every failed poll post, vote read and end whose wait has passed. The
+// next wait is set now, so a retry still running never fires twice; one that fails again replaces it.
+func (benyBot *Bot) retryDuePollWork() {
 	now := benyBot.now()
-	due := map[uuid.UUID]uuid.UUID{}
+	duePosts := map[uuid.UUID]uuid.UUID{}
+	dueVotes := map[uuid.UUID]uuid.UUID{}
+	dueEnds := []uuid.UUID{}
 	benyBot.pollMutex.Lock()
-	for pollID, retry := range benyBot.pollPostRetries {
-		if !now.Before(retry.at) {
-			due[pollID] = retry.campaignID
-			retry.at = now.Add(retry.delay)
-			benyBot.pollPostRetries[pollID] = retry
+	collect := func(retries map[uuid.UUID]pollRetry, due map[uuid.UUID]uuid.UUID) {
+		for pollID, retry := range retries {
+			if !now.Before(retry.at) {
+				due[pollID] = retry.campaignID
+				retry.at = now.Add(retry.delay)
+				retries[pollID] = retry
+			}
+		}
+	}
+	collect(benyBot.pollPostRetries, duePosts)
+	collect(benyBot.pollVoteRetries, dueVotes)
+	for pollID, end := range benyBot.pollEnds {
+		if !end.ended && !now.Before(end.at) {
+			dueEnds = append(dueEnds, pollID)
+			end.at = now.Add(end.delay)
+			benyBot.pollEnds[pollID] = end
 		}
 	}
 	benyBot.pollMutex.Unlock()
-	for pollID, campaignID := range due {
+	for pollID, campaignID := range duePosts {
 		benyBot.PollChanged(campaignID, pollID)
+	}
+	for pollID, campaignID := range dueVotes {
+		benyBot.requestPollVoteSync(campaignID, pollID)
+	}
+	for _, pollID := range dueEnds {
+		benyBot.inBackground(context.Background(), "poll end", func(postContext context.Context, _ colonyService) {
+			benyBot.runPollEnd(postContext, pollID)
+		})
 	}
 }
 
@@ -582,16 +767,27 @@ func (benyBot *Bot) signalPollsChanged() {
 }
 
 // reloadPollDeadlines replaces the deadlines with the open polls of the campaigns the planner lists, so
-// an unlinked or paused campaign's polls drop out. A campaign whose read fails keeps what it had. Every
-// open poll then gets another try at posting, and after Ready its votes are read again, since Discord
-// doesn't replay vote events missed while offline.
-func (benyBot *Bot) reloadPollDeadlines(workContext context.Context, service colonyService, plans []core.CampaignSessionPlan) {
+// an unlinked or paused campaign's polls drop out. A campaign whose read fails keeps what it had, and
+// the returned instant (nil when every read worked) has the planner reload again after a back-off.
+// Every open poll then gets another try at posting, every poll the DM closed early is ended in
+// Discord, and after Ready the open polls' votes are read again, since Discord doesn't replay vote
+// events missed while offline; a read that fails is retried on its own.
+func (benyBot *Bot) reloadPollDeadlines(workContext context.Context, service colonyService, plans []core.CampaignSessionPlan) *time.Time {
 	benyBot.pollMutex.Lock()
 	startSequence := benyBot.pollDeadlineSequence
 	benyBot.pollMutex.Unlock()
 	read := map[uuid.UUID][]core.PollDeadline{}
 	failed := map[uuid.UUID]bool{}
+	toEnd := map[uuid.UUID][]core.PollDiscordMessage{}
+	endsFailed := map[uuid.UUID]bool{}
 	for _, plan := range plans {
+		messages, err := service.DiscordPollsToEnd(workContext, plan.CampaignID)
+		if err != nil {
+			benyBot.options.Logger.Error("Beny Bot couldn't read a campaign's closed Discord polls", slog.String("campaign_id", plan.CampaignID.String()), slog.Any("error", err))
+			endsFailed[plan.CampaignID] = true
+		} else {
+			toEnd[plan.CampaignID] = messages
+		}
 		deadlines, err := service.PollDeadlines(workContext, plan.CampaignID)
 		if err != nil {
 			benyBot.options.Logger.Error("Beny Bot couldn't read a campaign's poll deadlines", slog.String("campaign_id", plan.CampaignID.String()), slog.Any("error", err))
@@ -627,11 +823,46 @@ func (benyBot *Bot) reloadPollDeadlines(workContext context.Context, service col
 			delete(benyBot.pollPostRetries, pollID)
 		}
 	}
+	for pollID := range benyBot.pollPosts {
+		_, open := reloaded[pollID]
+		if _, retrying := benyBot.pollPostRetries[pollID]; !open && !retrying {
+			delete(benyBot.pollPosts, pollID)
+		}
+	}
+	for pollID, retry := range benyBot.pollVoteRetries {
+		if _, open := reloaded[pollID]; !open && !failed[retry.campaignID] {
+			delete(benyBot.pollVoteRetries, pollID)
+		}
+	}
+	stillToEnd := map[uuid.UUID]bool{}
+	for _, messages := range toEnd {
+		for _, message := range messages {
+			stillToEnd[message.PollID] = true
+		}
+	}
+	for pollID, end := range benyBot.pollEnds {
+		// Once Discord's own deadline passes, or the campaign leaves its server, there is nothing to end.
+		if !stillToEnd[pollID] && !endsFailed[end.campaignID] && end.sequence <= startSequence {
+			delete(benyBot.pollEnds, pollID)
+		}
+	}
 	syncVotes := benyBot.pollVotesStale
 	if len(failed) == 0 {
 		benyBot.pollVotesStale = false
 	}
+	var retryAt *time.Time
+	if len(failed) == 0 && len(endsFailed) == 0 {
+		benyBot.pollReloadRetry = pollRetry{}
+	} else {
+		benyBot.pollReloadRetry = benyBot.backedOff(benyBot.pollReloadRetry, uuid.Nil)
+		retryAt = new(benyBot.pollReloadRetry.at)
+	}
 	benyBot.pollMutex.Unlock()
+	for campaignID, messages := range toEnd {
+		for _, message := range messages {
+			benyBot.endPollInDiscord(campaignID, message)
+		}
+	}
 	for campaignID, deadlines := range read {
 		for _, deadline := range deadlines {
 			benyBot.PollChanged(campaignID, deadline.PollID)
@@ -640,6 +871,7 @@ func (benyBot *Bot) reloadPollDeadlines(workContext context.Context, service col
 			}
 		}
 	}
+	return retryAt
 }
 
 // closeDuePolls closes every poll whose deadline has passed, each in the background so the planner never
@@ -704,8 +936,9 @@ func (benyBot *Bot) closeDuePoll(lifetimeContext context.Context, service colony
 	benyBot.forgetPollDeadline(pollID)
 }
 
-// nextPollWake is the earliest instant a tracked poll is due to close or a failed post is due again,
-// nil when there is none. A close still running is skipped; it wakes the planner when it ends.
+// nextPollWake is the earliest instant a tracked poll is due to close or a failed post, vote read or
+// end is due again, nil when there is none. A close still running is skipped; it wakes the planner
+// when it ends.
 func (benyBot *Bot) nextPollWake() *time.Time {
 	benyBot.pollMutex.Lock()
 	defer benyBot.pollMutex.Unlock()
@@ -727,6 +960,14 @@ func (benyBot *Bot) nextPollWake() *time.Time {
 	}
 	for _, retry := range benyBot.pollPostRetries {
 		consider(retry.at)
+	}
+	for _, retry := range benyBot.pollVoteRetries {
+		consider(retry.at)
+	}
+	for _, end := range benyBot.pollEnds {
+		if !end.ended {
+			consider(end.at)
+		}
 	}
 	return wake
 }

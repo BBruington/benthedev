@@ -129,7 +129,7 @@ func (benyBot *Bot) runPlanner(lifetimeContext context.Context) {
 			sessionWake = benyBot.planSessions(lifetimeContext)
 		case <-benyBot.pollsChanged:
 		case <-timer.C:
-			benyBot.retryDuePollPosts()
+			benyBot.retryDuePollWork()
 			benyBot.closeDuePolls(lifetimeContext)
 			if sessionWake != nil && !benyBot.now().Before(*sessionWake) {
 				sessionWake = benyBot.planSessions(lifetimeContext)
@@ -161,6 +161,7 @@ func (benyBot *Bot) planSessions(lifetimeContext context.Context) *time.Time {
 	defer cancel()
 	logger := benyBot.options.Logger
 	attempted := map[plannedJobKey]bool{}
+	var pollReload *time.Time
 	for {
 		plans, err := service.PlanSessions(workContext)
 		if err != nil {
@@ -168,7 +169,7 @@ func (benyBot *Bot) planSessions(lifetimeContext context.Context) *time.Time {
 			return new(benyBot.now().Add(firstRetryDelay))
 		}
 		if len(attempted) == 0 {
-			benyBot.reloadPollDeadlines(workContext, service, plans)
+			pollReload = benyBot.reloadPollDeadlines(workContext, service, plans)
 		}
 		var wake *time.Time
 		wakeAt := func(instant *time.Time) {
@@ -176,6 +177,7 @@ func (benyBot *Bot) planSessions(lifetimeContext context.Context) *time.Time {
 				wake = new(*instant)
 			}
 		}
+		wakeAt(pollReload)
 		planned := map[plannedJobKey]bool{}
 		ranAny := false
 		for _, plan := range plans {

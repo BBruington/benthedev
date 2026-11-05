@@ -417,6 +417,45 @@ func (q *Queries) ListClosedPolls(ctx context.Context, arg ListClosedPollsParams
 	return items, nil
 }
 
+const listDiscordPollsToEnd = `-- name: ListDiscordPollsToEnd :many
+SELECT id, discord_channel_id::text AS discord_channel_id, discord_message_id::text AS discord_message_id FROM poll
+WHERE campaign_id = $1 AND voting = 'DISCORD' AND closed_at IS NOT NULL
+  AND discord_channel_id IS NOT NULL AND discord_message_id IS NOT NULL AND closes_at > $2::timestamptz
+ORDER BY closes_at, id
+`
+
+type ListDiscordPollsToEndParams struct {
+	CampaignID uuid.UUID
+	Now        time.Time
+}
+
+type ListDiscordPollsToEndRow struct {
+	ID               uuid.UUID
+	DiscordChannelID string
+	DiscordMessageID string
+}
+
+// A DISCORD poll the DM closed before its Discord poll expires, which Beny Bot still has to end.
+func (q *Queries) ListDiscordPollsToEnd(ctx context.Context, arg ListDiscordPollsToEndParams) ([]ListDiscordPollsToEndRow, error) {
+	rows, err := q.db.Query(ctx, listDiscordPollsToEnd, arg.CampaignID, arg.Now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDiscordPollsToEndRow
+	for rows.Next() {
+		var i ListDiscordPollsToEndRow
+		if err := rows.Scan(&i.ID, &i.DiscordChannelID, &i.DiscordMessageID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenPolls = `-- name: ListOpenPolls :many
 
 SELECT id, question, allow_multiple, voting, closes_at, closed_at, created_at, discord_guild_id, discord_channel_id, discord_message_id, discord_other_voters, campaign_id FROM poll
@@ -667,8 +706,13 @@ func (q *Queries) ListPollVotingPlayers(ctx context.Context, arg ListPollVotingP
 const recordPollMessage = `-- name: RecordPollMessage :execrows
 UPDATE poll SET discord_guild_id = $1, discord_channel_id = $2,
   discord_message_id = $3, closes_at = $4
-WHERE campaign_id = $5 AND id = $6 AND voting = 'DISCORD' AND discord_message_id IS NULL
-  AND closed_at IS NULL
+WHERE poll.campaign_id = $5 AND poll.id = $6 AND poll.voting = 'DISCORD'
+  AND poll.discord_message_id IS NULL AND poll.closed_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM discord_guild_link
+    WHERE discord_guild_link.campaign_id = $5 AND discord_guild_link.guild_id = $1
+    FOR KEY SHARE
+  )
 `
 
 type RecordPollMessageParams struct {
@@ -681,7 +725,9 @@ type RecordPollMessageParams struct {
 }
 
 // Only the first post on an open poll is recorded, so a second process's post during a deploy overlap
-// and a post that lost to a close are refused.
+// and a post that lost to a close are refused. So is a post in a server the campaign is no longer linked
+// to: unlink deletes the link row without touching poll, so the share lock makes an unlink in flight
+// finish first and the check then sees it.
 func (q *Queries) RecordPollMessage(ctx context.Context, arg RecordPollMessageParams) (int64, error) {
 	result, err := q.db.Exec(ctx, recordPollMessage,
 		arg.DiscordGuildID,

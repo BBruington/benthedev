@@ -25,6 +25,10 @@ var (
 	// ErrPollAlreadyPosted tells Beny Bot another post won the poll's message; it deletes its own.
 	ErrPollAlreadyPosted = Conflict("That poll already has a Discord message.")
 	ErrVoteInDiscord     = Conflict("Vote on this poll in Discord.")
+	// ErrPollServerChanged tells Beny Bot the campaign's server changed while it posted; it deletes its post.
+	ErrPollServerChanged = Conflict("The campaign's Discord server changed.")
+	// ErrPollVotesInconsistent tells Beny Bot its answer reads raced a vote change; it reads again.
+	ErrPollVotesInconsistent = Conflict("Discord's votes changed while they were read.")
 )
 
 // PollNotifier is Beny Bot's side of polls. Its methods run after commit and never block or fail the
@@ -134,6 +138,10 @@ func (service *Service) ListPolls(requestContext context.Context, viewer Viewer)
 	if err != nil {
 		return PollList{}, err
 	}
+	// A poll closed between the two reads is in both; it is closed.
+	openRows = slices.DeleteFunc(openRows, func(open store.Poll) bool {
+		return slices.ContainsFunc(closedRows, func(closed store.Poll) bool { return closed.ID == open.ID })
+	})
 	polls, err := loadPolls(requestContext, service.queries, viewer, append(openRows, closedRows...), now)
 	if err != nil {
 		return PollList{}, err
@@ -239,7 +247,7 @@ func (service *Service) VotePoll(requestContext context.Context, viewer Viewer, 
 	choice := uniqueIDs(optionIDs)
 	var voted Poll
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
-		row, err := lockOpenPoll(requestContext, queries, viewer.campaignID, pollID, service.now())
+		row, err := lockOpenPoll(requestContext, queries, viewer.campaignID, pollID, service.now)
 		if err != nil {
 			return err
 		}
@@ -330,6 +338,31 @@ func (service *Service) PollDeadlines(requestContext context.Context, campaignID
 	return deadlines, nil
 }
 
+// PollDiscordMessage is the Discord poll a DISCORD poll was posted as.
+type PollDiscordMessage struct {
+	PollID    uuid.UUID
+	ChannelID string
+	MessageID string
+}
+
+// DiscordPollsToEnd lists a campaign's DISCORD polls the DM closed early whose Discord poll may still
+// run, so Beny Bot can end them after a restart. A campaign that is gone or suspended has none.
+func (service *Service) DiscordPollsToEnd(requestContext context.Context, campaignID uuid.UUID) ([]PollDiscordMessage, error) {
+	messages := []PollDiscordMessage{}
+	active, err := service.campaignActive(requestContext, campaignID)
+	if err != nil || !active {
+		return messages, err
+	}
+	rows, err := service.queries.ListDiscordPollsToEnd(requestContext, store.ListDiscordPollsToEndParams{CampaignID: campaignID, Now: service.now()})
+	if err != nil {
+		return messages, err
+	}
+	for _, row := range rows {
+		messages = append(messages, PollDiscordMessage{PollID: row.ID, ChannelID: row.DiscordChannelID, MessageID: row.DiscordMessageID})
+	}
+	return messages, nil
+}
+
 // PollDeadlineClose is what the planner's deadline timer did: Closed when this call closed the poll,
 // and the poll's current close time, which a record of Discord's expiry may have moved.
 type PollDeadlineClose struct {
@@ -404,14 +437,17 @@ func (service *Service) PollForDiscord(requestContext context.Context, campaignI
 }
 
 // RecordPollMessage keeps the Discord poll Beny Bot posted, its answer IDs, and Discord's expiry as the
-// poll's close time. Only the first post on an open poll is kept; a later one gets ErrPollAlreadyPosted
-// and one after a close ErrPollClosed, so Beny Bot deletes its post either way.
+// poll's close time. Only the first post on an open poll, in the server the campaign is still linked to,
+// is kept; a later one gets ErrPollAlreadyPosted, one after a close ErrPollClosed and one in a server no
+// longer linked ErrPollServerChanged, so Beny Bot deletes its post each time. Recording the message the
+// poll already holds succeeds and changes nothing: two processes reusing one nonce share one message.
 func (service *Service) RecordPollMessage(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, input RecordPollMessageInput) error {
 	for _, discordID := range []string{input.GuildID, input.ChannelID, input.MessageID} {
 		if !discordSnowflakePattern.MatchString(discordID) {
 			return Invalid("That isn't a Discord message.")
 		}
 	}
+	alreadyRecorded := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		updated, err := queries.RecordPollMessage(requestContext, store.RecordPollMessageParams{
 			CampaignID:       campaignID,
@@ -432,10 +468,19 @@ func (service *Service) RecordPollMessage(requestContext context.Context, campai
 			if row.Voting != PollVotingDiscord {
 				return ErrNoSuchPoll
 			}
+			if row.DiscordMessageID != nil && *row.DiscordMessageID == input.MessageID &&
+				row.DiscordChannelID != nil && *row.DiscordChannelID == input.ChannelID &&
+				row.DiscordGuildID != nil && *row.DiscordGuildID == input.GuildID {
+				alreadyRecorded = true
+				return nil
+			}
 			if row.ClosedAt != nil {
 				return ErrPollClosed
 			}
-			return ErrPollAlreadyPosted
+			if row.DiscordMessageID != nil {
+				return ErrPollAlreadyPosted
+			}
+			return ErrPollServerChanged
 		}
 		answerIDs := make([]int32, 0, len(input.AnswerIDs))
 		for _, answerID := range input.AnswerIDs {
@@ -443,7 +488,7 @@ func (service *Service) RecordPollMessage(requestContext context.Context, campai
 		}
 		return queries.SetPollOptionAnswerIDs(requestContext, store.SetPollOptionAnswerIDsParams{CampaignID: campaignID, PollID: pollID, AnswerIds: answerIDs})
 	})
-	if err != nil {
+	if err != nil || alreadyRecorded {
 		return err
 	}
 	service.broker.Publish(campaignID, TopicPolls)
@@ -452,7 +497,8 @@ func (service *Service) RecordPollMessage(requestContext context.Context, campai
 
 // SyncDiscordPollVotes replaces a posted DISCORD poll's votes with votes, Discord's complete voter list
 // for each answer ID. Players become named votes; anyone else (the DM included) is only counted, and
-// their Discord IDs are never stored. A closed poll keeps the counts its close recorded.
+// their Discord IDs are never stored. A closed poll keeps the counts its close recorded. A single-answer
+// poll's snapshot with one voter on two answers is ErrPollVotesInconsistent and writes nothing.
 func (service *Service) SyncDiscordPollVotes(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, votes map[int][]string) error {
 	active, err := service.campaignActive(requestContext, campaignID)
 	if err != nil {
@@ -485,6 +531,9 @@ func (service *Service) SyncDiscordPollVotes(requestContext context.Context, cam
 			}
 			optionsByAnswer[int(*option.DiscordAnswerID)] = option
 			discordUserIDs = append(discordUserIDs, votes[int(*option.DiscordAnswerID)]...)
+		}
+		if !row.AllowMultiple && votedTwice(optionsByAnswer, votes) {
+			return ErrPollVotesInconsistent
 		}
 		players, err := queries.ListPollVotingPlayers(requestContext, store.ListPollVotingPlayersParams{CampaignID: campaignID, DiscordUserIds: discordUserIDs})
 		if err != nil {
@@ -542,6 +591,20 @@ func (service *Service) SyncDiscordPollVotes(requestContext context.Context, cam
 	return nil
 }
 
+// votedTwice reports whether one Discord user is among the voters of two of the poll's answers.
+func votedTwice(optionsByAnswer map[int]store.PollOption, votes map[int][]string) bool {
+	answerByVoter := map[string]int{}
+	for answerID := range optionsByAnswer {
+		for _, discordUserID := range votes[answerID] {
+			if earlier, voted := answerByVoter[discordUserID]; voted && earlier != answerID {
+				return true
+			}
+			answerByVoter[discordUserID] = answerID
+		}
+	}
+	return false
+}
+
 // requireVoter admits only an ACTIVE player; the DM is refused even in view as player.
 func requireVoter(viewer Viewer) error {
 	if err := requireCampaign(viewer); err != nil {
@@ -587,13 +650,14 @@ func newPollVoting(requestContext context.Context, queries *store.Queries, campa
 }
 
 // lockOpenPoll locks a poll for a vote; a poll past its deadline is closed even before the close is
-// recorded.
-func lockOpenPoll(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, pollID uuid.UUID, now time.Time) (store.Poll, error) {
+// recorded. The clock is read once the lock is held, so a vote that waited on it can't pass a deadline
+// that went by meanwhile.
+func lockOpenPoll(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, pollID uuid.UUID, now func() time.Time) (store.Poll, error) {
 	row, err := queries.GetPollForUpdate(requestContext, store.GetPollForUpdateParams{CampaignID: campaignID, ID: pollID})
 	if err != nil {
 		return store.Poll{}, pollGone(err)
 	}
-	if game.PollClosed(row.ClosedAt, row.ClosesAt, now) {
+	if game.PollClosed(row.ClosedAt, row.ClosesAt, now()) {
 		return store.Poll{}, ErrPollClosed
 	}
 	return row, nil

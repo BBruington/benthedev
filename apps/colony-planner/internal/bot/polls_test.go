@@ -28,7 +28,8 @@ func newPollWorld(t *testing.T) *world {
 	return test
 }
 
-// startPoll creates a poll in the DM's campaign and waits until Beny Bot has posted it.
+// startPoll creates a poll in the DM's campaign and waits until Beny Bot has posted it and read its
+// first votes; the voter read count then starts from zero.
 func (test *world) startPoll(dm core.Viewer, allowMultiple bool, durationHours int) core.Poll {
 	test.t.Helper()
 	poll, err := test.service.CreatePoll(test.context, dm, core.CreatePollInput{
@@ -41,6 +42,9 @@ func (test *world) startPoll(dm core.Viewer, allowMultiple bool, durationHours i
 		test.t.Fatalf("create poll: %v", err)
 	}
 	test.bot.posts.Wait()
+	test.client.mutex.Lock()
+	test.client.voterReads = 0
+	test.client.mutex.Unlock()
 	return poll
 }
 
@@ -298,7 +302,7 @@ func TestAVoterPageThatDoesNotAdvanceFailsTheSync(t *testing.T) {
 	}
 }
 
-func TestAnAnswersVoterReadStopsAtItsPageCap(t *testing.T) {
+func TestAnAnswerPastItsVoterPageCapWritesNothing(t *testing.T) {
 	test := newPollWorld(t)
 	poll := test.startPoll(test.dmA, false, 24)
 	message := test.prompt(channelXGeneral)
@@ -328,12 +332,14 @@ func TestAnAnswersVoterReadStopsAtItsPageCap(t *testing.T) {
 	test.client.mutex.Unlock()
 
 	test.voteEvent(guildX, message.ID)
-	if reads := test.voterReads(); reads != pollVoterPagesPerAnswer+2 {
-		t.Errorf("read voters %d times, want %d", reads, pollVoterPagesPerAnswer+2)
+	if reads := test.voterReads(); reads != pollVoterPagesPerAnswer {
+		t.Errorf("read voters %d times, want %d", reads, pollVoterPagesPerAnswer)
 	}
-	want := int64(pollVoterPagesPerAnswer * pollVotersPage)
-	if counts := optionCounts(test.pollAsDm(test.dmA, poll.ID)); !slices.Equal(counts, []int64{want, 0, 0}) {
-		t.Errorf("counts = %v, want [%d 0 0]", counts, want)
+	if voters := test.pollAsDm(test.dmA, poll.ID).VoterCount; voters != 0 {
+		t.Errorf("voters = %d, want 0: a part of an answer's voters is never stored as the whole", voters)
+	}
+	if wake := test.bot.nextPollWake(); wake == nil || !wake.Equal(test.clock.now().Add(firstRetryDelay)) {
+		t.Errorf("next poll wake = %v, want the vote read's retry", wake)
 	}
 }
 
@@ -624,7 +630,7 @@ func TestAFailedPollPostIsRetriedLater(t *testing.T) {
 	test.client.sendError = nil
 	test.client.mutex.Unlock()
 	test.advanceTo(retryAt)
-	test.bot.retryDuePollPosts()
+	test.bot.retryDuePollWork()
 	test.bot.posts.Wait()
 	if messageID := test.discordPoll(test.dmA, poll.ID).MessageID; messageID == "" {
 		t.Fatal("the retry didn't post the poll")
@@ -734,5 +740,314 @@ func TestTheDeadlineCloseWaitsForARunningVoteSync(t *testing.T) {
 	test.bot.posts.Wait()
 	if counts := optionCounts(test.pollAsDm(test.dmA, poll.ID)); !slices.Equal(counts, []int64{0, 1, 0}) {
 		t.Errorf("final counts = %v, want [0 1 0]: the close must read after the stale sync", counts)
+	}
+}
+
+// hasPollPostRetry reports whether Beny Bot means to post the poll again.
+func (test *world) hasPollPostRetry(pollID uuid.UUID) bool {
+	test.bot.pollMutex.Lock()
+	defer test.bot.pollMutex.Unlock()
+	_, found := test.bot.pollPostRetries[pollID]
+	return found
+}
+
+func TestARetriedPollPostReusesItsNonceSoDiscordPostsItOnce(t *testing.T) {
+	test := newPollWorld(t)
+	test.client.mutex.Lock()
+	test.client.answerLost = errors.New("context deadline exceeded")
+	test.client.mutex.Unlock()
+	poll := test.startPoll(test.dmA, false, 24)
+	if messageID := test.discordPoll(test.dmA, poll.ID).MessageID; messageID != "" {
+		t.Fatalf("recorded message %q without Discord's answer", messageID)
+	}
+
+	test.client.mutex.Lock()
+	test.client.answerLost = nil
+	test.client.mutex.Unlock()
+	test.advanceTo(test.clock.now().Add(firstRetryDelay))
+	test.bot.retryDuePollWork()
+	test.bot.posts.Wait()
+	messages := test.client.messagesTo(channelXGeneral)
+	if len(messages) != 1 {
+		t.Fatalf("Discord posted %d poll messages, want 1", len(messages))
+	}
+	if nonce := messages[0].nonce; nonce != pollNonce(poll.ID, 0) || len(nonce) > 25 {
+		t.Errorf("nonce = %q, want the poll's own of at most 25 characters", nonce)
+	}
+	if messageID := test.discordPoll(test.dmA, poll.ID).MessageID; messageID != test.prompt(channelXGeneral).ID {
+		t.Errorf("recorded message = %q, want the one Discord posted", messageID)
+	}
+}
+
+// recordFailingService refuses poll message records with err: the first failures of them, or every one
+// while failures is nil.
+type recordFailingService struct {
+	colonyService
+	err      error
+	failures *atomic.Int32
+}
+
+func (service recordFailingService) RecordPollMessage(recordContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, input core.RecordPollMessageInput) error {
+	if service.failures == nil || service.failures.Add(-1) >= 0 {
+		return service.err
+	}
+	return service.colonyService.RecordPollMessage(recordContext, campaignID, pollID, input)
+}
+
+// failFirstRecord has Beny Bot's first poll message record fail.
+func (test *world) failFirstRecord() {
+	failures := &atomic.Int32{}
+	failures.Store(1)
+	test.bot.mutex.Lock()
+	test.bot.service = recordFailingService{colonyService: test.bot.service, err: errDatabaseDown, failures: failures}
+	test.bot.mutex.Unlock()
+}
+
+func (test *world) setDeleteError(err error) {
+	test.client.mutex.Lock()
+	test.client.deleteError = err
+	test.client.mutex.Unlock()
+}
+
+// retryPollWorkAfter advances the clock by wait and runs the poll work then due.
+func (test *world) retryPollWorkAfter(wait time.Duration) {
+	test.advanceTo(test.clock.now().Add(wait))
+	test.bot.retryDuePollWork()
+	test.bot.posts.Wait()
+}
+
+func TestAPollPostedInAServerNoLongerLinkedIsDeletedAndNotRetried(t *testing.T) {
+	test := newPollWorld(t)
+	test.bot.mutex.Lock()
+	test.bot.service = recordFailingService{colonyService: test.bot.service, err: core.ErrPollServerChanged}
+	test.bot.mutex.Unlock()
+	poll := test.startPoll(test.dmA, false, 24)
+	if standing := test.client.standingIn(channelXGeneral); len(standing) != 0 {
+		t.Errorf("%d poll messages still stand, want the post deleted", len(standing))
+	}
+	if test.hasPollPostRetry(poll.ID) {
+		t.Error("a post retry was scheduled; the relink re-plans instead")
+	}
+}
+
+func TestARepostAfterADeletedPostUsesAFreshNonce(t *testing.T) {
+	test := newPollWorld(t)
+	test.failFirstRecord()
+	poll := test.startPoll(test.dmA, false, 24)
+	if !test.hasPollPostRetry(poll.ID) {
+		t.Fatal("no post retry after the deleted post")
+	}
+
+	test.retryPollWorkAfter(firstRetryDelay)
+	sent := test.client.messagesTo(channelXGeneral)
+	if len(sent) != 2 || sent[0].nonce == sent[1].nonce {
+		t.Fatalf("sent %d posts with nonces %v, want 2 with different nonces", len(sent), sent)
+	}
+	standing := test.client.standingIn(channelXGeneral)
+	if len(standing) != 1 || test.discordPoll(test.dmA, poll.ID).MessageID != standing[0].ID {
+		t.Errorf("recorded %q among standing messages %v, want the repost", test.discordPoll(test.dmA, poll.ID).MessageID, standing)
+	}
+}
+
+func TestAPostThatCouldntBeDeletedGoesBeforeTheNextPost(t *testing.T) {
+	test := newPollWorld(t)
+	test.failFirstRecord()
+	test.setDeleteError(&discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingPermissions}})
+	poll := test.startPoll(test.dmA, false, 24)
+	first := test.prompt(channelXGeneral)
+
+	test.retryPollWorkAfter(firstRetryDelay)
+	if sent := test.client.messagesTo(channelXGeneral); len(sent) != 1 {
+		t.Fatalf("sent %d poll messages while the first can't be deleted, want 1", len(sent))
+	}
+	if !test.hasPollPostRetry(poll.ID) {
+		t.Fatal("no post retry while the first post stands")
+	}
+
+	test.setDeleteError(nil)
+	test.retryPollWorkAfter(2 * firstRetryDelay)
+	standing := test.client.standingIn(channelXGeneral)
+	if len(standing) != 1 || standing[0].ID == first.ID {
+		t.Fatalf("standing messages = %v, want only the repost", standing)
+	}
+	if messageID := test.discordPoll(test.dmA, poll.ID).MessageID; messageID != standing[0].ID {
+		t.Errorf("recorded message = %q, want the repost %q", messageID, standing[0].ID)
+	}
+}
+
+func TestTwoProcessesPostingAPollKeepItsOneMessage(t *testing.T) {
+	test := newPollWorld(t)
+	poll := test.startPoll(test.dmA, false, 24)
+	message := test.prompt(channelXGeneral)
+	// A deploy overlap: a second process on the same token read the poll before the first recorded it.
+	second := newBot(Options{Token: "test-token", Logger: quietLogger()}, test.client, test.state, test.clock.now)
+	if err := second.start(test.service); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(second.stop)
+	stale := test.discordPoll(test.dmA, poll.ID)
+	stale.GuildID, stale.ChannelID, stale.MessageID = "", "", ""
+	target, _, err := test.service.DiscordTargetFor(test.context, test.dmA.CampaignID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second.postPoll(test.context, quietLogger(), test.service, test.dmA.CampaignID(), target, stale)
+	second.posts.Wait()
+	test.client.mutex.Lock()
+	deletes := len(test.client.deletes)
+	test.client.mutex.Unlock()
+	if deletes != 0 {
+		t.Errorf("tried %d deletes, want none", deletes)
+	}
+	if standing := test.client.standingIn(channelXGeneral); len(standing) != 1 || standing[0].ID != message.ID {
+		t.Errorf("standing messages = %v, want only the first post", standing)
+	}
+	if messageID := test.discordPoll(test.dmA, poll.ID).MessageID; messageID != message.ID {
+		t.Errorf("recorded message = %q, want %q", messageID, message.ID)
+	}
+}
+
+// targetFailingService can't read any campaign's Discord server.
+type targetFailingService struct {
+	colonyService
+}
+
+func (targetFailingService) DiscordTargetFor(context.Context, uuid.UUID) (core.DiscordTarget, bool, error) {
+	return core.DiscordTarget{}, false, errDatabaseDown
+}
+
+func TestAPollWhoseServerCantBeReadIsPostedLater(t *testing.T) {
+	test := newPollWorld(t)
+	original := test.bot.service
+	test.bot.mutex.Lock()
+	test.bot.service = targetFailingService{colonyService: original}
+	test.bot.mutex.Unlock()
+	poll := test.startPoll(test.dmA, false, 24)
+	if !test.hasPollPostRetry(poll.ID) {
+		t.Fatal("no post retry after the server read failed")
+	}
+
+	test.bot.mutex.Lock()
+	test.bot.service = original
+	test.bot.mutex.Unlock()
+	test.advanceTo(test.clock.now().Add(firstRetryDelay))
+	test.bot.retryDuePollWork()
+	test.bot.posts.Wait()
+	if messageID := test.discordPoll(test.dmA, poll.ID).MessageID; messageID == "" {
+		t.Error("the retry didn't post the poll")
+	}
+}
+
+func TestAFailedVoteReadIsRetried(t *testing.T) {
+	test := newPollWorld(t)
+	poll := test.startPoll(test.dmA, false, 24)
+	message := test.prompt(channelXGeneral)
+	test.client.setVoters(message.ID, 1, activeUserID)
+	test.client.mutex.Lock()
+	test.client.voterError = errors.New("HTTP 503 Service Unavailable")
+	test.client.mutex.Unlock()
+	test.voteEvent(guildX, message.ID)
+	retryAt := test.clock.now().Add(firstRetryDelay)
+	if wake := test.bot.nextPollWake(); wake == nil || !wake.Equal(retryAt) {
+		t.Fatalf("next poll wake = %v, want the vote read's retry at %v", wake, retryAt)
+	}
+
+	test.client.mutex.Lock()
+	test.client.voterError = nil
+	test.client.mutex.Unlock()
+	test.advanceTo(retryAt)
+	test.bot.retryDuePollWork()
+	test.bot.posts.Wait()
+	if counts := optionCounts(test.pollAsDm(test.dmA, poll.ID)); !slices.Equal(counts, []int64{1, 0, 0}) {
+		t.Errorf("counts after the retry = %v, want [1 0 0]", counts)
+	}
+	if wake := test.bot.nextPollWake(); wake == nil || !wake.Equal(test.pollAsDm(test.dmA, poll.ID).ClosesAt) {
+		t.Errorf("next poll wake = %v, want the poll's close", wake)
+	}
+}
+
+func TestAFailedPollEndIsRetriedUntilDiscordEndsIt(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		expireError error
+		wantTries   int
+	}{
+		{name: "Discord fails once", expireError: errors.New("HTTP 503 Service Unavailable"), wantTries: 2},
+		{name: "the poll had already ended", expireError: &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordPollExpiredCode}}, wantTries: 1},
+		{name: "Beny Bot lost its permissions", expireError: &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingPermissions}}, wantTries: 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			test := newPollWorld(t)
+			poll := test.startPoll(test.dmA, false, 24)
+			test.client.mutex.Lock()
+			test.client.expireError = testCase.expireError
+			test.client.mutex.Unlock()
+			if _, err := test.service.ClosePoll(test.context, test.dmA, poll.ID); err != nil {
+				t.Fatalf("close: %v", err)
+			}
+			test.bot.posts.Wait()
+
+			test.client.mutex.Lock()
+			test.client.expireError = nil
+			test.client.mutex.Unlock()
+			test.advanceTo(test.clock.now().Add(firstRetryDelay))
+			test.bot.retryDuePollWork()
+			test.bot.posts.Wait()
+			if tries := len(test.pollExpires()); tries != testCase.wantTries {
+				t.Errorf("tried to end the poll %d times, want %d", tries, testCase.wantTries)
+			}
+			if wake := test.bot.nextPollWake(); wake != nil {
+				t.Errorf("next poll wake = %v, want none once the poll ended", wake)
+			}
+		})
+	}
+}
+
+func TestThePlannerEndsAPollClosedWhileBenyBotWasAway(t *testing.T) {
+	test := newPollWorld(t)
+	poll := test.startPoll(test.dmA, false, 24)
+	message := test.prompt(channelXGeneral)
+	test.client.mutex.Lock()
+	test.client.expireError = errors.New("HTTP 503 Service Unavailable")
+	test.client.mutex.Unlock()
+	if _, err := test.service.ClosePoll(test.context, test.dmA, poll.ID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	test.bot.posts.Wait()
+	// A restart forgets every poll it was ending.
+	test.bot.pollMutex.Lock()
+	clear(test.bot.pollEnds)
+	test.bot.pollMutex.Unlock()
+	test.client.mutex.Lock()
+	test.client.expireError = nil
+	test.client.mutex.Unlock()
+
+	test.plan()
+	test.bot.posts.Wait()
+	if expires := test.pollExpires(); !slices.Equal(expires, []string{message.ID, message.ID}) {
+		t.Errorf("ended polls = %v, want the failed try and the planner's", expires)
+	}
+}
+
+// deadlineFailingService can't read any campaign's poll deadlines.
+type deadlineFailingService struct {
+	colonyService
+}
+
+func (deadlineFailingService) PollDeadlines(context.Context, uuid.UUID) ([]core.PollDeadline, error) {
+	return nil, errDatabaseDown
+}
+
+func TestAFailedPollReloadIsRetriedWithBackOff(t *testing.T) {
+	test := newPollWorld(t)
+	test.bot.mutex.Lock()
+	test.bot.service = deadlineFailingService{colonyService: test.bot.service}
+	test.bot.mutex.Unlock()
+	if wake := test.plan(); wake == nil || !wake.Equal(test.clock.now().Add(firstRetryDelay)) {
+		t.Errorf("plan wake = %v, want the reload's retry in %v", wake, firstRetryDelay)
+	}
+	if wake := test.plan(); wake == nil || !wake.Equal(test.clock.now().Add(2*firstRetryDelay)) {
+		t.Errorf("second plan wake = %v, want the reload's retry in %v", wake, 2*firstRetryDelay)
 	}
 }
