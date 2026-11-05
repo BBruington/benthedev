@@ -34,9 +34,16 @@ export function usePollVote() {
 	});
 
 	function vote(pollId: string, optionIds: string[], onSuccess?: () => void) {
+		const focusedAtSubmit = document.activeElement;
 		setPendingPollIds((current) => new Set(current).add(pollId));
 		mutation.mutateAsync({ body: { optionIds }, params: { path: { campaignId, pollId } } }).then(
-			() => onSuccess?.(),
+			() => {
+				// A slow vote must not pull focus back from wherever the player has gone since.
+				const focusNow = document.activeElement;
+				if (focusNow === focusedAtSubmit || focusNow === null || focusNow === document.body) {
+					onSuccess?.();
+				}
+			},
 			() => {
 				// onError has already told the player.
 			},
