@@ -43,6 +43,8 @@ type Options struct {
 	Now func() time.Time
 	// SessionPlanner is Beny Bot's timer planner; nil while Beny Bot is off.
 	SessionPlanner SessionPlanner
+	// PollNotifier is Beny Bot's poll messages and deadline timers; nil while Beny Bot is off.
+	PollNotifier PollNotifier
 }
 
 // SessionEvictor drops cached session lookups so the next request reads the database again.
@@ -72,6 +74,7 @@ type Service struct {
 	siteHost           string
 	linkCodes          *linkCodeStore
 	sessionPlanner     SessionPlanner
+	pollNotifier       PollNotifier
 	clock              func() time.Time
 }
 
@@ -89,6 +92,7 @@ func New(options Options) *Service {
 		siteHost:           siteHostOf(options.PublicURL),
 		linkCodes:          newLinkCodeStore(options.Now),
 		sessionPlanner:     options.SessionPlanner,
+		pollNotifier:       options.PollNotifier,
 		clock:              options.Now,
 	}
 	if service.clock == nil {
@@ -96,6 +100,9 @@ func New(options Options) *Service {
 	}
 	if service.sessionPlanner == nil {
 		service.sessionPlanner = NoopSessionPlanner{}
+	}
+	if service.pollNotifier == nil {
+		service.pollNotifier = NoopPollNotifier{}
 	}
 	if options.Pool != nil {
 		service.queries = store.New(options.Pool)

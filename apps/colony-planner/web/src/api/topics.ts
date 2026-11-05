@@ -27,6 +27,7 @@ import {
 	placeQueryKeyPrefix,
 	placesQueryKeyPrefix,
 	playedSessionsQuery,
+	pollsQuery,
 	questPreviewQueryKeyPrefixes,
 	questQueryKeyPrefix,
 	questsQueryKeyPrefix,
@@ -113,6 +114,7 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 			placeQueryKeyPrefix(campaignId),
 			mapQueryKeyPrefix(campaignId),
 		],
+		polls: [pollsQuery(campaignId).queryKey],
 		quests: [
 			questsQueryKeyPrefix(campaignId),
 			questQueryKeyPrefix(campaignId),

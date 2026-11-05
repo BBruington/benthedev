@@ -1479,6 +1479,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/polls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open polls, newest first, and the 50 most recently closed */
+        get: operations["listPolls"];
+        put?: never;
+        /** Ask the party a question; with an announcements channel on the linked server, players vote in a Discord poll Beny Bot posts */
+        post: operations["createPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/polls/{pollId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a poll and its votes; its closing timeline entry stays */
+        delete: operations["deletePoll"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/polls/{pollId}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close a poll now and post its final counts to the timeline; a closed poll stays closed */
+        post: operations["closePoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/polls/{pollId}/vote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the caller's vote on a site poll (active players only); an empty list withdraws it */
+        put: operations["votePoll"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/quests": {
         parameters: {
             query?: never;
@@ -2483,6 +2552,16 @@ export interface components {
             /** Format: int64 */
             expectedVersion: number;
         };
+        CreatePollInput: {
+            allowMultiple: boolean;
+            /**
+             * Format: int64
+             * @description How many hours the poll stays open, 1 to 768
+             */
+            durationHours: number;
+            options: string[];
+            question: string;
+        };
         DeclineRequestInput: {
             /** @description At most 500 characters; only the requester and the DM read it */
             note: string;
@@ -3398,6 +3477,75 @@ export interface components {
             id: string;
             name: string;
         } | null;
+        Poll: {
+            /** @description True when a player may pick several options */
+            allowMultiple: boolean;
+            closed: boolean;
+            /**
+             * Format: date-time
+             * @description When the poll closed; null while it is open
+             */
+            closedAt: string | null;
+            /**
+             * Format: date-time
+             * @description When the poll closes by itself
+             */
+            closesAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description The Discord poll's message; null for a site poll and until Beny Bot posts it */
+            discordUrl: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The viewer's own current vote; empty for the DM */
+            myOptionIds: string[];
+            /** @description In the order the DM wrote them */
+            options: components["schemas"]["PollOption"][];
+            question: string;
+            /**
+             * Format: int64
+             * @description How many have voted: players, plus anyone else counted in Discord
+             */
+            voterCount: number;
+            /** @description Where players vote, fixed when the poll was created */
+            voting: components["schemas"]["PollVoting"];
+        };
+        PollList: {
+            /** @description The most recently closed, at most 50 */
+            closed: components["schemas"]["Poll"][];
+            /** @description Where players would vote on a poll created now */
+            newPollVoting: components["schemas"]["PollVoting"];
+            /** @description Newest first */
+            open: components["schemas"]["Poll"][];
+        };
+        PollOption: {
+            /**
+             * Format: int64
+             * @description Every vote: the named players plus otherVotes
+             */
+            count: number;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /**
+             * Format: int64
+             * @description Discord votes from anyone who isn't a player of this campaign
+             */
+            otherVotes: number;
+            /** Format: int64 */
+            position: number;
+            /** @description Players, in the order they voted */
+            voters: components["schemas"]["PollVoter"][];
+        };
+        PollVoteInput: {
+            /** @description Every option the player picks; empty withdraws the vote */
+            optionIds: string[];
+        };
+        PollVoter: {
+            name: string;
+        };
+        /** @enum {string} */
+        PollVoting: "SITE" | "DISCORD";
         ProfileInput: {
             /** @description At most 60 characters after trimming; blank or null clears it */
             characterName: string | null;
@@ -3973,7 +4121,7 @@ export interface components {
             visibility: components["schemas"]["TimelineVisibility"];
         };
         /** @enum {string} */
-        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED" | "POLL_CLOSED";
         TimelinePage: {
             /**
              * Format: int64
@@ -4000,7 +4148,7 @@ export interface components {
         /** @enum {string} */
         TimelineVisibility: "PUBLIC" | "DM";
         /** @enum {string} */
-        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions" | "market";
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions" | "market" | "polls";
         TransferInput: {
             /**
              * Format: int64
@@ -7545,6 +7693,175 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Place"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listPolls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PollList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createPoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePollInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Poll"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deletePoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                pollId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    closePoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                pollId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Poll"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    votePoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                pollId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PollVoteInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Poll"];
                 };
             };
             /** @description Error */

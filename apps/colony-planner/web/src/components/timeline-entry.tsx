@@ -22,6 +22,7 @@ import {
 	UserMinusIcon,
 	UserPlusIcon,
 	UsersIcon,
+	VoteIcon,
 	XIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -73,6 +74,7 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 		label: "Patron's favor",
 		tone: "bg-verdigris/14 text-verdigris-ink",
 	},
+	POLL_CLOSED: { icon: VoteIcon, label: "Poll closed", tone: "bg-gilt/12 text-gilt-ink" },
 	QUEST_COMPLETED: {
 		icon: BadgeCheckIcon,
 		label: "Quest done",

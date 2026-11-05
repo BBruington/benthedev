@@ -68,8 +68,9 @@ function PrivacyPage() {
 							<li>
 								<strong>Everything people enter in a campaign:</strong> the colony's books and
 								timeline, NPCs, places, quests, patrons, requests, maps, the hex map, session dates
-								and recaps, and the market's items, the party's cart and its orders (including who
-								placed and paid them). DMs and players type all of it themselves.
+								and recaps, the market's items, the party's cart and its orders (including who
+								placed and paid them), and polls with each player's vote. DMs and players type all
+								of it themselves.
 							</li>
 							<li>
 								<strong>Pictures</strong> uploaded to a campaign, such as maps and NPC portraits.
@@ -139,6 +140,12 @@ function PrivacyPage() {
 								times and location. Members can copy the link, and the DM can replace it with a new
 								one at any time.
 							</li>
+							<li>
+								<strong>Poll votes are open:</strong> every member of the campaign sees which player
+								voted for what, and in a linked campaign so does anyone who can read the Discord
+								channel where Beny Bot posts the poll. A Discord poll's link on the site shows every
+								member the server's ID and the announcements channel's ID.
+							</li>
 						</ul>
 					</PrivacySection>
 
@@ -151,10 +158,14 @@ function PrivacyPage() {
 						</p>
 						<p>
 							It can't read the server's messages. It sees only the commands you send it, with your
-							Discord user ID so it can find your campaign, and its replies to you are visible only
-							to you and show only what players may see. It posts what the DM set up: session
-							events, reminders and cancellation notices, and requests and new players in the DM's
-							channel. It also messages the site owner when someone asks to run a campaign.
+							Discord user ID so it can find your campaign, and the votes in the server's Discord
+							polls: Discord tells it who voted for what in every poll in a server it is in. It
+							ignores and never stores votes on polls it didn't post. From its own polls the site
+							stores the votes of the campaign's players and only a count for everyone else, never
+							their Discord IDs. Its replies to you are visible only to you and show only what
+							players may see. It posts what the DM set up: session events, reminders and
+							cancellation notices, polls, and requests and new players in the DM's channel. It also
+							messages the site owner when someone asks to run a campaign.
 						</p>
 					</PrivacySection>
 

@@ -115,9 +115,10 @@ func (benyBot *Bot) SessionCancelled(requestContext context.Context, cancelled c
 	})
 }
 
-// runPlanner is the planner goroutine. Before the first plan (Ready) its timer only idles.
+// runPlanner is the planner goroutine: session jobs and poll deadlines. Before the first plan (Ready)
+// only deadlines that poll changes reported are timed.
 func (benyBot *Bot) runPlanner(lifetimeContext context.Context) {
-	var wake *time.Time
+	var sessionWake *time.Time
 	timer := time.NewTimer(plannerTimerCap)
 	defer timer.Stop()
 	for {
@@ -125,11 +126,18 @@ func (benyBot *Bot) runPlanner(lifetimeContext context.Context) {
 		case <-lifetimeContext.Done():
 			return
 		case <-benyBot.replan:
-			wake = benyBot.planSessions(lifetimeContext)
+			sessionWake = benyBot.planSessions(lifetimeContext)
+		case <-benyBot.pollsChanged:
 		case <-timer.C:
-			if wake != nil && !benyBot.now().Before(*wake) {
-				wake = benyBot.planSessions(lifetimeContext)
+			benyBot.retryDuePollPosts()
+			benyBot.closeDuePolls(lifetimeContext)
+			if sessionWake != nil && !benyBot.now().Before(*sessionWake) {
+				sessionWake = benyBot.planSessions(lifetimeContext)
 			}
+		}
+		wake := sessionWake
+		if pollWake := benyBot.nextPollWake(); pollWake != nil && (wake == nil || pollWake.Before(*wake)) {
+			wake = pollWake
 		}
 		timer.Reset(benyBot.timerDelay(wake))
 	}
@@ -158,6 +166,9 @@ func (benyBot *Bot) planSessions(lifetimeContext context.Context) *time.Time {
 		if err != nil {
 			logger.Error("Beny Bot couldn't plan sessions; it tries again in a minute", slog.Any("error", err))
 			return new(benyBot.now().Add(firstRetryDelay))
+		}
+		if len(attempted) == 0 {
+			benyBot.reloadPollDeadlines(workContext, service, plans)
 		}
 		var wake *time.Time
 		wakeAt := func(instant *time.Time) {

@@ -2,11 +2,14 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -89,18 +92,29 @@ func (answers *discordAnswers) take(interactionID string) bool {
 var errAlreadyAcknowledged = errors.New("HTTP 400 Bad Request: Interaction has already been acknowledged")
 
 type fakeDiscordClient struct {
-	mutex            sync.Mutex
-	handlers         []any
-	removedHandlers  int
-	openCalls        int
-	closeCalls       int
-	openError        error
-	overwrites       []commandOverwrite
-	responses        []*discordgo.InteractionResponse
-	messages         []sentMessage
-	posted           map[string]*discordgo.Message
-	edits            []*discordgo.MessageEdit
-	followUps        []*discordgo.WebhookParams
+	mutex           sync.Mutex
+	handlers        []any
+	removedHandlers int
+	openCalls       int
+	closeCalls      int
+	openError       error
+	overwrites      []commandOverwrite
+	responses       []*discordgo.InteractionResponse
+	messages        []sentMessage
+	posted          map[string]*discordgo.Message
+	edits           []*discordgo.MessageEdit
+	deletes         []string
+	followUps       []*discordgo.WebhookParams
+	// pollVoters are each posted poll's voters by answer ID, which voter reads page through.
+	pollVoters map[string]map[int][]string
+	voterReads int
+	voterError error
+	// voterRead, when set, runs outside the mutex on every voter read and returns the page Discord answers.
+	voterRead func(messageID string, answerID int, rawQuery string, page []byte) ([]byte, error)
+	// pollExpires are the message IDs of polls Beny Bot ended early.
+	pollExpires []string
+	// now dates a posted poll's expiry, the world's clock in a world.
+	now              func() time.Time
 	answers          *discordAnswers
 	directChannels   []string
 	sendError        error
@@ -124,6 +138,8 @@ func newFakeDiscordClient() *fakeDiscordClient {
 		openedSignal:    make(chan struct{}),
 		posted:          map[string]*discordgo.Message{},
 		scheduledEvents: map[string][]*discordgo.GuildScheduledEvent{},
+		pollVoters:      map[string]map[int][]string{},
+		now:             time.Now,
 	}
 }
 
@@ -185,6 +201,17 @@ func (fake *fakeDiscordClient) ChannelMessageSendComplex(channelID string, messa
 		Components: message.Components,
 		Flags:      message.Flags,
 	}
+	if message.Poll != nil {
+		// Discord numbers a poll's answers from 1 and ends it after its duration.
+		poll := *message.Poll
+		poll.Answers = make([]discordgo.PollAnswer, len(message.Poll.Answers))
+		for index, answer := range message.Poll.Answers {
+			answer.AnswerID = index + 1
+			poll.Answers[index] = answer
+		}
+		poll.Expiry = new(fake.now().UTC().Add(time.Duration(poll.Duration) * time.Hour))
+		posted.Poll = &poll
+	}
 	fake.posted[posted.ID] = posted
 	copied := *posted
 	return &copied, nil
@@ -224,11 +251,89 @@ func (fake *fakeDiscordClient) ChannelMessageEditComplex(edit *discordgo.Message
 	return &copied, nil
 }
 
+func (fake *fakeDiscordClient) ChannelMessageDelete(channelID string, messageID string, _ ...discordgo.RequestOption) error {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	fake.deletes = append(fake.deletes, messageID)
+	posted, found := fake.posted[messageID]
+	if !found || posted.ChannelID != channelID {
+		return errUnknownMessage
+	}
+	delete(fake.posted, messageID)
+	return nil
+}
+
 func (fake *fakeDiscordClient) FollowupMessageCreate(_ *discordgo.Interaction, _ bool, data *discordgo.WebhookParams, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
 	fake.mutex.Lock()
 	defer fake.mutex.Unlock()
 	fake.followUps = append(fake.followUps, data)
 	return &discordgo.Message{Content: data.Content}, nil
+}
+
+func (fake *fakeDiscordClient) RequestWithBucketID(method string, urlStr string, _ any, _ string, _ ...discordgo.RequestOption) ([]byte, error) {
+	fake.mutex.Lock()
+	endpoint, rawQuery, _ := strings.Cut(urlStr, "?")
+	for messageID, posted := range fake.posted {
+		if method == "POST" && endpoint == discordgo.EndpointPollExpire(posted.ChannelID, messageID) {
+			fake.pollExpires = append(fake.pollExpires, messageID)
+			fake.mutex.Unlock()
+			return []byte("{}"), nil
+		}
+		if method != "GET" || posted.Poll == nil {
+			continue
+		}
+		for _, answer := range posted.Poll.Answers {
+			if endpoint != discordgo.EndpointPollAnswerVoters(posted.ChannelID, messageID, answer.AnswerID) {
+				continue
+			}
+			fake.voterReads++
+			voterError, voterRead := fake.voterError, fake.voterRead
+			page, err := voterPage(fake.pollVoters[messageID][answer.AnswerID], rawQuery)
+			fake.mutex.Unlock()
+			if voterError != nil {
+				return nil, voterError
+			}
+			if err == nil && voterRead != nil {
+				return voterRead(messageID, answer.AnswerID, rawQuery, page)
+			}
+			return page, err
+		}
+	}
+	fake.mutex.Unlock()
+	return nil, errUnknownMessage
+}
+
+// voterPage is one page of voters as Discord lists them: by user ID, after the query's after, at most
+// its limit.
+func voterPage(voterIDs []string, rawQuery string) ([]byte, error) {
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := strconv.Atoi(query.Get("limit"))
+	if err != nil {
+		return nil, err
+	}
+	after := query.Get("after")
+	users := []*discordgo.User{}
+	for _, voterID := range slices.Sorted(slices.Values(voterIDs)) {
+		if len(users) < limit && (after == "" || voterID > after) {
+			users = append(users, &discordgo.User{ID: voterID})
+		}
+	}
+	return json.Marshal(struct {
+		Users []*discordgo.User `json:"users"`
+	}{Users: users})
+}
+
+// setVoters replaces one answer's voters on a posted poll.
+func (fake *fakeDiscordClient) setVoters(messageID string, answerID int, voterIDs ...string) {
+	fake.mutex.Lock()
+	defer fake.mutex.Unlock()
+	if fake.pollVoters[messageID] == nil {
+		fake.pollVoters[messageID] = map[int][]string{}
+	}
+	fake.pollVoters[messageID][answerID] = voterIDs
 }
 
 func (fake *fakeDiscordClient) UserChannelCreate(recipientID string, _ ...discordgo.RequestOption) (*discordgo.Channel, error) {
@@ -500,6 +605,8 @@ func newWorld(t *testing.T) *world {
 		PublicURL:          testPublicURL + "/",
 		Logger:             quietLogger(),
 	}, test.client, test.state, test.clock.now)
+	test.client.now = test.clock.now
+	test.bot.pollVoteDelay = 0
 	test.service = core.New(core.Options{
 		Pool:               database.Pool,
 		Notifier:           test.bot,
@@ -508,6 +615,7 @@ func newWorld(t *testing.T) *world {
 		SiteOwnerDiscordID: ownerDiscordID,
 		Directory:          test.bot.Directory(),
 		SessionPlanner:     test.bot.SessionPlanner(),
+		PollNotifier:       test.bot.PollNotifier(),
 		Now:                test.clock.now,
 	})
 	if err := test.bot.start(test.service); err != nil {
@@ -861,6 +969,26 @@ func (failingService) RecordDiscordEventStatus(context.Context, string, string, 
 	return errDatabaseDown
 }
 
+func (failingService) PollDeadlines(context.Context, uuid.UUID) ([]core.PollDeadline, error) {
+	return nil, errDatabaseDown
+}
+
+func (failingService) ClosePollAtDeadline(context.Context, uuid.UUID, uuid.UUID) (core.PollDeadlineClose, error) {
+	return core.PollDeadlineClose{}, errDatabaseDown
+}
+
+func (failingService) PollForDiscord(context.Context, uuid.UUID, uuid.UUID) (core.DiscordPoll, error) {
+	return core.DiscordPoll{}, errDatabaseDown
+}
+
+func (failingService) RecordPollMessage(context.Context, uuid.UUID, uuid.UUID, core.RecordPollMessageInput) error {
+	return errDatabaseDown
+}
+
+func (failingService) SyncDiscordPollVotes(context.Context, uuid.UUID, uuid.UUID, map[int][]string) error {
+	return errDatabaseDown
+}
+
 func (failingService) GetRequest(context.Context, core.Viewer, uuid.UUID) (core.Request, error) {
 	return core.Request{}, errDatabaseDown
 }
@@ -1020,16 +1148,18 @@ func TestRunConnectsServesAndDisconnects(t *testing.T) {
 	client.mutex.Lock()
 	handlers := append([]any(nil), client.handlers...)
 	client.mutex.Unlock()
-	if len(handlers) != 5 {
-		t.Fatalf("registered %d handlers, want 5", len(handlers))
+	if len(handlers) != 7 {
+		t.Fatalf("registered %d handlers, want 7", len(handlers))
 	}
 	readyHandler, isReadyHandler := handlers[0].(func(*discordgo.Session, *discordgo.Ready))
 	interactionHandler, isInteractionHandler := handlers[1].(func(*discordgo.Session, *discordgo.InteractionCreate))
 	_, isGuildDeleteHandler := handlers[2].(func(*discordgo.Session, *discordgo.GuildDelete))
 	_, isGuildCreateHandler := handlers[3].(func(*discordgo.Session, *discordgo.GuildCreate))
 	_, isScheduledEventHandler := handlers[4].(func(*discordgo.Session, *discordgo.GuildScheduledEventUpdate))
-	if !isReadyHandler || !isInteractionHandler || !isGuildDeleteHandler || !isGuildCreateHandler || !isScheduledEventHandler {
-		t.Fatalf("handlers have the wrong shapes for discordgo: %T, %T, %T, %T, %T", handlers[0], handlers[1], handlers[2], handlers[3], handlers[4])
+	_, isPollVoteAddHandler := handlers[5].(func(*discordgo.Session, *discordgo.MessagePollVoteAdd))
+	_, isPollVoteRemoveHandler := handlers[6].(func(*discordgo.Session, *discordgo.MessagePollVoteRemove))
+	if !isReadyHandler || !isInteractionHandler || !isGuildDeleteHandler || !isGuildCreateHandler || !isScheduledEventHandler || !isPollVoteAddHandler || !isPollVoteRemoveHandler {
+		t.Fatalf("handlers have the wrong shapes for discordgo: %T", handlers)
 	}
 	readyHandler(nil, &discordgo.Ready{User: &discordgo.User{ID: "500000000000000001"}, Guilds: []*discordgo.Guild{{ID: guildX}}})
 	interactionHandler(nil, slashCommand(guildX, activeUserID, "beny"))
@@ -1047,8 +1177,8 @@ func TestRunConnectsServesAndDisconnects(t *testing.T) {
 	if client.openCalls != 1 || client.closeCalls != 1 {
 		t.Errorf("open %d times and close %d times, want 1 and 1", client.openCalls, client.closeCalls)
 	}
-	if client.removedHandlers != 5 {
-		t.Errorf("removed %d handlers, want 5", client.removedHandlers)
+	if client.removedHandlers != 7 {
+		t.Errorf("removed %d handlers, want 7", client.removedHandlers)
 	}
 	if len(client.overwrites) != 1 {
 		t.Errorf("got %d overwrites, want 1", len(client.overwrites))
@@ -1082,7 +1212,7 @@ func TestNewWithATokenNeedsNoGuild(t *testing.T) {
 	if benyBot.state != session.State {
 		t.Error("Beny Bot doesn't read the session's gateway state")
 	}
-	expectedIntents := discordgo.IntentsGuilds | discordgo.IntentsGuildScheduledEvents
+	expectedIntents := discordgo.IntentsGuilds | discordgo.IntentsGuildScheduledEvents | discordgo.IntentGuildMessagePolls
 	if session.Identify.Intents != expectedIntents {
 		t.Errorf("intents = %d, want %d", session.Identify.Intents, expectedIntents)
 	}

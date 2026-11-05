@@ -48,6 +48,8 @@ const (
 	TopicSessions Topic = "sessions"
 	// TopicMarket is /market and the goods ship on the board's day dial.
 	TopicMarket Topic = "market"
+	// TopicPolls is /polls and the board's open polls.
+	TopicPolls Topic = "polls"
 )
 
 // InvalidateMessage is the data of every `event: invalidate` message on a campaign stream.
@@ -58,7 +60,7 @@ type InvalidateMessage struct {
 // AllTopics lists every topic; it feeds the Topic enum in the OpenAPI document, reconnect catch-up
 // and view as player. TestAllTopicsListsEveryTopicConstant fails when a Topic constant is missing here.
 func AllTopics() []Topic {
-	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces, TopicQuests, TopicPatrons, TopicRequests, TopicMaps, TopicHexes, TopicSessions, TopicMarket}
+	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces, TopicQuests, TopicPatrons, TopicRequests, TopicMaps, TopicHexes, TopicSessions, TopicMarket, TopicPolls}
 }
 
 // StreamMessage is one `event: invalidate` message, with its `<bootId>-<seq>` id.

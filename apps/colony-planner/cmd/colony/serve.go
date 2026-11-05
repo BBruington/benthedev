@@ -47,7 +47,8 @@ func serve(commandContext context.Context) error {
 
 	siteOwnerDiscordID := auth.EffectiveSiteOwnerDiscordID(loaded.siteOwnerDiscordID)
 	// Without DISCORD_BOT_TOKEN, bot.New returns a Beny Bot that is off: its pings do nothing, Run only
-	// waits, and its Directory and SessionPlanner are nil. One shared Beny Bot serves every linked server.
+	// waits, and its Directory, SessionPlanner and PollNotifier are nil. One shared Beny Bot serves every
+	// linked server.
 	benyBot, err := bot.New(bot.Options{
 		Token:              loaded.discordBotToken,
 		SiteOwnerDiscordID: siteOwnerDiscordID,
@@ -69,6 +70,7 @@ func serve(commandContext context.Context) error {
 		Sessions:           sessionCache,
 		Directory:          benyBot.Directory(),
 		SessionPlanner:     benyBot.SessionPlanner(),
+		PollNotifier:       benyBot.PollNotifier(),
 		BotInviteURL:       bot.InviteURL(loaded.discordClientID),
 		PublicURL:          loaded.publicURL,
 	})

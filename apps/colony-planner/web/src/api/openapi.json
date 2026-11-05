@@ -885,6 +885,37 @@
         ],
         "type": "object"
       },
+      "CreatePollInput": {
+        "additionalProperties": false,
+        "properties": {
+          "allowMultiple": {
+            "type": "boolean"
+          },
+          "durationHours": {
+            "description": "How many hours the poll stays open, 1 to 768",
+            "format": "int64",
+            "type": "integer"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "question": {
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "options",
+          "allowMultiple",
+          "durationHours"
+        ],
+        "type": "object"
+      },
       "DeclineRequestInput": {
         "additionalProperties": false,
         "properties": {
@@ -3523,6 +3554,196 @@
           "null"
         ]
       },
+      "Poll": {
+        "additionalProperties": false,
+        "properties": {
+          "allowMultiple": {
+            "description": "True when a player may pick several options",
+            "type": "boolean"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "closedAt": {
+            "description": "When the poll closed; null while it is open",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closesAt": {
+            "description": "When the poll closes by itself",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "discordUrl": {
+            "description": "The Discord poll's message; null for a site poll and until Beny Bot posts it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "myOptionIds": {
+            "description": "The viewer's own current vote; empty for the DM",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "options": {
+            "description": "In the order the DM wrote them",
+            "items": {
+              "$ref": "#/components/schemas/PollOption"
+            },
+            "type": "array"
+          },
+          "question": {
+            "type": "string"
+          },
+          "voterCount": {
+            "description": "How many have voted: players, plus anyone else counted in Discord",
+            "format": "int64",
+            "type": "integer"
+          },
+          "voting": {
+            "$ref": "#/components/schemas/PollVoting",
+            "description": "Where players vote, fixed when the poll was created"
+          }
+        },
+        "required": [
+          "id",
+          "question",
+          "allowMultiple",
+          "voting",
+          "closesAt",
+          "closedAt",
+          "closed",
+          "createdAt",
+          "options",
+          "voterCount",
+          "myOptionIds",
+          "discordUrl"
+        ],
+        "type": "object"
+      },
+      "PollList": {
+        "additionalProperties": false,
+        "properties": {
+          "closed": {
+            "description": "The most recently closed, at most 50",
+            "items": {
+              "$ref": "#/components/schemas/Poll"
+            },
+            "type": "array"
+          },
+          "newPollVoting": {
+            "$ref": "#/components/schemas/PollVoting",
+            "description": "Where players would vote on a poll created now"
+          },
+          "open": {
+            "description": "Newest first",
+            "items": {
+              "$ref": "#/components/schemas/Poll"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "open",
+          "closed",
+          "newPollVoting"
+        ],
+        "type": "object"
+      },
+      "PollOption": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "description": "Every vote: the named players plus otherVotes",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "otherVotes": {
+            "description": "Discord votes from anyone who isn't a player of this campaign",
+            "format": "int64",
+            "type": "integer"
+          },
+          "position": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "voters": {
+            "description": "Players, in the order they voted",
+            "items": {
+              "$ref": "#/components/schemas/PollVoter"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "position",
+          "count",
+          "voters",
+          "otherVotes"
+        ],
+        "type": "object"
+      },
+      "PollVoteInput": {
+        "additionalProperties": false,
+        "properties": {
+          "optionIds": {
+            "description": "Every option the player picks; empty withdraws the vote",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+          }
+        },
+        "required": [
+          "optionIds"
+        ],
+        "type": "object"
+      },
+      "PollVoter": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "PollVoting": {
+        "enum": [
+          "SITE",
+          "DISCORD"
+        ],
+        "type": "string"
+      },
       "ProfileInput": {
         "additionalProperties": false,
         "properties": {
@@ -5136,7 +5357,8 @@
           "MARKET_ORDER_PLACED",
           "MARKET_ORDER_DOCKED",
           "MARKET_ORDER_PAID",
-          "MARKET_ORDER_CANCELLED"
+          "MARKET_ORDER_CANCELLED",
+          "POLL_CLOSED"
         ],
         "type": "string"
       },
@@ -5214,7 +5436,8 @@
           "maps",
           "hexes",
           "sessions",
-          "market"
+          "market",
+          "polls"
         ],
         "type": "string"
       },
@@ -10925,6 +11148,269 @@
           "places"
         ],
         "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/polls": {
+      "get": {
+        "operationId": "listPolls",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open polls, newest first, and the 50 most recently closed",
+        "tags": [
+          "polls"
+        ],
+        "x-access": "member"
+      },
+      "post": {
+        "operationId": "createPoll",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePollInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Poll"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Ask the party a question; with an announcements channel on the linked server, players vote in a Discord poll Beny Bot posts",
+        "tags": [
+          "polls"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/polls/{pollId}": {
+      "delete": {
+        "operationId": "deletePoll",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pollId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a poll and its votes; its closing timeline entry stays",
+        "tags": [
+          "polls"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/polls/{pollId}/close": {
+      "post": {
+        "operationId": "closePoll",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pollId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Poll"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Close a poll now and post its final counts to the timeline; a closed poll stays closed",
+        "tags": [
+          "polls"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/polls/{pollId}/vote": {
+      "put": {
+        "operationId": "votePoll",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pollId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollVoteInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Poll"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Replace the caller's vote on a site poll (active players only); an empty list withdraws it",
+        "tags": [
+          "polls"
+        ],
+        "x-access": "member"
       }
     },
     "/api/campaigns/{campaignId}/quests": {

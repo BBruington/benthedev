@@ -302,6 +302,11 @@ export function marketQuery(campaignId: string) {
 	return api.queryOptions("get", "/api/campaigns/{campaignId}/market", inCampaign(campaignId));
 }
 
+/** Open polls and the 50 most recently closed, each with its counts, voters and the viewer's vote. */
+export function pollsQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/polls", inCampaign(campaignId));
+}
+
 /** Every series and one-off session (spec §4.5), for /sessions and the DM's series editor. */
 export function sessionSeriesQuery(campaignId: string) {
 	return api.queryOptions(

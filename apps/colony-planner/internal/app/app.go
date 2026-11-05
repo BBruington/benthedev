@@ -111,6 +111,7 @@ func New(options Options) (*Server, error) {
 	featureHandlers.registerQuests(api)
 	featureHandlers.registerPatrons(api)
 	featureHandlers.registerMarket(api)
+	featureHandlers.registerPolls(api)
 	featureHandlers.registerRequests(api)
 	featureHandlers.registerImages(api)
 	featureHandlers.registerMaps(api)

@@ -119,23 +119,27 @@ Developer Mode adds **Copy ID** to Discord's right-click menus.
 
 ## 4. Invite Beny Bot Dev to the test server
 
-Beny Bot needs the scopes `bot` and `applications.commands`, and four permissions: **View Channels**,
-**Send Messages**, **Embed Links** and **Manage Events**. Together those permissions are the number
-`8589954048`. It doesn't ask for **Read Message History**: no feature reads messages, and the site owner,
-who runs Beny Bot, must not be able to read a campaign's server through it.
+Beny Bot needs the scopes `bot` and `applications.commands`, and five permissions: **View Channels**,
+**Send Messages**, **Embed Links**, **Manage Events** and **Send Polls**. Together those permissions are
+the number `562958543375360`. It doesn't ask for **Read Message History**: no feature reads messages, and
+the site owner, who runs Beny Bot, must not be able to read a campaign's server through it.
 
 1. Paste this address into your browser, replacing `YOUR_CLIENT_ID` with the Client ID from step 3:
 
    ```
-   https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot+applications.commands&permissions=8589954048
+   https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot+applications.commands&permissions=562958543375360
    ```
 
    You can build the same link on **OAuth2** → **OAuth2 URL Generator**: tick `bot` and
-   `applications.commands`, tick the four permissions, and choose **Guild Install**. The link it shows
-   should end in `permissions=8589954048`. Every DM's Settings page shows this same link (with the
+   `applications.commands`, tick the five permissions, and choose **Guild Install**. The link it shows
+   should end in `permissions=562958543375360`. Every DM's Settings page shows this same link (with the
    Client ID filled in) under **Discord server**.
-2. Pick **Colony Planner Test** as the server, check that the four permissions are listed, and click
+2. Pick **Colony Planner Test** as the server, check that the five permissions are listed, and click
    **Authorize**.
+
+   Invited Beny Bot Dev before polls? It posts them only with **Send Polls**, which a server usually
+   grants everyone already. If a poll never appears, give Beny Bot Dev's role **Send Polls** in the
+   announcements channel, or re-invite it with the link above.
 3. Beny Bot Dev now appears in the server's member list, offline until the site runs with its token.
 
 ## 5. Copy your user ID

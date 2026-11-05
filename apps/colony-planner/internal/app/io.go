@@ -167,6 +167,22 @@ type marketOrderBodyInput[Body any] struct {
 	Body       Body
 }
 
+type pollPath struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	PollID     uuid.UUID `path:"pollId" format:"uuid"`
+}
+
+type pollBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	PollID     uuid.UUID `path:"pollId" format:"uuid"`
+	Body       Body
+}
+
+// PollVoteInput is a player's whole vote; an empty list withdraws it.
+type PollVoteInput struct {
+	OptionIDs []uuid.UUID `json:"optionIds" format:"uuid" maxItems:"10" doc:"Every option the player picks; empty withdraws the vote"`
+}
+
 // ArchiveInput is the body of the archive switches on patrons, their actions and market items.
 type ArchiveInput struct {
 	Archived bool `json:"archived"`

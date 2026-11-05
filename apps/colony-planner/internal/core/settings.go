@@ -59,7 +59,7 @@ const (
 )
 
 // A Discord snowflake is 17 to 20 digits today.
-var discordChannelIDPattern = regexp.MustCompile(`^[0-9]{17,20}$`)
+var discordSnowflakePattern = regexp.MustCompile(`^[0-9]{17,20}$`)
 
 func (service *Service) toSettings(row store.Settings, campaignName string, colonyName string, link *store.DiscordGuildLink) Settings {
 	settings := Settings{
@@ -286,7 +286,7 @@ func discordChannelID(field string, value *string) (*string, *FieldError) {
 	if trimmed == "" {
 		return nil, nil
 	}
-	if !discordChannelIDPattern.MatchString(trimmed) {
+	if !discordSnowflakePattern.MatchString(trimmed) {
 		return nil, &FieldError{Field: field, Message: "Pick a text channel of the linked server."}
 	}
 	return &trimmed, nil

@@ -662,6 +662,7 @@ var mixedIDFields = map[string]string{
 	"mapIds":         "uuids",
 	"seriesId":       "uuid",
 	"sessionId":      "uuid",
+	"optionIds":      "uuids",
 	// Every Effects (rewardEffects, failureEffects, effects, appliedEffects) keys resources here.
 	"resources": "map",
 }
@@ -743,6 +744,7 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"mapIds":         []string{campaignB.pathIDs["mapId"]},
 		"seriesId":       campaignB.pathIDs["seriesId"],
 		"sessionId":      campaignB.pathIDs["sessionId"],
+		"optionIds":      []string{campaignB.pathIDs["pollOptionId"]},
 	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
@@ -952,6 +954,28 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	validBodies["/market/orders/{orderId}/pay"] = func() map[string]any {
 		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version}
 	}
+	// Pass 3 closed and deleted A's {pollId} poll, so votes go to a fresh open SITE poll of A's own,
+	// made while A has no announcements channel (a DISCORD poll refuses every site vote).
+	setAnnounceChannelA := func(channelID *string) {
+		t.Helper()
+		if _, err := testHarness.database.Pool.Exec(testHarness.context,
+			"UPDATE settings SET discord_announce_channel_id = $2 WHERE campaign_id = $1", campaignA.id, channelID); err != nil {
+			t.Fatalf("set A's announcements channel: %v", err)
+		}
+	}
+	setAnnounceChannelA(nil)
+	passFourPoll, err := testHarness.core.CreatePoll(testHarness.context, dmViewerA, core.CreatePollInput{
+		Question: "Pass Four", Options: []string{"Yes", "No"}, DurationHours: 24,
+	})
+	announceChannelID := announceChannelA
+	setAnnounceChannelA(&announceChannelID)
+	if err != nil || passFourPoll.Voting != core.PollVotingSite {
+		t.Fatalf("open A's pass 4 poll: %+v, %v", passFourPoll, err)
+	}
+	campaignA.pathIDs["pollId"] = passFourPoll.ID.String()
+	validBodies["/polls/{pollId}/vote"] = func() map[string]any {
+		return map[string]any{"optionIds": []string{passFourPoll.Options[0].ID.String()}}
+	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
 		build, found := validBodies[suffix]
@@ -966,11 +990,21 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		}
 	}
 
+	// Requests and votes are the players' (the DM is refused before any ID is read), so a player of A
+	// sends them.
+	callerFor := func(route sweepRoute) (account, string) {
+		if (route.method == http.MethodPost && strings.HasSuffix(route.path, "/requests")) ||
+			(route.method == http.MethodPut && strings.HasSuffix(route.path, "/vote")) {
+			return testHarness.ana, "ana"
+		}
+		return testHarness.dmA, "dmA"
+	}
 	substituted := map[string]bool{}
 	for _, route := range campaignRoutesLeaveLast(routes) {
 		if route.isStream() || route.isLeave() {
 			continue
 		}
+		caller, callerName := callerFor(route)
 		// Every other path parameter, one at a time, from B.
 		for _, name := range pathParameter.FindAllString(route.path, -1) {
 			name = strings.Trim(name, "{}")
@@ -979,19 +1013,14 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			}
 			pathIDs := maps.Clone(campaignA.pathIDs)
 			pathIDs[name] = campaignB.pathIDs[name]
-			path, response := testHarness.call(route, document, testHarness.signIn(testHarness.dmA), pathIDs, sampleBody(document, route.operation, uuid.New()))
-			expectRefused("dmA: "+route.label+" with B's "+name, path, response)
+			path, response := testHarness.call(route, document, testHarness.signIn(caller), pathIDs, sampleBody(document, route.operation, uuid.New()))
+			expectRefused(callerName+": "+route.label+" with B's "+name, path, response)
 		}
 		if route.operation == nil || route.operation.requestBody == nil {
 			continue
 		}
 		fields := bodyFields(t, route.label, document, requestBodySchema(route.operation.requestBody), nil)
 		build, hasValidBody := validBodyFor(route)
-		// Requests are the players' (the DM is refused before any ID is read), so a player of A sends them.
-		caller, callerName := testHarness.dmA, "dmA"
-		if route.method == http.MethodPost && strings.HasSuffix(route.path, "/requests") {
-			caller, callerName = testHarness.ana, "ana"
-		}
 		baseline := func() map[string]any {
 			if hasValidBody {
 				return build()

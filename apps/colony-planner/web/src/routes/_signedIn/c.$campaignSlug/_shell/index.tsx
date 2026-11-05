@@ -21,6 +21,7 @@ import {
 	marketQuery,
 	membersQuery,
 	nextSessionQuery,
+	pollsQuery,
 	recentTimelineQuery,
 	settingsQuery,
 } from "@/api/queries";
@@ -49,6 +50,7 @@ import { goodsShipLine, goodsShipProgress } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { countOf } from "@/lib/words";
 import { artSource } from "@/maps/art";
+import { BoardPolls } from "@/polls/board-polls";
 import { BoardSessions } from "@/sessions/board-sessions";
 import { MyRequestsCard, PendingRequestsCard } from "@/ventures/board-ventures";
 
@@ -68,6 +70,7 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/")({
 		queryClient.prefetchQuery(marketQuery(campaignId));
 		queryClient.prefetchQuery(nextSessionQuery(campaignId));
 		queryClient.prefetchQuery(latestRecapQuery(campaignId));
+		queryClient.prefetchQuery(pollsQuery(campaignId));
 		const me = cachedMe(queryClient, campaignId);
 		if (me && canUseDmTools(me)) {
 			queryClient.prefetchQuery(membersQuery(campaignId));
@@ -137,6 +140,7 @@ function ColonyPage() {
 			) : (
 				<MyRequestsCard resources={data.resources} />
 			)}
+			<BoardPolls isDm={me.isDm} />
 			<RecentEntries
 				entries={recent.data?.entries}
 				isError={recent.isError}
