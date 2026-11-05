@@ -27,7 +27,9 @@ type campaignSide struct {
 	playerVisible string
 	guildID       string
 	channelID     string
-	colonyName    string
+	// announceChannelID is the announcements channel, where Beny Bot posts the campaign's polls.
+	announceChannelID string
+	colonyName        string
 	// characterNames maps an account name to the character name it plays here.
 	characterNames map[string]string
 	// memberTarget is the account whose membership member-targeted routes act on.
@@ -47,33 +49,35 @@ type campaignSide struct {
 func (testHarness *harness) sides() []campaignSide {
 	return []campaignSide{
 		{
-			campaign:       testHarness.campaignA,
-			dm:             testHarness.dmA,
-			dmSecret:       canaryA,
-			guildID:        guildA,
-			channelID:      channelA,
-			colonyName:     "Port Alpha",
-			characterNames: map[string]string{"ana": "Thorin", "otherA": "Sela", "dmB": "Pell"},
-			memberTarget:   "otherA",
-			requester:      [4]string{"requesterA", "100000000000000007", "rhea." + canaryA, "Mira"},
-			failureGold:    4321,
-			failureFavor:   8765,
+			campaign:          testHarness.campaignA,
+			dm:                testHarness.dmA,
+			dmSecret:          canaryA,
+			guildID:           guildA,
+			channelID:         channelA,
+			announceChannelID: announceChannelA,
+			colonyName:        "Port Alpha",
+			characterNames:    map[string]string{"ana": "Thorin", "otherA": "Sela", "dmB": "Pell"},
+			memberTarget:      "otherA",
+			requester:         [4]string{"requesterA", "100000000000000007", "rhea." + canaryA, "Mira"},
+			failureGold:       4321,
+			failureFavor:      8765,
 		},
 		{
-			campaign:       testHarness.campaignB,
-			dm:             testHarness.dmB,
-			dmSecret:       canaryBdm,
-			playerVisible:  " " + canaryB,
-			guildID:        guildB,
-			channelID:      channelB,
-			colonyName:     "Ridgehold " + canaryB,
-			characterNames: map[string]string{"ana": "Brisa " + canaryB, "dmA": "Vale " + canaryB, "bOnly": "Tamsin " + canaryB},
-			memberTarget:   "bOnly",
-			extraResource:  "Brine",
-			extraRole:      "Brinewright",
-			requester:      [4]string{"requesterB", "200000000000000004", "tova." + canaryBdm, "Odile " + canaryB},
-			failureGold:    5432,
-			failureFavor:   9876,
+			campaign:          testHarness.campaignB,
+			dm:                testHarness.dmB,
+			dmSecret:          canaryBdm,
+			playerVisible:     " " + canaryB,
+			guildID:           guildB,
+			channelID:         channelB,
+			announceChannelID: announceChannelB,
+			colonyName:        "Ridgehold " + canaryB,
+			characterNames:    map[string]string{"ana": "Brisa " + canaryB, "dmA": "Vale " + canaryB, "bOnly": "Tamsin " + canaryB},
+			memberTarget:      "bOnly",
+			extraResource:     "Brine",
+			extraRole:         "Brinewright",
+			requester:         [4]string{"requesterB", "200000000000000004", "tova." + canaryBdm, "Odile " + canaryB},
+			failureGold:       5432,
+			failureFavor:      9876,
 		},
 	}
 }
@@ -118,7 +122,8 @@ var secrecyFixtures = []secrecyFixture{
 	},
 	{
 		feature: "settings and Discord",
-		// The linked server, its channels and every /link code are DM-only.
+		// The linked server's name, its reminder and DM channels and every /link code are DM-only. Its ID
+		// and the announcements channel's are not: a Discord poll's link shows them to players.
 		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
 			dmViewer := testHarness.enter(side.dm, side.campaign.id)
@@ -128,7 +133,10 @@ var secrecyFixtures = []secrecyFixture{
 			}
 			side.campaign.linkCodes = append(side.campaign.linkCodes, code.Code)
 			testHarness.directory.mutex.Lock()
-			testHarness.directory.channels[side.guildID] = []core.DiscordChannel{{ID: side.channelID, Name: "dm-room-" + side.dmSecret}}
+			testHarness.directory.channels[side.guildID] = []core.DiscordChannel{
+				{ID: side.channelID, Name: "dm-room-" + side.dmSecret},
+				{ID: side.announceChannelID, Name: "announcements"},
+			}
 			testHarness.directory.mutex.Unlock()
 			if _, err := testHarness.core.LinkGuild(testHarness.context, core.LinkGuildInput{
 				Code:          code.Code,
@@ -138,12 +146,12 @@ var secrecyFixtures = []secrecyFixture{
 			}); err != nil {
 				t.Fatalf("link %s's server: %v", side.campaign.name, err)
 			}
-			channelID := side.channelID
+			channelID, announceChannelID := side.channelID, side.announceChannelID
 			if _, err := testHarness.core.UpdateSettings(testHarness.context, dmViewer, core.SettingsInput{
 				CampaignName:             side.campaign.name,
 				ColonyName:               side.colonyName,
 				Timezone:                 "UTC",
-				DiscordAnnounceChannelID: &channelID,
+				DiscordAnnounceChannelID: &announceChannelID,
 				DiscordReminderChannelID: &channelID,
 				DiscordDmChannelID:       &channelID,
 			}); err != nil {
@@ -768,6 +776,55 @@ var secrecyFixtures = []secrecyFixture{
 		dmProof: []string{"/npcs"},
 	},
 	{
+		feature: "polls",
+		// Polls have no DM-only values, so B's carry canaryB in the question and every option, and B's
+		// voters' character names carry it too. The linked server makes both DISCORD polls, posted and
+		// synced as Beny Bot would (players by name, an outsider as a count): an open one (the {pollId}
+		// row) and a closed one, whose POLL_CLOSED entry repeats its question and labels on the timeline.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			visible := side.playerVisible
+			voters := []account{testHarness.ana, testHarness.otherA}
+			if side.campaign == testHarness.campaignB {
+				voters = []account{testHarness.ana, testHarness.bOnly}
+			}
+			plantPoll := func(question string, messageID string) core.Poll {
+				t.Helper()
+				poll, err := testHarness.core.CreatePoll(testHarness.context, dmViewer, core.CreatePollInput{
+					Question: question + visible, Options: []string{"North field" + visible, "By the docks" + visible}, DurationHours: 24,
+				})
+				if err != nil || poll.Voting != core.PollVotingDiscord {
+					t.Fatalf("plant a Discord poll in %s: %+v, %v", side.campaign.name, poll, err)
+				}
+				if err := testHarness.core.RecordPollMessage(testHarness.context, side.campaign.id, poll.ID, core.RecordPollMessageInput{
+					GuildID: side.guildID, ChannelID: side.announceChannelID, MessageID: messageID, Expiry: poll.ClosesAt, AnswerIDs: []int{1, 2},
+				}); err != nil {
+					t.Fatalf("record a Discord poll in %s: %v", side.campaign.name, err)
+				}
+				votes := map[int][]string{1: {"300000000000000009"}}
+				for index, voter := range voters {
+					answerID := index%len(poll.Options) + 1
+					votes[answerID] = append(votes[answerID], voter.caller.DiscordUserID)
+				}
+				if err := testHarness.core.SyncDiscordPollVotes(testHarness.context, side.campaign.id, poll.ID, votes); err != nil {
+					t.Fatalf("sync votes in %s: %v", side.campaign.name, err)
+				}
+				return poll
+			}
+			open := plantPoll("Where should the new well go?", side.announceChannelID[:17]+"1")
+			closed := plantPoll("Where do we bury the cache?", side.announceChannelID[:17]+"2")
+			if _, err := testHarness.core.ClosePoll(testHarness.context, dmViewer, closed.ID); err != nil {
+				t.Fatalf("close a poll in %s: %v", side.campaign.name, err)
+			}
+			side.campaign.pathIDs["pollId"] = open.ID.String()
+			// No route takes it in the path; pass 4 puts B's into a vote body.
+			side.campaign.pathIDs["pollOptionId"] = open.Options[0].ID.String()
+		},
+		// Nothing here is DM-only, so the proof is borrowed.
+		dmProof: []string{"/npcs"},
+	},
+	{
 		feature: "invite link",
 		// The invite code is DM-only: the harness's forbidden lists hold it as a literal.
 		plant:   func(*testing.T, *harness, campaignSide) {},
@@ -800,9 +857,10 @@ func plantCanaries(t *testing.T, testHarness *harness) {
 	}
 }
 
-// visibleValuesOfB are B's values only B's members may see: canaryB and the ICS token.
+// visibleValuesOfB are B's values only B's members may see: canaryB, the ICS token, and the server and
+// announcements channel a Discord poll's link names.
 func (testHarness *harness) visibleValuesOfB() []string {
-	return []string{canaryB, testHarness.campaignB.icsToken}
+	return []string{canaryB, testHarness.campaignB.icsToken, guildB, announceChannelB}
 }
 
 // dmOnlyValues are the values only a campaign's DM may ever see.
@@ -811,9 +869,9 @@ func (testHarness *harness) dmOnlyValues(campaign *campaignFixture) []string {
 	values = append(values, campaign.linkCodes...)
 	values = append(values, campaign.hiddenIDs...)
 	if campaign == testHarness.campaignA {
-		return append(values, canaryA, guildA, channelA)
+		return append(values, canaryA, channelA)
 	}
-	return append(values, canaryBdm, guildB, channelB)
+	return append(values, canaryBdm, channelB)
 }
 
 // refreshInviteCode re-reads a campaign's invite code after a sweep pass may have reset it, keeping the

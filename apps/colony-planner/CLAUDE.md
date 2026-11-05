@@ -41,18 +41,18 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | Path | Holds |
 |---|---|
 | `cmd/colony/main.go` | subcommands serve, migrate up/status, openapi, seed, reset; `cmd/colony/config.go` reads every env var |
-| `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`); `internal/game/market.go` holds an order's total, its docking day and `Unload` (the payment) |
-| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market, shown as Shipments (items, the party cart, orders, the voyage and ship limit settings) |
+| `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`); `internal/game/market.go` holds an order's total, its docking day and `Unload` (the payment); `internal/game/polls.go` holds a poll's limits (Discord's), its duration, when it is closed or due a lazy close (`DiscordPollCloseGrace`) and the close entry's text |
+| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market, shown as Shipments (items, the party cart, orders, the voyage and ship limit settings); `internal/core/polls.go` is Polls (site votes, closing, the Discord poll's record, its vote sync and the deadline hooks; `internal/core/poll_voting.go` re-exports `PollVoting`) |
 | `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table, security headers), `internal/app/compress.go` (gzip for JSON, html, css, js and svg; never the event stream, images, fonts or the ICS feed), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
-| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, `internal/bot/requests.go` is the request prompts with Grant and Decline, `internal/bot/planner.go` is the one timer planner (Discord events, reminders, the cancellation notice, event status updates) and `internal/bot/colony.go` is `/colony` and `/nextsession` |
-| `internal/seed/` | the two fictional sample campaigns for `colony seed`; `internal/seed/world.go` uploads the Eldari art as Sample Colony's Mainland, pins its places and paints the sample hexes (`--hexes N`); `internal/seed/sessions.go` plays the sample series and their bands; `internal/seed/market.go` adds Sample Colony's market items, cart and open order |
+| `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, `internal/bot/requests.go` is the request prompts with Grant and Decline, `internal/bot/polls.go` posts native Discord polls and syncs their voters, `internal/bot/planner.go` is the one timer planner (Discord events, reminders, the cancellation notice, event status updates, poll deadlines) and `internal/bot/colony.go` is `/colony` and `/nextsession` |
+| `internal/seed/` | the two fictional sample campaigns for `colony seed`; `internal/seed/world.go` uploads the Eldari art as Sample Colony's Mainland, pins its places and paints the sample hexes (`--hexes N`); `internal/seed/sessions.go` plays the sample series and their bands; `internal/seed/market.go` adds Sample Colony's market items, cart and open order; `internal/seed/polls.go` adds both campaigns' sample polls |
 | `db/migrations/` | goose SQL, the one schema source (enums included), embedded by `db/embed.go` and applied by `db/migrate.go` |
 | `db/dbtest/` | `dbtest.New(t)`: a fresh, migrated schema per test in TEST_DATABASE_URL, with a query counter |
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
-| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it), `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue), `web/src/sessions/` (the series sheet, session times, the calendar link card, the board's next game night; helpers in `web/src/lib/sessions.ts`) and `web/src/market/` (the Shipments page's catalog, party shipment draft and ship list, and its item, shipping, place-order and pay sheets; helpers in `web/src/lib/market.ts`) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
+| `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it), `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue), `web/src/sessions/` (the series sheet, session times, the calendar link card, the board's next game night; helpers in `web/src/lib/sessions.ts`), `web/src/market/` (the Shipments page's catalog, party shipment draft and ship list, and its item, shipping, place-order and pay sheets; helpers in `web/src/lib/market.ts`) and `web/src/polls/` (the Polls page's cards, the vote form, the new-poll sheet and the board's poll card) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (plain govulncheck: it fails only on a vulnerability our code reaches, and accepts none) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the test bot that also serves the live site for now), `docs/cutover.md` (the author's M6 runbook) and `docs/checklists/` |
 
@@ -103,9 +103,10 @@ web/src/** -> web/src/api -> the Go API
   This is an allow-list over the whole module, so new packages are covered automatically.
 - `internal/core` knows none of its callers: no net, net/http, huma, discordgo or oauth2, and no import of
   app, auth, bot or seed. It reaches outward only through `core.Notifier`, `core.RequestNotifier` (request
-  prompts and their outcomes), `core.SessionEvictor`, `core.DiscordDirectory` (Beny Bot's channel list) and
-  `core.SessionPlanner` (the planner's re-plan signal and the cancellation notice), all passed in
-  `core.Options` at construction.
+  prompts and their outcomes), `core.SessionEvictor`, `core.DiscordDirectory` (Beny Bot's channel list),
+  `core.SessionPlanner` (the planner's re-plan signal and the cancellation notice) and `core.PollNotifier`
+  (post, end early or delete a poll's Discord message and re-plan its deadline), all passed in `core.Options` at
+  construction.
 - core's exported API never mentions a store or pgx type, because Go infers types and a returned
   `*store.Queries` would leak the database without an import. `internal/core/boundary_test.go` enforces
   this; re-export only enum and value types (see `internal/core/member_status.go`), never queries or pools.
@@ -232,6 +233,27 @@ web/src/** -> web/src/api -> the Go API
     the version and undo slot alone. Pay is a member-level colony change (`runColonyMutation` takes the
     access level): STRICT gold, grants capped at their max, bought colonists into their item's role
     (decision 8's one exception), and the DM can undo it, which puts the order back at the docks.
+20. Polls. Polls, options, votes and voters' names have no secrets and no hidden rows: every active
+    member reads them, view as player included. A poll's voting place is fixed at creation and never
+    changes: DISCORD while the campaign has an ACTIVE server link and an announcements channel (no
+    fallback channel), else SITE. A SITE poll is voted only by the site's PUT and never posted; a DISCORD
+    poll is voted only in Beny Bot's native Discord poll, and the site's PUT is 409 "Vote on this poll in
+    Discord." (`ErrVoteInDiscord`). Only ACTIVE players' votes are stored as votes and named (the DM never
+    votes on the site, view as player included); everyone else's Discord votes, the DM's too, are only
+    counts (`otherVotes`), and the site never stores those people's Discord IDs. Every poll takes
+    Discord's limits (question 300, options 2 to 10 of 55, a required 1 to 768 hour duration). A DISCORD
+    poll's `discordUrl` exposes the linked server's ID and the announcements channel's ID to players: the
+    one exception to those being DM settings; the server name and the reminder and DM channels stay
+    DM-only. A poll is closed once `closed_at` is set or `closes_at` has passed; reads derive it and never
+    write, so a vote after the deadline is refused before anything records the close. Closing (the DM, the
+    planner's deadline timer after a final vote sync, or the next poll create, vote, close or delete in
+    that campaign, which waits `game.DiscordPollCloseGrace` past a posted DISCORD poll's deadline) takes
+    the colony lock and writes one PUBLIC `POLL_CLOSED` entry with every option's count, other votes
+    included, naming no winner, and like Mark played leaves the version and undo slot alone. A recorded
+    close freezes the counts: `SyncDiscordPollVotes` is then a no-op. Votes and creates write no timeline
+    entry; polls are never edited; delete keeps the entry. Core signals `PollNotifier.PollChanged` after
+    create and close (never after a vote or sync: a Discord poll can't be edited), and `PollDeleted`
+    after a delete.
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.

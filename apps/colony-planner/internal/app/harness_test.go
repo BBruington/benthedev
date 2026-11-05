@@ -34,12 +34,14 @@ const (
 	canaryB   = "CANARY-B-77c3"
 	canaryBdm = canaryB + "-DM"
 
-	// Numeric stand-ins for DM-only values that accept only digits: each campaign's Discord server and
-	// channel IDs.
-	guildA   = "660066006600660066"
-	channelA = "990099009900990099"
-	guildB   = "550055005500550055"
-	channelB = "880088008800880088"
+	// Numeric stand-ins for values that accept only digits: each campaign's Discord server, its DM-only
+	// reminder and DM channel, and its announcements channel, which a Discord poll's link shows players.
+	guildA           = "660066006600660066"
+	channelA         = "990099009900990099"
+	announceChannelA = "770077007700770077"
+	guildB           = "550055005500550055"
+	channelB         = "880088008800880088"
+	announceChannelB = "440044004400440044"
 )
 
 type recordingNotifier struct {

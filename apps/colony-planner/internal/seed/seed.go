@@ -182,6 +182,9 @@ func Run(requestContext context.Context, options Options) error {
 	if err := seedHexes(requestContext, options.Core, thorin, terrains, labels); err != nil {
 		return fmt.Errorf("seed the hex map: %w", err)
 	}
+	if err := seedSamplePolls(requestContext, options.Core, dm, enterSampleColony, sampleColonyPolls); err != nil {
+		return fmt.Errorf("seed the polls: %w", err)
+	}
 
 	// Second Sample, through the real request and approval path: DM Hollis.
 	hollis := callerOf("seed:hollis")
@@ -209,6 +212,9 @@ func Run(requestContext context.Context, options Options) error {
 	}
 	if err := seedHexes(requestContext, options.Core, brisa, secondSampleHexes, secondSampleHexLabels); err != nil {
 		return fmt.Errorf("seed the second hex map: %w", err)
+	}
+	if err := seedSamplePolls(requestContext, options.Core, secondDm, enterSecondSample, secondSamplePolls); err != nil {
+		return fmt.Errorf("seed the second polls: %w", err)
 	}
 
 	// Wren asks to run a campaign; the owner hasn't decided.

@@ -22,9 +22,12 @@ export function BottomTabs({
 }) {
 	const [isMoreOpen, setMoreOpen] = useState(false);
 	const pathname = useLocation({ select: (location) => location.pathname });
+	const { slug } = useCampaign();
 	const visibleMoreGroups = moreGroups.filter((group) => canUseDmTools(me) || !group.dmOnly);
 	const isMoreActive = visibleMoreGroups.some((group) =>
-		group.items.some((itemId) => pathname.startsWith(navigationItems[itemId].to)),
+		group.items.some((itemId) =>
+			pathname.startsWith(navigationItems[itemId].to.replace("$campaignSlug", slug)),
+		),
 	);
 
 	return (

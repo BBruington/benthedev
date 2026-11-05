@@ -382,6 +382,31 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatalf("Second Sample's series = %+v, %v", secondSeries, err)
 	}
 
+	// Polls: Thorin, the dev sign-in player, hasn't answered the watchtower vote; the boat's name is settled.
+	polls, err := service.ListPolls(testContext, player)
+	if err != nil || len(polls.Open) != 2 || len(polls.Closed) != 1 {
+		t.Fatalf("Sample Colony's polls = %+v, %v", polls, err)
+	}
+	if watchtower := polls.Open[0]; watchtower.AllowMultiple || len(watchtower.MyOptionIDs) != 0 || watchtower.VoterCount != 3 {
+		t.Fatalf("the newest open poll = %+v; want the single-answer watchtower vote Thorin hasn't answered", watchtower)
+	}
+	if festivals := polls.Open[1]; !festivals.AllowMultiple || festivals.Voting != core.PollVotingSite || len(festivals.MyOptionIDs) != 2 {
+		t.Fatalf("the festivals poll = %+v", festivals)
+	}
+	pollClosedEntries := 0
+	for _, entry := range playerTimeline.Entries {
+		if entry.Kind == core.TimelineKindPollClosed {
+			pollClosedEntries++
+		}
+	}
+	if pollClosedEntries != 1 {
+		t.Fatalf("the player sees %d POLL_CLOSED entries, want 1", pollClosedEntries)
+	}
+	secondPolls, err := service.ListPolls(testContext, secondDm)
+	if err != nil || len(secondPolls.Open) != 1 || len(secondPolls.Closed) != 0 {
+		t.Fatalf("Second Sample's polls = %+v, %v", secondPolls, err)
+	}
+
 	if err := Run(testContext, options); !errors.Is(err, ErrDatabaseInUse) {
 		t.Fatalf("seeding twice = %v, want ErrDatabaseInUse", err)
 	}

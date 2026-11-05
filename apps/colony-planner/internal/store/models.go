@@ -679,6 +679,64 @@ func AllNpcStatusValues() []NpcStatus {
 	}
 }
 
+type PollVoting string
+
+const (
+	PollVotingSITE    PollVoting = "SITE"
+	PollVotingDISCORD PollVoting = "DISCORD"
+)
+
+func (e *PollVoting) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PollVoting(s)
+	case string:
+		*e = PollVoting(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PollVoting: %T", src)
+	}
+	return nil
+}
+
+type NullPollVoting struct {
+	PollVoting PollVoting
+	Valid      bool // Valid is true if PollVoting is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPollVoting) Scan(value interface{}) error {
+	if value == nil {
+		ns.PollVoting, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PollVoting.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPollVoting) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PollVoting), nil
+}
+
+func (e PollVoting) Valid() bool {
+	switch e {
+	case PollVotingSITE,
+		PollVotingDISCORD:
+		return true
+	}
+	return false
+}
+
+func AllPollVotingValues() []PollVoting {
+	return []PollVoting{
+		PollVotingSITE,
+		PollVotingDISCORD,
+	}
+}
+
 type QuestKind string
 
 const (
@@ -1284,6 +1342,39 @@ type Place struct {
 	MapID       *uuid.UUID
 	PinX        *float32
 	PinY        *float32
+}
+
+type Poll struct {
+	ID                 uuid.UUID
+	Question           string
+	AllowMultiple      bool
+	Voting             PollVoting
+	ClosesAt           time.Time
+	ClosedAt           *time.Time
+	CreatedAt          time.Time
+	DiscordGuildID     *string
+	DiscordChannelID   *string
+	DiscordMessageID   *string
+	DiscordOtherVoters int32
+	CampaignID         uuid.UUID
+}
+
+type PollOption struct {
+	ID                uuid.UUID
+	PollID            uuid.UUID
+	Position          int32
+	Label             string
+	DiscordAnswerID   *int32
+	DiscordOtherVotes int32
+	CampaignID        uuid.UUID
+}
+
+type PollVote struct {
+	PollID     uuid.UUID
+	OptionID   uuid.UUID
+	Voter      uuid.UUID
+	CreatedAt  time.Time
+	CampaignID uuid.UUID
 }
 
 type Quest struct {

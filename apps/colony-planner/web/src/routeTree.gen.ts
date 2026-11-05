@@ -24,6 +24,7 @@ import { Route as SignedInCCampaignSlugShellIndexRouteImport } from "./routes/_s
 import { Route as SignedInCCampaignSlugShellExploreRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/explore"
 import { Route as SignedInCCampaignSlugShellPeopleRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/people"
 import { Route as SignedInCCampaignSlugShellPlayersRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/players"
+import { Route as SignedInCCampaignSlugShellPollsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/polls"
 import { Route as SignedInCCampaignSlugShellRequestsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/requests"
 import { Route as SignedInCCampaignSlugShellSettingsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/settings"
 import { Route as SignedInCCampaignSlugShellShipmentsRouteImport } from "./routes/_signedIn/c.$campaignSlug/_shell/shipments"
@@ -118,6 +119,12 @@ const SignedInCCampaignSlugShellPlayersRoute =
   SignedInCCampaignSlugShellPlayersRouteImport.update({
     id: "/players",
     path: "/players",
+    getParentRoute: () => SignedInCCampaignSlugShellRoute,
+  } as any)
+const SignedInCCampaignSlugShellPollsRoute =
+  SignedInCCampaignSlugShellPollsRouteImport.update({
+    id: "/polls",
+    path: "/polls",
     getParentRoute: () => SignedInCCampaignSlugShellRoute,
   } as any)
 const SignedInCCampaignSlugShellRequestsRoute =
@@ -229,6 +236,7 @@ export interface FileRoutesByFullPath {
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
+  "/c/$campaignSlug/polls": typeof SignedInCCampaignSlugShellPollsRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
   "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
   "/c/$campaignSlug/shipments": typeof SignedInCCampaignSlugShellShipmentsRoute
@@ -259,6 +267,7 @@ export interface FileRoutesByTo {
   "/c/$campaignSlug/explore": typeof SignedInCCampaignSlugShellExploreRoute
   "/c/$campaignSlug/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/c/$campaignSlug/players": typeof SignedInCCampaignSlugShellPlayersRoute
+  "/c/$campaignSlug/polls": typeof SignedInCCampaignSlugShellPollsRoute
   "/c/$campaignSlug/requests": typeof SignedInCCampaignSlugShellRequestsRoute
   "/c/$campaignSlug/settings": typeof SignedInCCampaignSlugShellSettingsRoute
   "/c/$campaignSlug/shipments": typeof SignedInCCampaignSlugShellShipmentsRoute
@@ -292,6 +301,7 @@ export interface FileRoutesById {
   "/_signedIn/c/$campaignSlug/_shell/explore": typeof SignedInCCampaignSlugShellExploreRoute
   "/_signedIn/c/$campaignSlug/_shell/people": typeof SignedInCCampaignSlugShellPeopleRoute
   "/_signedIn/c/$campaignSlug/_shell/players": typeof SignedInCCampaignSlugShellPlayersRoute
+  "/_signedIn/c/$campaignSlug/_shell/polls": typeof SignedInCCampaignSlugShellPollsRoute
   "/_signedIn/c/$campaignSlug/_shell/requests": typeof SignedInCCampaignSlugShellRequestsRoute
   "/_signedIn/c/$campaignSlug/_shell/settings": typeof SignedInCCampaignSlugShellSettingsRoute
   "/_signedIn/c/$campaignSlug/_shell/shipments": typeof SignedInCCampaignSlugShellShipmentsRoute
@@ -324,6 +334,7 @@ export interface FileRouteTypes {
     | "/c/$campaignSlug/explore"
     | "/c/$campaignSlug/people"
     | "/c/$campaignSlug/players"
+    | "/c/$campaignSlug/polls"
     | "/c/$campaignSlug/requests"
     | "/c/$campaignSlug/settings"
     | "/c/$campaignSlug/shipments"
@@ -354,6 +365,7 @@ export interface FileRouteTypes {
     | "/c/$campaignSlug/explore"
     | "/c/$campaignSlug/people"
     | "/c/$campaignSlug/players"
+    | "/c/$campaignSlug/polls"
     | "/c/$campaignSlug/requests"
     | "/c/$campaignSlug/settings"
     | "/c/$campaignSlug/shipments"
@@ -386,6 +398,7 @@ export interface FileRouteTypes {
     | "/_signedIn/c/$campaignSlug/_shell/explore"
     | "/_signedIn/c/$campaignSlug/_shell/people"
     | "/_signedIn/c/$campaignSlug/_shell/players"
+    | "/_signedIn/c/$campaignSlug/_shell/polls"
     | "/_signedIn/c/$campaignSlug/_shell/requests"
     | "/_signedIn/c/$campaignSlug/_shell/settings"
     | "/_signedIn/c/$campaignSlug/_shell/shipments"
@@ -516,6 +529,13 @@ declare module "@tanstack/react-router" {
       path: "/players"
       fullPath: "/c/$campaignSlug/players"
       preLoaderRoute: typeof SignedInCCampaignSlugShellPlayersRouteImport
+      parentRoute: typeof SignedInCCampaignSlugShellRoute
+    }
+    "/_signedIn/c/$campaignSlug/_shell/polls": {
+      id: "/_signedIn/c/$campaignSlug/_shell/polls"
+      path: "/polls"
+      fullPath: "/c/$campaignSlug/polls"
+      preLoaderRoute: typeof SignedInCCampaignSlugShellPollsRouteImport
       parentRoute: typeof SignedInCCampaignSlugShellRoute
     }
     "/_signedIn/c/$campaignSlug/_shell/requests": {
@@ -655,6 +675,7 @@ interface SignedInCCampaignSlugShellRouteChildren {
   SignedInCCampaignSlugShellExploreRoute: typeof SignedInCCampaignSlugShellExploreRoute
   SignedInCCampaignSlugShellPeopleRoute: typeof SignedInCCampaignSlugShellPeopleRoute
   SignedInCCampaignSlugShellPlayersRoute: typeof SignedInCCampaignSlugShellPlayersRoute
+  SignedInCCampaignSlugShellPollsRoute: typeof SignedInCCampaignSlugShellPollsRoute
   SignedInCCampaignSlugShellRequestsRoute: typeof SignedInCCampaignSlugShellRequestsRoute
   SignedInCCampaignSlugShellSettingsRoute: typeof SignedInCCampaignSlugShellSettingsRoute
   SignedInCCampaignSlugShellShipmentsRoute: typeof SignedInCCampaignSlugShellShipmentsRoute
@@ -682,6 +703,7 @@ const SignedInCCampaignSlugShellRouteChildren: SignedInCCampaignSlugShellRouteCh
       SignedInCCampaignSlugShellPeopleRoute,
     SignedInCCampaignSlugShellPlayersRoute:
       SignedInCCampaignSlugShellPlayersRoute,
+    SignedInCCampaignSlugShellPollsRoute: SignedInCCampaignSlugShellPollsRoute,
     SignedInCCampaignSlugShellRequestsRoute:
       SignedInCCampaignSlugShellRequestsRoute,
     SignedInCCampaignSlugShellSettingsRoute:

@@ -403,8 +403,8 @@ rule's hostname has a typo, or the rule isn't deployed.
 1. On the live site, **Settings** → **Discord server** → **Unlink…** the test server and confirm. Its
    upcoming events there are deleted.
 2. Invite Beny Bot Dev to your real server with the invite link on the same card (you need **Manage
-   Server** there). Check the four permissions it lists (View Channels, Send Messages, Embed Links, Manage
-   Events) and **Authorize**.
+   Server** there). Check the five permissions it lists (View Channels, Send Messages, Embed Links, Manage
+   Events, Send Polls) and **Authorize**.
 3. **Get a link code**, then `/link` with it in the real server. Pick the **Announce**, **Reminder** and
    **DM** channels on Settings and save. The DM channel should be one only you can read: requests and new
    players are posted there.

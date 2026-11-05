@@ -57,6 +57,8 @@ type discordClient interface {
 	ChannelMessageSendComplex(channelID string, message *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	ChannelMessage(channelID string, messageID string, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	ChannelMessageEditComplex(edit *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessageDelete(channelID string, messageID string, options ...discordgo.RequestOption) error
+	RequestWithBucketID(method string, urlStr string, data any, bucketID string, options ...discordgo.RequestOption) ([]byte, error)
 	FollowupMessageCreate(interaction *discordgo.Interaction, wait bool, data *discordgo.WebhookParams, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	UserChannelCreate(recipientID string, options ...discordgo.RequestOption) (*discordgo.Channel, error)
 	GuildScheduledEvents(guildID string, userCount bool, options ...discordgo.RequestOption) ([]*discordgo.GuildScheduledEvent, error)
@@ -88,6 +90,12 @@ type colonyService interface {
 	MoveSessionDiscordEvent(requestContext context.Context, job core.SessionJob, record core.DiscordEventRecord) (moved bool, err error)
 	ForgetSessionDiscordEvent(requestContext context.Context, campaignID uuid.UUID, sessionID uuid.UUID, discordEventID string) error
 	RecordDiscordEventStatus(requestContext context.Context, guildID string, discordEventID string, status core.DiscordEventStatus) error
+	PollDeadlines(requestContext context.Context, campaignID uuid.UUID) ([]core.PollDeadline, error)
+	ClosePollAtDeadline(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID) (core.PollDeadlineClose, error)
+	PollForDiscord(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID) (core.DiscordPoll, error)
+	RecordPollMessage(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, input core.RecordPollMessageInput) error
+	SyncDiscordPollVotes(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, votes map[int][]string) error
+	DiscordPollsToEnd(requestContext context.Context, campaignID uuid.UUID) ([]core.PollDiscordMessage, error)
 }
 
 var (
@@ -97,6 +105,7 @@ var (
 	_ core.RequestNotifier  = (*Bot)(nil)
 	_ core.DiscordDirectory = (*Bot)(nil)
 	_ core.SessionPlanner   = (*Bot)(nil)
+	_ core.PollNotifier     = (*Bot)(nil)
 )
 
 type Bot struct {
@@ -114,6 +123,39 @@ type Bot struct {
 	replan chan struct{}
 	// retries is the planner's back-off for jobs Discord refused; only the planner goroutine uses it.
 	retries map[plannedJobKey]jobRetry
+	// pollsChanged wakes the planner after a poll deadline changed; it holds one signal, like replan.
+	pollsChanged chan struct{}
+	// pollVoteDelay is how long a burst of vote events waits before one read of the voters; tests set it
+	// to 0.
+	pollVoteDelay time.Duration
+
+	// pollMutex guards pollWorkers, pollVoteWorkers, pollDeadlines, pollDeadlineSequence, pollLocks,
+	// pollPostRetries, pollVoteRetries, pollPosts, pollEnds, pollReloadRetry, pollMessages, pollsClosing and
+	// pollVotesStale. Take it after mutex, never before, and never hold it while taking a poll's lock.
+	pollMutex            sync.Mutex
+	pollWorkers          map[uuid.UUID]*pollWork
+	pollVoteWorkers      map[uuid.UUID]*pollWork
+	pollDeadlines        map[uuid.UUID]pollDeadline
+	pollDeadlineSequence uint64
+	pollLocks            map[uuid.UUID]*pollLock
+	pollPostRetries      map[uuid.UUID]pollRetry
+	// pollVoteRetries are the polls whose last vote sync failed, read again after a back-off.
+	pollVoteRetries map[uuid.UUID]pollRetry
+	// pollPosts are what Beny Bot keeps of a poll's earlier unrecorded posts: how many it deleted, which
+	// picks the next post's nonce, and the message it couldn't delete, which goes before any new post.
+	pollPosts map[uuid.UUID]pollPost
+	// pollEnds are the polls the DM closed early that Beny Bot ends in Discord, kept once ended so a
+	// later change doesn't end them again, until Discord's own deadline passes.
+	pollEnds map[uuid.UUID]pollEnd
+	// pollReloadRetry backs off the planner's next reload after a campaign's poll read failed; its zero
+	// value means no reload is pending.
+	pollReloadRetry pollRetry
+	// pollMessages is keyed by Discord message ID.
+	pollMessages map[string]pollMessage
+	// pollsClosing holds the polls whose deadline close is running, so a later tick doesn't start another.
+	pollsClosing map[uuid.UUID]bool
+	// pollVotesStale means the gateway reconnected, so the next reload reads every open poll's votes.
+	pollVotesStale bool
 
 	// mutex guards service, running, stopping and botUserID. The notifier methods can be called from
 	// any request goroutine, before Run starts or while it shuts down.
@@ -121,6 +163,8 @@ type Bot struct {
 	service  colonyService
 	running  bool
 	stopping bool
+	// stopSignal closes when stop begins, so background work waiting out a pause gives up at once.
+	stopSignal chan struct{}
 	// botUserID is Beny Bot's own Discord user, from Ready: the creator of the events it adopts.
 	botUserID string
 	posts     sync.WaitGroup
@@ -140,7 +184,7 @@ func New(options Options) (*Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bot: %w", err)
 	}
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildScheduledEvents
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildScheduledEvents | discordgo.IntentGuildMessagePolls
 	return newBot(options, session, session.State, wallClock), nil
 }
 
@@ -168,6 +212,19 @@ func newBot(options Options, client discordClient, state gatewayState, now func(
 		now:               now,
 		replan:            make(chan struct{}, 1),
 		retries:           map[plannedJobKey]jobRetry{},
+		pollsChanged:      make(chan struct{}, 1),
+		pollVoteDelay:     defaultPollVoteDelay,
+		pollWorkers:       map[uuid.UUID]*pollWork{},
+		pollVoteWorkers:   map[uuid.UUID]*pollWork{},
+		pollDeadlines:     map[uuid.UUID]pollDeadline{},
+		pollLocks:         map[uuid.UUID]*pollLock{},
+		pollPostRetries:   map[uuid.UUID]pollRetry{},
+		pollVoteRetries:   map[uuid.UUID]pollRetry{},
+		pollPosts:         map[uuid.UUID]pollPost{},
+		pollEnds:          map[uuid.UUID]pollEnd{},
+		pollMessages:      map[string]pollMessage{},
+		pollsClosing:      map[uuid.UUID]bool{},
+		stopSignal:        make(chan struct{}),
 	}
 }
 
@@ -233,6 +290,14 @@ func (benyBot *Bot) run(lifetimeContext context.Context, service colonyService) 
 		benyBot.handleScheduledEventUpdate(lifetimeContext, event)
 	})
 	defer removeScheduledEventHandler()
+	removePollVoteAddHandler := benyBot.client.AddHandler(func(_ *discordgo.Session, event *discordgo.MessagePollVoteAdd) {
+		benyBot.handlePollVote(event.GuildID, event.MessageID)
+	})
+	defer removePollVoteAddHandler()
+	removePollVoteRemoveHandler := benyBot.client.AddHandler(func(_ *discordgo.Session, event *discordgo.MessagePollVoteRemove) {
+		benyBot.handlePollVote(event.GuildID, event.MessageID)
+	})
+	defer removePollVoteRemoveHandler()
 
 	if err := benyBot.client.Open(); err != nil {
 		benyBot.stop()
@@ -263,7 +328,10 @@ func (benyBot *Bot) start(service colonyService) error {
 // stop refuses new background posts, then waits for the ones already sent to Discord.
 func (benyBot *Bot) stop() {
 	benyBot.mutex.Lock()
-	benyBot.stopping = true
+	if !benyBot.stopping {
+		benyBot.stopping = true
+		close(benyBot.stopSignal)
+	}
 	benyBot.mutex.Unlock()
 	benyBot.posts.Wait()
 }
@@ -289,6 +357,9 @@ func (benyBot *Bot) handleReady(lifetimeContext context.Context, ready *discordg
 	}
 	benyBot.registerCommands(lifetimeContext, readyApplicationID(ready))
 	benyBot.reconcileGuilds(lifetimeContext, ready.Guilds)
+	benyBot.pollMutex.Lock()
+	benyBot.pollVotesStale = true
+	benyBot.pollMutex.Unlock()
 	benyBot.requestPlan()
 }
 
