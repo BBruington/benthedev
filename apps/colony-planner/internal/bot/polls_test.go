@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -609,6 +610,60 @@ func TestAPollPostThatLostTheRaceIsDeletedAndTheWinnerSyncsVotes(t *testing.T) {
 	}
 	if wake := test.bot.nextPollWake(); wake == nil || !wake.Equal(test.pollAsDm(test.dmA, poll.ID).ClosesAt) {
 		t.Errorf("next poll wake = %v, want the recorded close", wake)
+	}
+}
+
+func TestARefusedPollPostTellsTheDmOnce(t *testing.T) {
+	test := newPollWorld(t)
+	settings, err := test.service.GetSettings(test.context, test.dmA)
+	if err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	announceChannelID, dmChannelID := channelXGeneral, channelXDesk
+	if _, err := test.service.UpdateSettings(test.context, test.dmA, core.SettingsInput{
+		CampaignName:             settings.CampaignName,
+		ColonyName:               settings.ColonyName,
+		Timezone:                 settings.Timezone,
+		DiscordAnnounceChannelID: &announceChannelID,
+		DiscordDmChannelID:       &dmChannelID,
+		DiscordEventLocation:     settings.DiscordEventLocation,
+	}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	test.client.mutex.Lock()
+	test.client.pollSendError = &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingPermissions}}
+	test.client.mutex.Unlock()
+	notices := func() int {
+		test.client.mutex.Lock()
+		defer test.client.mutex.Unlock()
+		count := 0
+		for _, sent := range test.client.messages {
+			if sent.channelID == channelXDesk && strings.Contains(sent.message.Content, "missing a permission") {
+				count++
+			}
+		}
+		return count
+	}
+
+	poll := test.startPoll(test.dmA, false, 24)
+	if count := notices(); count != 1 {
+		t.Fatalf("%d notices in the DM channel after the refused post, want 1", count)
+	}
+	test.advanceTo(test.clock.now().Add(firstRetryDelay))
+	test.bot.retryDuePollWork()
+	test.bot.posts.Wait()
+	if count := notices(); count != 1 {
+		t.Errorf("%d notices after a second refusal, want still 1", count)
+	}
+
+	test.client.mutex.Lock()
+	test.client.pollSendError = nil
+	test.client.mutex.Unlock()
+	test.advanceTo(test.clock.now().Add(2 * firstRetryDelay))
+	test.bot.retryDuePollWork()
+	test.bot.posts.Wait()
+	if messageID := test.discordPoll(test.dmA, poll.ID).MessageID; messageID == "" {
+		t.Fatal("the poll wasn't posted once the permission was fixed")
 	}
 }
 

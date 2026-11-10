@@ -99,7 +99,8 @@ func (benyBot *Bot) CampaignRequested(requestContext context.Context, request co
 			logger.Warn("Beny Bot couldn't open a direct message to the site owner", slog.Any("error", err))
 			return
 		}
-		benyBot.send(postContext, logger, channel.ID, &discordgo.MessageSend{Content: content}, "")
+		// send logs a refusal, and a ping to the owner has no retry.
+		_, _ = benyBot.send(postContext, logger, channel.ID, &discordgo.MessageSend{Content: content}, "")
 	})
 }
 
@@ -130,23 +131,24 @@ func (benyBot *Bot) inBackground(requestContext context.Context, what string, po
 // skipped the post or the post failed; failed (Discord refused the send, or the campaign's server
 // couldn't be read) tells the two apart, so a reminder is retried only after a post that failed.
 func (benyBot *Bot) postToCampaign(postContext context.Context, service colonyService, campaignID uuid.UUID, kind channelKind, message *discordgo.MessageSend, withinLimit func() bool) (posted *discordgo.Message, failed bool) {
-	return benyBot.postToCampaignOnce(postContext, service, campaignID, kind, message, withinLimit, "")
+	posted, err := benyBot.postToCampaignOnce(postContext, service, campaignID, kind, message, withinLimit, "")
+	return posted, err != nil
 }
 
 // postToCampaignOnce is postToCampaign with a nonce: while it is set, Discord answers a retry whose
 // first try's answer was lost with the message that try posted, rather than posting a second one.
-func (benyBot *Bot) postToCampaignOnce(postContext context.Context, service colonyService, campaignID uuid.UUID, kind channelKind, message *discordgo.MessageSend, withinLimit func() bool, nonce string) (posted *discordgo.Message, failed bool) {
+func (benyBot *Bot) postToCampaignOnce(postContext context.Context, service colonyService, campaignID uuid.UUID, kind channelKind, message *discordgo.MessageSend, withinLimit func() bool, nonce string) (*discordgo.Message, error) {
 	logger := benyBot.options.Logger.With(slog.String("campaign_id", campaignID.String()), slog.String("channel_kind", string(kind)))
 	channelID, found, err := benyBot.campaignChannel(postContext, logger, service, campaignID, kind)
 	if err != nil {
-		return nil, true
+		return nil, err
 	}
 	if !found {
-		return nil, false
+		return nil, nil
 	}
 	if withinLimit != nil && !withinLimit() {
 		logger.Info("the hourly limit of posts was reached; skipped this one")
-		return nil, false
+		return nil, nil
 	}
 	return benyBot.send(postContext, logger.With(slog.String("channel_id", channelID)), channelID, message, nonce)
 }
@@ -183,10 +185,11 @@ type uniqueMessageSend struct {
 	EnforceNonce bool   `json:"enforce_nonce"`
 }
 
-func (benyBot *Bot) send(postContext context.Context, logger *slog.Logger, channelID string, message *discordgo.MessageSend, nonce string) (posted *discordgo.Message, discordRefused bool) {
+func (benyBot *Bot) send(postContext context.Context, logger *slog.Logger, channelID string, message *discordgo.MessageSend, nonce string) (*discordgo.Message, error) {
 	message.AllowedMentions = noMentions()
 	// Names are chosen by whoever signs in; no preview card may hang off Beny Bot's message.
 	message.Flags |= discordgo.MessageFlagsSuppressEmbeds
+	var posted *discordgo.Message
 	var err error
 	if nonce == "" {
 		posted, err = benyBot.client.ChannelMessageSendComplex(channelID, message, discordgo.WithContext(postContext))
@@ -195,9 +198,9 @@ func (benyBot *Bot) send(postContext context.Context, logger *slog.Logger, chann
 	}
 	if err != nil {
 		logger.Warn("Beny Bot couldn't post", slog.Any("error", err))
-		return nil, true
+		return nil, err
 	}
-	return posted, false
+	return posted, nil
 }
 
 // sendUnique posts as ChannelMessageSendComplex does for a message without files, which discordgo's
