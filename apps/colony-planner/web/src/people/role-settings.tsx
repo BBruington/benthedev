@@ -318,7 +318,7 @@ function RoleSheet({
 							<Input
 								{...fieldInputProps("role-sort-order", sortOrderError, true)}
 								autoComplete="off"
-								inputMode="numeric"
+								inputMode="text"
 								onChange={(event) => {
 									setSortOrderText(event.target.value);
 									edited();

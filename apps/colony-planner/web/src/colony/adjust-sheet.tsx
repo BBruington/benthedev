@@ -303,7 +303,7 @@ function ResourceRow({
 					{...fieldInputProps(id, error, false)}
 					autoComplete="off"
 					autoFocus={autoFocus}
-					inputMode="numeric"
+					inputMode="text"
 					onChange={(event) => {
 						onChange({ text: event.target.value });
 					}}

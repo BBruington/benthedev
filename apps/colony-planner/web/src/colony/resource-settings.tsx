@@ -310,7 +310,7 @@ function ResourceSheet({
 						<Input
 							{...fieldInputProps("resource-min", minError, false)}
 							autoComplete="off"
-							inputMode="numeric"
+							inputMode="text"
 							onChange={(event) => {
 								setMinText(event.target.value);
 								edited();
@@ -328,7 +328,7 @@ function ResourceSheet({
 						<Input
 							{...fieldInputProps("resource-max", maxError, true)}
 							autoComplete="off"
-							inputMode="numeric"
+							inputMode="text"
 							onChange={(event) => {
 								setMaxText(event.target.value);
 								edited();
