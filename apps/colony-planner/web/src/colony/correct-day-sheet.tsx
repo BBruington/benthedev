@@ -7,6 +7,7 @@ import { Field, fieldInputProps } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { dayName, parseWholeNumber } from "@/lib/colony";
+import { useReviewedVersion } from "@/people/workforce-sheets";
 import { type ColonyChanges, isConflict } from "./use-colony-changes";
 
 type ColonyBoard = Schemas["ColonyBoard"];
@@ -28,6 +29,7 @@ export function CorrectDaySheet({
 }) {
 	const [dayText, setDayText] = useState(String(board.day));
 	const mutation = changes.correctDay;
+	const openedVersion = useReviewedVersion(board.version, mutation);
 	const day = parseWholeNumber(dayText);
 	let problem: string | undefined;
 	if (dayText.trim() !== "" && (typeof day !== "number" || day < 0)) {
@@ -43,7 +45,7 @@ export function CorrectDaySheet({
 			return;
 		}
 		mutation.mutate(
-			{ body: { day, expectedVersion: board.version }, ...changes.inCampaign },
+			{ body: { day, expectedVersion: openedVersion }, ...changes.inCampaign },
 			{
 				onSuccess: () => {
 					onOpenChange(false);
