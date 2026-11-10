@@ -115,8 +115,11 @@ function MarketScreen() {
 	);
 
 	function handleSetQuantity(itemId: string, quantity: number, onSuccess?: () => void) {
+		// The quantity this change was made from, so two members adding at once don't overwrite each other.
+		const expectedQuantity =
+			market.data?.cart.lines.find((line) => line.itemId === itemId)?.quantity ?? 0;
 		setQuantity.mutate(
-			{ body: { quantity }, params: { path: { campaignId, itemId } } },
+			{ body: { expectedQuantity, quantity }, params: { path: { campaignId, itemId } } },
 			{ onSuccess },
 		);
 	}

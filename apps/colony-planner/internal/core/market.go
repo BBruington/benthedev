@@ -143,6 +143,9 @@ type MarketShippingInput struct {
 
 type CartQuantityInput struct {
 	Quantity int64 `json:"quantity" doc:"0 removes the line; otherwise 1 to 10000"`
+	// ExpectedQuantity is what the line held when the member chose the new quantity, so two members
+	// adding at once don't overwrite each other.
+	ExpectedQuantity *int64 `json:"expectedQuantity,omitempty" required:"false" doc:"The line's quantity the change was made from, 0 for none; a different quantity now is a 409. Omit to overwrite"`
 }
 
 type PlaceMarketOrderInput struct {
@@ -180,6 +183,7 @@ var (
 	errMarketItemTotalLimit = Conflict("This campaign has kept " + formatNumber(MarketItemLimitIncludingArchived) +
 		" market items, archived ones included, the most it can hold.")
 	errMarketCartChanged = Conflict("The cart changed. Review it and confirm again.")
+	errMarketLineChanged = Conflict("Someone else just changed that line. The cart is up to date now, so try again.")
 	errMarketNotUnpaid   = Conflict("That order isn't waiting for payment.")
 	errMarketNoGold      = Conflict("This colony has no gold to pay with.")
 	errMarketCartEmpty   = Invalid("The cart is empty. Add something first.")
@@ -749,6 +753,21 @@ func (service *Service) SetCartQuantity(requestContext context.Context, viewer V
 		item, err := queries.GetMarketItem(requestContext, store.GetMarketItemParams{CampaignID: viewer.campaignID, ID: itemID})
 		if err != nil {
 			return marketItemGone(err)
+		}
+		if input.ExpectedQuantity != nil {
+			lines, err := queries.ListCartLines(requestContext, viewer.campaignID)
+			if err != nil {
+				return err
+			}
+			var current int64
+			for _, line := range lines {
+				if line.MarketCartLine.ItemID == itemID {
+					current = int64(line.MarketCartLine.Quantity)
+				}
+			}
+			if current != *input.ExpectedQuantity {
+				return errMarketLineChanged
+			}
 		}
 		if input.Quantity == 0 {
 			removed, err := queries.DeleteCartLine(requestContext, store.DeleteCartLineParams{CampaignID: viewer.campaignID, ItemID: itemID})
