@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { problemStatus } from "@/api/problem";
 import { campaignMeQuery, myCampaignsQuery } from "@/api/queries";
 import { useLiveUpdates } from "@/api/stream";
@@ -10,6 +10,7 @@ import { NoSuchCampaign } from "@/components/no-such-campaign";
 import { CampaignContext } from "@/hooks/use-campaign";
 import { isLetIn } from "@/lib/access";
 import { findCampaignBySlug } from "@/lib/campaigns";
+import { focusFirstVisible } from "@/lib/focus";
 import { rememberLastCampaign } from "@/lib/last-campaign";
 
 /**
@@ -51,10 +52,18 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug")({
 function CampaignLayout() {
 	const { campaignId } = Route.useRouteContext();
 	const { campaignSlug } = Route.useParams();
+	const shownCampaignId = useRef(campaignId);
+	useEffect(() => {
+		if (shownCampaignId.current !== campaignId) {
+			shownCampaignId.current = campaignId;
+			// The switch remounts the shell, the switcher that had focus included.
+			focusFirstVisible("main");
+		}
+	}, [campaignId]);
 	if (!campaignId) {
 		return <NoSuchCampaign />;
 	}
-	return <CampaignScope campaignId={campaignId} slug={campaignSlug} />;
+	return <CampaignScope campaignId={campaignId} key={campaignId} slug={campaignSlug} />;
 }
 
 /**
