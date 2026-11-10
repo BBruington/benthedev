@@ -26,6 +26,9 @@ const (
 	// gatewayWorkTimeout bounds the database work a gateway event (Ready, GuildDelete, an acknowledged
 	// button click) starts.
 	gatewayWorkTimeout = 10 * time.Second
+	// firstConnectRetryDelay doubles after each failed connection, up to longestConnectRetryDelay.
+	firstConnectRetryDelay   = 5 * time.Second
+	longestConnectRetryDelay = 5 * time.Minute
 )
 
 const (
@@ -119,6 +122,7 @@ type Bot struct {
 	waitingPings      *slidingWindowLimiter
 	ownerPings        *slidingWindowLimiter
 	now               func() time.Time
+	connectRetryDelay time.Duration
 	// replan asks the planner goroutine to plan again; it holds one request, so signals coalesce.
 	replan chan struct{}
 	// retries is the planner's back-off for jobs Discord refused; only the planner goroutine uses it.
@@ -210,6 +214,7 @@ func newBot(options Options, client discordClient, state gatewayState, now func(
 		waitingPings:      newSlidingWindowLimiter(core.WaitingPingsPerHour, pingWindow, now),
 		ownerPings:        newSlidingWindowLimiter(core.OwnerRequestPingsPerHour, pingWindow, now),
 		now:               now,
+		connectRetryDelay: firstConnectRetryDelay,
 		replan:            make(chan struct{}, 1),
 		retries:           map[plannedJobKey]jobRetry{},
 		pollsChanged:      make(chan struct{}, 1),
@@ -299,9 +304,9 @@ func (benyBot *Bot) run(lifetimeContext context.Context, service colonyService) 
 	})
 	defer removePollVoteRemoveHandler()
 
-	if err := benyBot.client.Open(); err != nil {
+	if !benyBot.connect(lifetimeContext) {
 		benyBot.stop()
-		return fmt.Errorf("bot: connect to Discord: %w", err)
+		return nil
 	}
 	var planner sync.WaitGroup
 	planner.Go(func() { benyBot.runPlanner(lifetimeContext) })
@@ -312,6 +317,27 @@ func (benyBot *Bot) run(lifetimeContext context.Context, service colonyService) 
 		return fmt.Errorf("bot: disconnect from Discord: %w", err)
 	}
 	return nil
+}
+
+// connect opens the gateway, trying again after a failure: giving up would leave Beny Bot off until the
+// next deploy while the website looks healthy. False means the bot's life ended first.
+func (benyBot *Bot) connect(lifetimeContext context.Context) bool {
+	delay := benyBot.connectRetryDelay
+	for {
+		err := benyBot.client.Open()
+		if err == nil {
+			return true
+		}
+		benyBot.options.Logger.Error("Beny Bot couldn't connect to Discord; it tries again", slog.Any("error", err), slog.Duration("retry_in", delay))
+		timer := time.NewTimer(delay)
+		select {
+		case <-lifetimeContext.Done():
+			timer.Stop()
+			return false
+		case <-timer.C:
+		}
+		delay = min(delay*2, longestConnectRetryDelay)
+	}
 }
 
 func (benyBot *Bot) start(service colonyService) error {

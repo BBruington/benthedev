@@ -99,13 +99,15 @@ type fakeDiscordClient struct {
 	openCalls       int
 	closeCalls      int
 	openError       error
-	overwrites      []commandOverwrite
-	responses       []*discordgo.InteractionResponse
-	messages        []sentMessage
-	posted          map[string]*discordgo.Message
-	edits           []*discordgo.MessageEdit
-	deletes         []string
-	followUps       []*discordgo.WebhookParams
+	// openFailures is how many more times Open fails with openError; below zero it always fails.
+	openFailures int
+	overwrites   []commandOverwrite
+	responses    []*discordgo.InteractionResponse
+	messages     []sentMessage
+	posted       map[string]*discordgo.Message
+	edits        []*discordgo.MessageEdit
+	deletes      []string
+	followUps    []*discordgo.WebhookParams
 	// pollVoters are each posted poll's voters by answer ID, which voter reads page through.
 	pollVoters map[string]map[int][]string
 	voterReads int
@@ -168,8 +170,15 @@ func (fake *fakeDiscordClient) Open() error {
 	fake.mutex.Lock()
 	fake.openCalls++
 	openError := fake.openError
+	if fake.openFailures == 0 {
+		openError = nil
+	} else if fake.openFailures > 0 {
+		fake.openFailures--
+	}
 	fake.mutex.Unlock()
-	fake.openedSignalOnce.Do(func() { close(fake.openedSignal) })
+	if openError == nil {
+		fake.openedSignalOnce.Do(func() { close(fake.openedSignal) })
+	}
 	return openError
 }
 
@@ -1248,12 +1257,48 @@ func TestRunConnectsServesAndDisconnects(t *testing.T) {
 	}
 }
 
-func TestRunReportsAFailedConnection(t *testing.T) {
+func TestRunRetriesAFailedConnection(t *testing.T) {
 	client := newFakeDiscordClient()
 	client.openError = errors.New("websocket: bad handshake")
+	client.openFailures = 2
 	benyBot := newBot(Options{Token: "test-token", Logger: quietLogger()}, client, newFakeGatewayState(), newFakeClock().now)
-	if err := benyBot.run(t.Context(), failingService{}); err == nil {
-		t.Fatal("expected an error")
+	benyBot.connectRetryDelay = time.Millisecond
+	lifetimeContext, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() { result <- benyBot.run(lifetimeContext, failingService{}) }()
+	select {
+	case <-client.openedSignal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Beny Bot never connected after two failed tries")
+	}
+	cancel()
+	if err := <-result; err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	if client.openCalls != 3 {
+		t.Errorf("opened %d times, want 3", client.openCalls)
+	}
+}
+
+func TestRunStopsRetryingAConnectionWhenItsLifeEnds(t *testing.T) {
+	client := newFakeDiscordClient()
+	client.openError = errors.New("websocket: bad handshake")
+	client.openFailures = -1
+	benyBot := newBot(Options{Token: "test-token", Logger: quietLogger()}, client, newFakeGatewayState(), newFakeClock().now)
+	benyBot.connectRetryDelay = time.Hour
+	lifetimeContext, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() { result <- benyBot.run(lifetimeContext, failingService{}) }()
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run kept waiting to retry after its life ended")
 	}
 	if err := benyBot.run(t.Context(), failingService{}); err == nil {
 		t.Fatal("expected a second Run to be refused")
