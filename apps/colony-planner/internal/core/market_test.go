@@ -322,6 +322,26 @@ func TestArchivingAnItemClearsItsCartLines(t *testing.T) {
 	}
 }
 
+func TestACartChangeMadeFromAStaleQuantityIsRefused(t *testing.T) {
+	test := newColonyTest(t)
+	boots := test.specialItem("Boots of Striding", 120, nil)
+	test.setCart(test.player, boots, 2)
+
+	// Two members both saw 0 and each added some: the second must not overwrite the first.
+	stale := core.CartQuantityInput{Quantity: 1, ExpectedQuantity: new(int64(0))}
+	if _, err := test.service.SetCartQuantity(test.context, test.dm, boots, stale); !isKind(err, core.KindConflict) {
+		t.Fatalf("a change from a stale quantity: %v, want a conflict", err)
+	}
+	fresh := core.CartQuantityInput{Quantity: 3, ExpectedQuantity: new(int64(2))}
+	page, err := test.service.SetCartQuantity(test.context, test.dm, boots, fresh)
+	if err != nil {
+		t.Fatalf("a change from the current quantity: %v", err)
+	}
+	if len(page.Cart.Lines) != 1 || page.Cart.Lines[0].Quantity != 3 {
+		t.Errorf("cart = %+v, want one line of 3", page.Cart.Lines)
+	}
+}
+
 func TestRemovingACartLineCreditsTheRemover(t *testing.T) {
 	test := newColonyTest(t)
 	food := test.marketItemID("Food")

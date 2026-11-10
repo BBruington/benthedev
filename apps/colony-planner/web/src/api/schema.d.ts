@@ -2463,6 +2463,11 @@ export interface components {
         CartQuantityInput: {
             /**
              * Format: int64
+             * @description The line's quantity the change was made from, 0 for none; a different quantity now is a 409. Omit to overwrite
+             */
+            expectedQuantity?: number;
+            /**
+             * Format: int64
              * @description 0 removes the line; otherwise 1 to 10000
              */
             quantity: number;
