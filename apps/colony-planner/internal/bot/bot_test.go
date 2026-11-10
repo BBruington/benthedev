@@ -123,6 +123,8 @@ type fakeDiscordClient struct {
 	answers        *discordAnswers
 	directChannels []string
 	sendError      error
+	// pollSendError refuses only messages that carry a poll, as a server without Send Polls does.
+	pollSendError error
 	// answerLost has Discord post a message but the answer never reach Beny Bot.
 	answerLost error
 	// nonces are the message each enforced nonce returns, deleted since or not.
@@ -213,6 +215,9 @@ func (fake *fakeDiscordClient) sendLocked(channelID string, message *discordgo.M
 	fake.messages = append(fake.messages, sentMessage{channelID: channelID, message: message, nonce: nonce})
 	if fake.sendError != nil {
 		return nil, fake.sendError
+	}
+	if message.Poll != nil && fake.pollSendError != nil {
+		return nil, fake.pollSendError
 	}
 	posted := &discordgo.Message{
 		ID:         fmt.Sprintf("4%017d", len(fake.messages)),

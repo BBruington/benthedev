@@ -54,6 +54,8 @@ type pollRetry struct {
 	campaignID uuid.UUID
 	at         time.Time
 	delay      time.Duration
+	// refusalTold is set once the DM was told Discord refuses the post, so each retry doesn't say it again.
+	refusalTold bool
 }
 
 // pollEnd is a posted poll the DM closed early, which Beny Bot ends in Discord; until ended, the retry
@@ -300,7 +302,7 @@ func (benyBot *Bot) postPoll(postContext context.Context, logger *slog.Logger, s
 	for _, option := range poll.Options {
 		answers = append(answers, discordgo.PollAnswer{Media: &discordgo.PollMedia{Text: option.Label}})
 	}
-	posted, failed := benyBot.postToCampaignOnce(postContext, service, campaignID, announceChannel, &discordgo.MessageSend{
+	posted, err := benyBot.postToCampaignOnce(postContext, service, campaignID, announceChannel, &discordgo.MessageSend{
 		Content: pollAnnouncement(benyBot.pollsURL(target.CampaignSlug)),
 		Poll: &discordgo.Poll{
 			Question:         discordgo.PollMedia{Text: poll.Question},
@@ -310,9 +312,14 @@ func (benyBot *Bot) postPoll(postContext context.Context, logger *slog.Logger, s
 		},
 	}, nil, nonce)
 	if posted == nil {
-		if failed {
+		if err != nil {
 			retryIn := benyBot.schedulePollRetry(benyBot.pollPostRetries, campaignID, poll.ID)
 			logger.Warn("Beny Bot couldn't post a poll; it tries again later", slog.Duration("retry_in", retryIn))
+			if isDiscordError(err, discordgo.ErrCodeMissingAccess, discordgo.ErrCodeMissingPermissions) && benyBot.firstPollRefusal(poll.ID) {
+				benyBot.postToCampaign(postContext, service, campaignID, dmChannel, &discordgo.MessageSend{
+					Content: pollRefusedNotice(benyBot.pollsURL(target.CampaignSlug)),
+				}, nil)
+			}
 			return
 		}
 		benyBot.clearPollPostRetry(poll.ID)
@@ -337,7 +344,7 @@ func (benyBot *Bot) postPoll(postContext context.Context, logger *slog.Logger, s
 			input.AnswerIDs = append(input.AnswerIDs, answer.AnswerID)
 		}
 	}
-	err := errPollAnswersMissing
+	err = errPollAnswersMissing
 	if len(input.AnswerIDs) == len(poll.Options) {
 		err = service.RecordPollMessage(recordContext, campaignID, poll.ID, input)
 	}
@@ -433,6 +440,17 @@ func pollDurationHours(closesAt time.Time, now time.Time) (hours int, open bool)
 		return 0, false
 	}
 	return min(max(int(math.Ceil(closesAt.Sub(now).Hours())), 1), pollMaxDurationHours), true
+}
+
+// pollRefusedNotice tells the DM why a poll nobody can vote on yet isn't in Discord. It names no poll.
+func pollRefusedNotice(pollsURL string) string {
+	notice := "I couldn't post a poll in the announcements channel: Discord says I'm missing a permission there " +
+		"(View Channel, Send Messages or Send Polls). Nobody can vote on it until I can post it. " +
+		"I'll keep trying, so it appears once the permission is fixed."
+	if pollsURL == "" {
+		return notice
+	}
+	return notice + " The poll: " + pollsURL
 }
 
 func pollAnnouncement(pollsURL string) string {
@@ -706,7 +724,20 @@ func (benyBot *Bot) backedOff(retry pollRetry, campaignID uuid.UUID) pollRetry {
 	if wait == 0 {
 		wait = firstRetryDelay
 	}
-	return pollRetry{campaignID: campaignID, at: benyBot.now().Add(wait), delay: min(wait*2, longestRetryDelay)}
+	return pollRetry{campaignID: campaignID, at: benyBot.now().Add(wait), delay: min(wait*2, longestRetryDelay), refusalTold: retry.refusalTold}
+}
+
+// firstPollRefusal reports whether this is the first refused post of the poll since it last posted.
+func (benyBot *Bot) firstPollRefusal(pollID uuid.UUID) bool {
+	benyBot.pollMutex.Lock()
+	defer benyBot.pollMutex.Unlock()
+	retry, retrying := benyBot.pollPostRetries[pollID]
+	if !retrying || retry.refusalTold {
+		return false
+	}
+	retry.refusalTold = true
+	benyBot.pollPostRetries[pollID] = retry
+	return true
 }
 
 func (benyBot *Bot) clearPollPostRetry(pollID uuid.UUID) {
