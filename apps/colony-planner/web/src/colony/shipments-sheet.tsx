@@ -1,5 +1,5 @@
 import { CalendarClockIcon, CalendarX2Icon } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useCallback, useState } from "react";
 import type { Schemas } from "@/api/client";
 import { fieldErrors, problemMessage } from "@/api/problem";
 import { BottomSheet } from "@/components/bottom-sheet";
@@ -7,6 +7,7 @@ import { Field, fieldInputProps } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatNumber, parseWholeNumber, shipmentLine } from "@/lib/colony";
+import { useReviewedVersion } from "@/people/workforce-sheets";
 import { type ColonyChanges, isConflict } from "./use-colony-changes";
 
 type ColonyBoard = Schemas["ColonyBoard"];
@@ -32,6 +33,17 @@ export function ShipmentsSheet({
 	const [nextDayText, setNextDayText] = useState("");
 	const save = changes.setShipments;
 	const clear = changes.clearShipments;
+	const { reset: resetSave } = save;
+	const { reset: resetClear } = clear;
+	const reset = useCallback(() => {
+		resetSave();
+		resetClear();
+	}, [resetSave, resetClear]);
+	const openedVersion = useReviewedVersion(board.version, {
+		// Either button's conflict means the numbers were refreshed, whatever the other last failed with.
+		error: isConflict(clear.error) ? clear.error : save.error,
+		reset,
+	});
 
 	const interval = parseWholeNumber(intervalText);
 	const nextDay = parseWholeNumber(nextDayText);
@@ -65,7 +77,7 @@ export function ShipmentsSheet({
 		save.mutate(
 			{
 				body: {
-					expectedVersion: board.version,
+					expectedVersion: openedVersion,
 					intervalDays: interval,
 					nextDay: typeof nextDay === "number" ? nextDay : null,
 				},
@@ -81,7 +93,7 @@ export function ShipmentsSheet({
 
 	function handleClear() {
 		clear.mutate(
-			{ body: { expectedVersion: board.version }, ...changes.inCampaign },
+			{ body: { expectedVersion: openedVersion }, ...changes.inCampaign },
 			{
 				onSuccess: () => {
 					onOpenChange(false);
