@@ -19,8 +19,7 @@ export function pendingRequestsQuery(campaignId: string) {
 export function useRequestToasts(campaignId: string, slug: string, isEnabled: boolean) {
 	const navigate = useNavigate();
 	const { data } = useQuery({ ...pendingRequestsQuery(campaignId), enabled: isEnabled });
-	// Keyed by campaign: the shell stays mounted across a campaign switch, and the new campaign's
-	// waiting requests aren't news either.
+	// Keyed by campaign, so another campaign's waiting requests are never news here.
 	const seen = useRef<{ campaignId: string; requestIds: Set<string> } | null>(null);
 
 	useEffect(() => {
