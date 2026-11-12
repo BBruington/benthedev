@@ -50,6 +50,8 @@ const (
 	TopicMarket Topic = "market"
 	// TopicPolls is /polls and the board's open polls.
 	TopicPolls Topic = "polls"
+	// TopicBridge is the DM's Foundry bridge status on Settings, and the only topic a bridge stream hears.
+	TopicBridge Topic = "bridge"
 )
 
 // InvalidateMessage is the data of every `event: invalidate` message on a campaign stream.
@@ -60,7 +62,7 @@ type InvalidateMessage struct {
 // AllTopics lists every topic; it feeds the Topic enum in the OpenAPI document, reconnect catch-up
 // and view as player. TestAllTopicsListsEveryTopicConstant fails when a Topic constant is missing here.
 func AllTopics() []Topic {
-	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces, TopicQuests, TopicPatrons, TopicRequests, TopicMaps, TopicHexes, TopicSessions, TopicMarket, TopicPolls}
+	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces, TopicQuests, TopicPatrons, TopicRequests, TopicMaps, TopicHexes, TopicSessions, TopicMarket, TopicPolls, TopicBridge}
 }
 
 // StreamMessage is one `event: invalidate` message, with its `<bootId>-<seq>` id.
@@ -93,7 +95,7 @@ func (scope recipients) include(subscription *Subscription) bool {
 	case scope.everyStream:
 		return true
 	case scope.activeStreams:
-		return subscription.active
+		return subscription.active || subscription.bridge
 	case scope.sessionKey != "":
 		return subscription.sessionKey == scope.sessionKey
 	default:
@@ -154,9 +156,11 @@ type Subscription struct {
 	memberOK   bool
 	campaignOK bool
 	active     bool
-	messages   chan StreamMessage
-	closed     chan struct{}
-	closeOnce  sync.Once
+	// bridge marks a Foundry bridge stream, which belongs to no member and hears only TopicBridge.
+	bridge    bool
+	messages  chan StreamMessage
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 func (subscription *Subscription) Messages() <-chan StreamMessage {
@@ -177,6 +181,12 @@ func (subscription *Subscription) Close() {
 }
 
 func (subscription *Subscription) visibleTopics(topics []Topic) []Topic {
+	if subscription.bridge {
+		if slices.Contains(topics, TopicBridge) {
+			return []Topic{TopicBridge}
+		}
+		return nil
+	}
 	if subscription.active {
 		return topics
 	}
@@ -355,6 +365,10 @@ func (broker *Broker) campaignStatusChanged(campaignID uuid.UUID, active bool) {
 	defer broker.mutex.Unlock()
 	broker.campaignActive[campaignID] = active
 	for subscription := range broker.subscriptions {
+		if subscription.campaignID == campaignID && subscription.bridge && !active {
+			broker.closeLocked(subscription)
+			continue
+		}
 		if subscription.campaignID == campaignID {
 			subscription.campaignOK = active
 			subscription.rescope()
@@ -374,6 +388,29 @@ func (broker *Broker) CloseCampaign(campaignID uuid.UUID) {
 	}
 	delete(broker.logs, campaignID)
 	delete(broker.campaignActive, campaignID)
+}
+
+// subscribeBridge registers a Foundry bridge stream in one campaign. It needs no resume: the stream
+// reads the outbox's newest seq on connect.
+func (broker *Broker) subscribeBridge(campaignID uuid.UUID) *Subscription {
+	broker.mutex.Lock()
+	defer broker.mutex.Unlock()
+	subscription := &Subscription{
+		broker:     broker,
+		campaignID: campaignID,
+		bridge:     true,
+		messages:   make(chan StreamMessage, subscriptionBufferSize),
+		closed:     make(chan struct{}),
+	}
+	broker.subscriptions[subscription] = struct{}{}
+	return subscription
+}
+
+// closeBridgeStreams ends a campaign's bridge streams when its link is revoked or replaced.
+func (broker *Broker) closeBridgeStreams(campaignID uuid.UUID) {
+	broker.closeWhere(func(subscription *Subscription) bool {
+		return subscription.bridge && subscription.campaignID == campaignID
+	})
 }
 
 // CloseAccount ends every stream of an account in every campaign: sign out everywhere.

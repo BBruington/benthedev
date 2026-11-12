@@ -372,6 +372,7 @@ func (service *Service) CreateRole(requestContext context.Context, viewer Viewer
 		return RoleSettings{}, Invalid("The role needs fixing.", fieldErrors...)
 	}
 	var row store.Role
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Not a colony mutation, but the colony row is still locked first: one lock order (spec §5.1),
 		// and two adds of the same label can't race for one key.
@@ -403,12 +404,16 @@ func (service *Service) CreateRole(requestContext context.Context, viewer Viewer
 		if err != nil {
 			return err
 		}
-		return createColonistOffer(requestContext, queries, viewer.campaignID, row.Key)
+		if err := createColonistOffer(requestContext, queries, viewer.campaignID, row.Key); err != nil {
+			return err
+		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return RoleSettings{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicPeople, TopicColony, TopicMarket)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicPeople, TopicColony, TopicMarket)...)
 	return toRoleSettings(row, 0), nil
 }
 
@@ -426,6 +431,7 @@ func (service *Service) UpdateRole(requestContext context.Context, viewer Viewer
 		return RoleSettings{}, Invalid("The role needs fixing.", fieldErrors...)
 	}
 	var updated RoleSettings
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first so no workforce change moves anyone in between the headcount check and the save.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -469,12 +475,13 @@ func (service *Service) UpdateRole(requestContext context.Context, viewer Viewer
 			return err
 		}
 		updated = toRoleSettings(row, current.NamedCount)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return RoleSettings{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicPeople, TopicColony, TopicNpcs)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicPeople, TopicColony, TopicNpcs)...)
 	return updated, nil
 }
 

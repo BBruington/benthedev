@@ -4,12 +4,16 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/BBruington/colony-planner/internal/core"
 )
+
+// BridgePathPrefix is where the Foundry bridge's cookie-free routes live.
+const BridgePathPrefix = "/api/bridge/"
 
 // startSession signs the browser in as the account, replacing any session the request carried.
 func (service *Service) startSession(writer http.ResponseWriter, request *http.Request, accountID uuid.UUID) error {
@@ -54,9 +58,15 @@ func (service *Service) clearSessionCookie(writer http.ResponseWriter) {
 
 // Middleware resolves the session cookie to a Caller and stores it in the request context. Requests
 // without a valid session carry no Caller; the access layer in internal/app then answers 401. A
-// cookie that names no session is cleared so the browser stops sending it.
+// cookie that names no session is cleared so the browser stops sending it. Under /api/bridge/ the
+// cookie is never read: the Foundry bridge's routes take only their bearer token, which is what makes
+// their CrossOriginProtection bypass safe (docs/design/foundry-bridge.md §3.2).
 func (service *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasPrefix(request.URL.Path, BridgePathPrefix) {
+			next.ServeHTTP(writer, request)
+			return
+		}
 		cookie, err := request.Cookie(service.sessionCookieName)
 		if err != nil || cookie.Value == "" || service.options.Core == nil {
 			next.ServeHTTP(writer, request)

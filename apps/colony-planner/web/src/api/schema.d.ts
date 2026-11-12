@@ -123,6 +123,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bridge/acks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark outbox rows applied, or failed with a reason (bridge token) */
+        post: operations["ackBridgeOutbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bridge/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report 1 to 100 Foundry events; a repeated event ID is ignored (bridge token) */
+        post: operations["recordBridgeEvents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bridge/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Up to 100 unapplied outbox rows after a seq, oldest first (bridge token) */
+        get: operations["readBridgeOutbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bridge/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trade a pairing code for the campaign's bridge token (the Foundry module, from a Forge game's page) */
+        post: operations["pairBridge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaign-requests": {
         parameters: {
             query?: never;
@@ -185,6 +253,75 @@ export interface paths {
         get: operations["listMyCampaigns"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/bridge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The Foundry bridge: the connected world, an open pairing code and the DM's inbox */
+        get: operations["getBridgeStatus"];
+        put?: never;
+        post?: never;
+        /** Disconnect Foundry: revoke the link and its unused code, keeping the rows for the record */
+        delete: operations["revokeBridge"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/bridge/codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A one-time code for the Foundry module, good for 10 minutes; it replaces an unused one */
+        post: operations["createBridgePairingCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/bridge/failed/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Forget the changes Foundry couldn't apply */
+        post: operations["clearBridgeFailedRows"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/bridge/inbox/{eventId}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss a Foundry inbox item; one already handled is 409 */
+        post: operations["dismissBridgeInboxItem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2357,6 +2494,11 @@ export interface components {
         };
         AdvanceInput: {
             /**
+             * Format: uuid
+             * @description A PENDING TIME_ADVANCED inbox item this advance accepts
+             */
+            bridgeEventId?: string;
+            /**
              * Format: int64
              * @description 1 or more; no limit beyond what the database can store
              */
@@ -2412,6 +2554,122 @@ export interface components {
             first: number;
             /** Format: int64 */
             last: number;
+        };
+        BridgeAckFailure: {
+            /** @description At most 300 characters */
+            reason: string;
+            /** Format: int64 */
+            seq: number;
+        };
+        BridgeAckInput: {
+            failed?: components["schemas"]["BridgeAckFailure"][];
+            /**
+             * Format: int64
+             * @description Rows up to this seq not listed in failed are applied
+             */
+            through: number;
+        };
+        /** @enum {string} */
+        BridgeEventKind: "STATUS" | "TIME_ADVANCED";
+        BridgeEventsInput: {
+            /** @description 1 to 100 events */
+            events: components["schemas"]["BridgeInboundEvent"][];
+        };
+        BridgeEventsResult: {
+            /** Format: int64 */
+            accepted: number;
+            /** Format: int64 */
+            duplicates: number;
+        };
+        BridgeFailedRow: {
+            /** Format: date-time */
+            failedAt: string;
+            kind: components["schemas"]["BridgeOutboxKind"];
+            reason: string;
+            /** Format: int64 */
+            seq: number;
+        };
+        BridgeInboundEvent: {
+            /**
+             * Format: uuid
+             * @description The module's own ID; a repeat is ignored
+             */
+            id: string;
+            kind: components["schemas"]["BridgeEventKind"];
+            /** Format: date-time */
+            occurredAt: string;
+            payload: unknown;
+        };
+        BridgeInboxItem: {
+            /** Format: int64 */
+            days: number;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["BridgeEventKind"];
+            /** Format: date-time */
+            receivedAt: string;
+        };
+        BridgeLinkStatus: {
+            /** @description The newest rows Foundry couldn't apply, newest first */
+            failedRows: components["schemas"]["BridgeFailedRow"][];
+            /** @description "" until the module's first status event, as are the other versions */
+            foundryVersion: string;
+            /**
+             * Format: date
+             * @description The last day the module called, UTC; null before its first call
+             */
+            lastContactOn: string | null;
+            /** Format: date-time */
+            linkedAt: string;
+            moduleVersion: string;
+            /** @description e.g. https://myworld.forge-vtt.com */
+            origin: string;
+            systemId: string;
+            systemVersion: string;
+            /** Format: int64 */
+            unappliedRows: number;
+            worldTitle: string;
+        } | null;
+        BridgeOpenCode: {
+            /** Format: date-time */
+            expiresAt: string;
+        } | null;
+        /** @enum {string} */
+        BridgeOutboxKind: "COLONY_SUMMARY" | "DAYS_ADVANCED";
+        BridgeOutboxPage: {
+            /** @description More unapplied rows follow the last one */
+            more: boolean;
+            rows: components["schemas"]["BridgeOutboxRow"][];
+        };
+        BridgeOutboxRow: {
+            kind: components["schemas"]["BridgeOutboxKind"];
+            payload: unknown;
+            /** Format: int64 */
+            seq: number;
+            targetKey: string;
+        };
+        BridgePairInput: {
+            code: string;
+        };
+        BridgePairing: {
+            campaignName: string;
+            /** @description Send it as Authorization: Bearer <token> on every bridge request */
+            token: string;
+        };
+        BridgePairingCode: {
+            /** @description e.g. K7Q-4XM; typed into the module's settings in Foundry */
+            code: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        BridgeStatus: {
+            /** @description The unused code, while one is open */
+            code: components["schemas"]["BridgeOpenCode"];
+            inbox: components["schemas"]["BridgeInboxItem"][];
+            /** @description null while no Foundry world is connected */
+            link: components["schemas"]["BridgeLinkStatus"];
+            /** @description What the DM pastes into Foundry's Install From Manifest */
+            moduleManifestUrl: string;
         };
         CalendarLink: {
             /** @description /calendar/{token}.ics on this site */
@@ -2515,6 +2773,7 @@ export interface components {
             version: number;
         };
         ColonyBoardDm: {
+            bridgeInbox: components["schemas"]["BridgeInboxItem"][];
             /** @description What Undo would rewind; null when there is nothing to undo */
             lastChange: components["schemas"]["LastChange"];
         };
@@ -4153,7 +4412,7 @@ export interface components {
         /** @enum {string} */
         TimelineVisibility: "PUBLIC" | "DM";
         /** @enum {string} */
-        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions" | "market" | "polls";
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions" | "market" | "polls" | "bridge";
         TransferInput: {
             /**
              * Format: int64
@@ -4499,6 +4758,138 @@ export interface operations {
             };
         };
     };
+    ackBridgeOutbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BridgeAckInput"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    recordBridgeEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BridgeEventsInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BridgeEventsResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    readBridgeOutbox: {
+        parameters: {
+            query?: {
+                /** @description The newest seq the module has; 0 for everything waiting */
+                after?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BridgeOutboxPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    pairBridge: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Set by the browser; a Forge game's page */
+                Origin?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BridgePairInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BridgePairing"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     requestCampaign: {
         parameters: {
             query?: never;
@@ -4609,6 +5000,161 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MyCampaigns"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getBridgeStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BridgeStatus"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    revokeBridge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createBridgePairingCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BridgePairingCode"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    clearBridgeFailedRows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    dismissBridgeInboxItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

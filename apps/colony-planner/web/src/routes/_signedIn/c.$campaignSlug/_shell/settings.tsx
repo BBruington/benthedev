@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
 import { fieldErrors, problemMessage } from "@/api/problem";
 import {
+	bridgeStatusQuery,
 	calendarLinkQuery,
 	campaignMeQuery,
 	colonyBoardQuery,
@@ -24,12 +25,14 @@ import {
 	resourcesQuery,
 	settingsQuery,
 } from "@/api/queries";
+import { FoundryInbox } from "@/colony/foundry-inbox";
 import { ResourceSettingsCard } from "@/colony/resource-settings";
 import { Field, fieldInputProps, fieldMessageIds } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
 import { ChannelSelect } from "@/components/settings/channel-select";
 import { DangerZone } from "@/components/settings/danger-zone";
 import { DiscordServerCard } from "@/components/settings/discord-server-card";
+import { FoundryCard, foundryCardId, foundryHeadingId } from "@/components/settings/foundry-card";
 import { InviteLinkCard } from "@/components/settings/invite-link-card";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { campaignPickerHeadingId } from "@/components/shell/account-ids";
@@ -45,6 +48,7 @@ import { useMe } from "@/hooks/use-me";
 import { cachedMe, canUseDmTools } from "@/lib/access";
 import { inviteLink } from "@/lib/campaigns";
 import { copyToClipboard } from "@/lib/clipboard";
+import { focusFirstVisible } from "@/lib/focus";
 import { forgetLastCampaign } from "@/lib/last-campaign";
 import { cn } from "@/lib/utils";
 import { RoleSettingsCard } from "@/people/role-settings";
@@ -53,6 +57,7 @@ import { CalendarLinkCard } from "@/sessions/session-parts";
 type Settings = Schemas["Settings"];
 type SettingsInput = Schemas["SettingsInput"];
 type LinkCode = Schemas["LinkCode"];
+type BridgePairingCode = Schemas["BridgePairingCode"];
 
 // Selects hold strings; the API takes null for an unset channel.
 type SettingsDraft = {
@@ -79,6 +84,7 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/settings
 			queryClient.prefetchQuery(resourcesQuery(campaignId));
 			queryClient.prefetchQuery(inviteLinkQuery(campaignId));
 			queryClient.prefetchQuery(calendarLinkQuery(campaignId));
+			queryClient.prefetchQuery(bridgeStatusQuery(campaignId));
 		}
 	},
 });
@@ -99,7 +105,7 @@ function SettingsPage() {
 	return (
 		<div className="flex flex-col gap-8 md:gap-10">
 			<PageHeader
-				description="The campaign's and colony's names, the time zone, who can join, the calendar link, the colony's resources, and Beny Bot's Discord server."
+				description="The campaign's and colony's names, the time zone, who can join, the calendar link, the colony's resources, Beny Bot's Discord server, and your Foundry world."
 				eyebrow="Dungeon Master"
 				title="Settings"
 			/>
@@ -134,6 +140,7 @@ function SettingsBody({
 	return (
 		<>
 			<SettingsForm settings={settings.data} />
+			<FoundryBridge />
 			<InviteLink />
 			<CalendarLinkCard canRegenerate />
 			<ResourceSettingsCard />
@@ -151,6 +158,118 @@ function copyText(text: string, success: string) {
 		() => {
 			toast.error("Copying didn't work. Select the text and copy it yourself.");
 		},
+	);
+}
+
+const pairingCodeCheckInMilliseconds = 15_000;
+
+/**
+ * The Foundry card's data and actions. The pairing code comes back only from the request that made
+ * it, so it lives in this component; pairing happens in Foundry, and the bridge topic then brings
+ * the connected world here.
+ */
+function FoundryBridge() {
+	const { campaignId } = useCampaign();
+	const queryClient = useQueryClient();
+	const status = useQuery(bridgeStatusQuery(campaignId));
+	const [pairingCode, setPairingCode] = useState<BridgePairingCode | null>(null);
+	const [now, setNow] = useState(() => Date.now());
+	const linkedAt = status.data?.link?.linkedAt;
+	const [codeMadeBefore, setCodeMadeBefore] = useState(linkedAt);
+
+	// A code that was used is no longer worth showing: the world it connected is on the card now.
+	if (linkedAt !== codeMadeBefore) {
+		setCodeMadeBefore(linkedAt);
+		setPairingCode(null);
+	}
+
+	useEffect(() => {
+		if (pairingCode === null) {
+			return;
+		}
+		const timer = setInterval(() => {
+			setNow(Date.now());
+		}, pairingCodeCheckInMilliseconds);
+		return () => {
+			clearInterval(timer);
+		};
+	}, [pairingCode]);
+
+	const makeCode = api.useMutation("post", "/api/campaigns/{campaignId}/bridge/codes", {
+		onError: (error) => {
+			toast.error(problemMessage(error, "A code couldn't be made. Try again."));
+		},
+		onSuccess: (code) => {
+			setNow(Date.now());
+			setPairingCode(code);
+			queryClient.invalidateQueries({ queryKey: bridgeStatusQuery(campaignId).queryKey });
+		},
+	});
+	const disconnect = api.useMutation("delete", "/api/campaigns/{campaignId}/bridge", {
+		onError: (error) => {
+			toast.error(problemMessage(error, "Foundry couldn't be disconnected."));
+		},
+		onSuccess: () => {
+			setPairingCode(null);
+			queryClient.invalidateQueries({ queryKey: bridgeStatusQuery(campaignId).queryKey });
+			toast.success("Disconnected. Foundry no longer hears from this campaign.");
+			focusFirstVisible(foundryHeadingId);
+		},
+	});
+
+	const clearFailed = api.useMutation("post", "/api/campaigns/{campaignId}/bridge/failed/clear", {
+		onError: (error) => {
+			toast.error(problemMessage(error, "The list couldn't be cleared. Try again."));
+		},
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: bridgeStatusQuery(campaignId).queryKey });
+			focusFirstVisible(foundryHeadingId);
+		},
+	});
+
+	if (status.isPending) {
+		return <Skeleton className="h-64 rounded-2xl" id={foundryCardId} />;
+	}
+	if (status.isError) {
+		return (
+			<StatusPanel
+				description={problemMessage(status.error, "The Foundry connection couldn't be loaded.")}
+				icon={Settings2Icon}
+				title="Foundry couldn't be loaded"
+				tone="ember"
+			/>
+		);
+	}
+	return (
+		<FoundryCard
+			isClearingFailed={clearFailed.isPending}
+			isDisconnecting={disconnect.isPending}
+			isMakingCode={makeCode.isPending}
+			onClearFailed={() => {
+				clearFailed.mutate({ params: { path: { campaignId } } });
+			}}
+			onCopyManifest={(manifestUrl) => {
+				copyText(manifestUrl, "Address copied. Paste it into Foundry's Manifest URL.");
+			}}
+			onDisconnect={() => {
+				disconnect.mutate({ params: { path: { campaignId } } });
+			}}
+			onMakeCode={() => {
+				makeCode.mutate({ params: { path: { campaignId } } });
+			}}
+			pairingCode={pairingCode}
+			pairingCodeExpired={pairingCode !== null && Date.parse(pairingCode.expiresAt) <= now}
+			status={status.data}
+		>
+			{status.data.inbox.length > 0 ? (
+				<section aria-labelledby="foundry-inbox-settings-heading" className="grid gap-3">
+					<h3 className="font-medium" id="foundry-inbox-settings-heading">
+						Waiting for you
+					</h3>
+					<FoundryInbox fallbackFocusIds={[foundryHeadingId]} items={status.data.inbox} />
+				</section>
+			) : null}
+		</FoundryCard>
 	);
 }
 

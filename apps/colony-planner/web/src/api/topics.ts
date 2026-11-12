@@ -4,6 +4,7 @@ import {
 	adjustPreviewQueryKeyPrefix,
 	advancePreviewQueryKeyPrefix,
 	approveRequestPreviewQueryKeyPrefix,
+	bridgeStatusQuery,
 	calendarLinkQuery,
 	campaignMeQuery,
 	colonyBoardQuery,
@@ -54,6 +55,8 @@ export type Topic = Schemas["Topic"];
  */
 export function topicQueryKeys(campaignId: string): Record<Topic, readonly QueryKey[]> {
 	return {
+		// Players hear bridge too, and every change to the board's inbox also publishes colony.
+		bridge: [bridgeStatusQuery(campaignId).queryKey],
 		// A preview is only valid for the version it saw, so any colony change makes it stale.
 		colony: [
 			colonyBoardQuery(campaignId).queryKey,

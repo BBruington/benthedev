@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { formatAbsoluteTime } from "@/lib/time";
 import { SettingsCard } from "./settings-card";
+import { StepHeading } from "./step-heading";
 
 type LinkedDiscordServer = NonNullable<Schemas["Settings"]["discordServer"]>;
 type LinkCode = Schemas["LinkCode"];
@@ -90,21 +91,6 @@ export function DiscordServerCard({
 			)}
 			{children}
 		</SettingsCard>
-	);
-}
-
-function StepHeading({ number, children }: { number: number; children: ReactNode }) {
-	return (
-		<h3 className="flex items-center gap-2.5 font-medium">
-			<span
-				aria-hidden="true"
-				className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-gilt/15 font-semibold text-gilt-ink text-xs"
-			>
-				{number}
-			</span>
-			<span className="sr-only">Step {number}: </span>
-			{children}
-		</h3>
 	);
 }
 

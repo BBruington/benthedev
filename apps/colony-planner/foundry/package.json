@@ -1,0 +1,17 @@
+{
+	"devDependencies": {
+		"@biomejs/biome": "2.6.4",
+		"@types/bun": "1.4.4",
+		"typescript": "7.0.2"
+	},
+	"name": "colony-bridge",
+	"private": true,
+	"scripts": {
+		"build": "bun build/build.ts",
+		"lint": "biome ci .",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"type": "module",
+	"version": "0.1.1"
+}

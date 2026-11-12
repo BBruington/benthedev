@@ -73,6 +73,8 @@ func serve(commandContext context.Context) error {
 		PollNotifier:       benyBot.PollNotifier(),
 		BotInviteURL:       bot.InviteURL(loaded.discordClientID),
 		PublicURL:          loaded.publicURL,
+
+		AllowLocalFoundryOrigin: auth.DevAuthEnabled,
 	})
 	authService, err := auth.New(auth.Options{
 		Core:                service,
@@ -87,7 +89,7 @@ func serve(commandContext context.Context) error {
 	if err != nil {
 		return err
 	}
-	server, err := app.New(app.Options{Core: service, Auth: authService, Logger: logger})
+	server, err := app.New(app.Options{Core: service, Auth: authService, Logger: logger, PublicURL: loaded.publicURL})
 	if err != nil {
 		return err
 	}

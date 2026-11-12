@@ -19,6 +19,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
+	"github.com/BBruington/colony-planner/foundry"
 	"github.com/BBruington/colony-planner/internal/auth"
 	"github.com/BBruington/colony-planner/internal/core"
 )
@@ -34,6 +35,8 @@ type Options struct {
 	ImageUploadReadTimeout time.Duration
 	// RequestReadTimeout bounds reading any other request, body included; it defaults to 30 seconds.
 	RequestReadTimeout time.Duration
+	// PublicURL is the site's address, which the Foundry module's manifest points back at.
+	PublicURL string
 }
 
 // Route is one entry of the route table: every non-huma route, each with its access level.
@@ -64,6 +67,10 @@ type handlers struct {
 	streamLifetime  time.Duration
 	// imageUploadReadTimeout bounds reading one image upload's body.
 	imageUploadReadTimeout time.Duration
+	// linkLimiter and pairLimiter are the bridge's in-memory rate limits: per link, and per address on
+	// POST /api/bridge/pair.
+	linkLimiter *rateLimiter
+	pairLimiter *rateLimiter
 }
 
 func New(options Options) (*Server, error) {
@@ -84,6 +91,8 @@ func New(options Options) (*Server, error) {
 		streamHeartbeat:        options.StreamHeartbeat,
 		streamLifetime:         options.StreamLifetime,
 		imageUploadReadTimeout: options.ImageUploadReadTimeout,
+		linkLimiter:            newRateLimiter(bridgeLinkRequestsPerMinute),
+		pairLimiter:            newRateLimiter(bridgePairRequestsPerMinute),
 	}
 	if featureHandlers.imageUploadReadTimeout <= 0 {
 		featureHandlers.imageUploadReadTimeout = defaultImageUploadReadTimeout
@@ -117,8 +126,13 @@ func New(options Options) (*Server, error) {
 	featureHandlers.registerMaps(api)
 	featureHandlers.registerHexes(api)
 	featureHandlers.registerGameSessions(api)
+	featureHandlers.registerBridge(api)
 	nullableEnumFields(api.OpenAPI())
 
+	foundryModule, err := buildServedModule(foundry.Dist, options.PublicURL)
+	if err != nil {
+		return nil, err
+	}
 	openAPIJSON, err := json.Marshal(api.OpenAPI())
 	if err != nil {
 		return nil, fmt.Errorf("app: encode the OpenAPI document: %w", err)
@@ -132,6 +146,10 @@ func New(options Options) (*Server, error) {
 		{Pattern: "POST /auth/logout-everywhere", Access: AccessAccount, Handler: options.Auth.LogoutEverywhere()},
 		{Pattern: "GET /api/campaigns/{campaignId}/stream", Access: AccessPending, Handler: featureHandlers.stream()},
 		{Pattern: "GET /calendar/{" + calendarFileParameter + "}", Access: AccessToken, Handler: featureHandlers.calendarFeed()},
+		{Pattern: "GET /api/bridge/stream", Access: AccessToken, Handler: featureHandlers.bridgeStream()},
+		{Pattern: "OPTIONS " + bridgePathPrefix, Access: AccessPublic, Handler: featureHandlers.bridgePreflight()},
+		{Pattern: "GET " + foundryManifestPath, Access: AccessPublic, Handler: foundryManifest(foundryModule)},
+		{Pattern: "GET " + foundryZipPath, Access: AccessPublic, Handler: foundryZip(foundryModule)},
 		{Pattern: "GET /api/openapi.json", Access: AccessOwner, Handler: serveOpenAPI(openAPIJSON)},
 		{Pattern: "GET /api/docs", Access: AccessOwner, Handler: http.HandlerFunc(serveDocs)},
 		{Pattern: "GET /", Access: AccessPublic, Handler: spaHandler()},
@@ -149,8 +167,9 @@ func New(options Options) (*Server, error) {
 
 	var handler http.Handler = serveMux
 	handler = requireJSONBodies(handler)
+	handler = featureHandlers.bridgeGuard(handler)
 	handler = options.Auth.Middleware(handler)
-	handler = http.NewCrossOriginProtection().Handler(handler)
+	handler = crossOriginProtection().Handler(handler)
 	handler = options.Auth.RequireKnownHost(handler)
 	handler = securityHeaders(handler, options.Auth.HTTPSOnly())
 	handler = compressResponses(handler)
@@ -160,6 +179,15 @@ func New(options Options) (*Server, error) {
 		requestReadTimeout = defaultRequestReadTimeout
 	}
 	return &Server{api: api, handler: handler, routes: routes, requestReadTimeout: requestReadTimeout}, nil
+}
+
+// crossOriginProtection refuses cross-site mutations everywhere but /api/bridge/, where a Forge page
+// must POST. That bypass is safe only because the session cookie is never read there (auth.Middleware),
+// so the bridge token in its header is the only credential.
+func crossOriginProtection() *http.CrossOriginProtection {
+	protection := http.NewCrossOriginProtection()
+	protection.AddInsecureBypassPattern(bridgePathPrefix)
+	return protection
 }
 
 func (server *Server) Handler() http.Handler {

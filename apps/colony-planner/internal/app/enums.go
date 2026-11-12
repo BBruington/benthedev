@@ -55,6 +55,9 @@ var enumTypes = []enumType{
 	newEnumType("SessionStatus", core.AllSessionStatusValues),
 	newEnumType("MarketOrderStatus", core.AllMarketOrderStatusValues),
 	newEnumType("PollVoting", core.AllPollVotingValues),
+	newEnumType("BridgeOutboxKind", core.AllBridgeOutboxKindValues),
+	newEnumType("BridgeEventKind", core.AllBridgeEventKindValues),
+	newEnumType("BridgeEventStatus", core.AllBridgeEventStatusValues),
 }
 
 var enumNamesByType = func() map[reflect.Type]string {

@@ -1,9 +1,11 @@
 # Dependencies
 node_modules/
 
-# Build output. web/dist/.gitkeep stays tracked so `//go:embed all:dist` always has a file to embed.
+# Build output. web/dist/.gitkeep and foundry/dist/.gitkeep stay tracked so `//go:embed all:dist` always has a file to embed.
 web/dist/*
 !web/dist/.gitkeep
+foundry/dist/*
+!foundry/dist/.gitkeep
 bin/
 
 # Local environment (secrets never committed)

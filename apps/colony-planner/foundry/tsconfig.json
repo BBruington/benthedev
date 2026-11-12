@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"isolatedModules": true,
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"noEmit": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"target": "ES2023",
+		"types": ["bun"],
+		"verbatimModuleSyntax": true
+	},
+	"include": ["src", "build"]
+}

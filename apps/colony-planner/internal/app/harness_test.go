@@ -126,6 +126,9 @@ type campaignFixture struct {
 	failureCost []int64
 	// icsToken is the campaign's ICS token as planted: its members may read it, nobody else.
 	icsToken string
+	// bridgeToken and bridgeOrigin are the campaign's Foundry link as planted.
+	bridgeToken  string
+	bridgeOrigin string
 }
 
 // harness is the whole server on a fresh test schema with the accounts and campaigns of the
@@ -430,6 +433,11 @@ func (testHarness *harness) openStreamOn(server *httptest.Server, campaign *camp
 	if err != nil {
 		testHarness.t.Fatalf("open stream: %v", err)
 	}
+	return readStream(response, cancel)
+}
+
+// readStream parses an open SSE response into frames until the server or the test ends it.
+func readStream(response *http.Response, cancel context.CancelFunc) *liveStream {
 	stream := &liveStream{events: make(chan streamEvent, 64), cancel: cancel, status: response.StatusCode}
 	go func() {
 		defer close(stream.events)

@@ -17,7 +17,7 @@ func init() {
 
 // Unknown paths under these prefixes are API mistakes, not client-side routes, so they get a 404
 // instead of the SPA shell.
-var serverPrefixes = []string{"api/", "auth/", "img/", "calendar/"}
+var serverPrefixes = []string{"api/", "auth/", "img/", "calendar/", "foundry/"}
 
 const missingBuildPage = `<!doctype html>
 <html lang="en">

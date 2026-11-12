@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
@@ -825,11 +826,66 @@ var secrecyFixtures = []secrecyFixture{
 		dmProof: []string{"/npcs"},
 	},
 	{
+		feature: "Foundry bridge",
+		// The whole bridge is the DM's: the world's title (a STATUS event) carries the DM token, and the
+		// pairing codes and the bridge token are DM-only literals. A PENDING TIME_ADVANCED item is the
+		// {eventId} row; the board's dm.bridgeInbox carries it, so its ID is DM-only too.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			side.campaign.bridgeOrigin = "https://" + strings.ToLower(strings.ReplaceAll(side.campaign.slug, "-", "")) + ".forge-vtt.com"
+			side.campaign.bridgeToken = testHarness.pairBridge(side.campaign, side.dm)
+			caller, err := testHarness.core.EnterBridge(testHarness.context, side.campaign.bridgeToken)
+			if err != nil {
+				t.Fatalf("enter the bridge of %s: %v", side.campaign.name, err)
+			}
+			status, _ := json.Marshal(map[string]string{
+				"foundryVersion": "13.351", "systemId": "pf2e", "systemVersion": "7.12.2", "moduleVersion": "0.0.0",
+				"worldTitle": "World " + side.dmSecret,
+			})
+			if _, err := testHarness.core.RecordBridgeEvents(testHarness.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{
+				{ID: uuid.New(), Kind: core.BridgeEventKindStatus, OccurredAt: time.Now().UTC(), Payload: status},
+				{ID: uuid.New(), Kind: core.BridgeEventKindTimeAdvanced, OccurredAt: time.Now().UTC(), Payload: json.RawMessage(`{"days":3}`)},
+			}}); err != nil {
+				t.Fatalf("record bridge events in %s: %v", side.campaign.name, err)
+			}
+			bridge, err := testHarness.core.GetBridgeStatus(testHarness.context, testHarness.enter(side.dm, side.campaign.id))
+			if err != nil || len(bridge.Inbox) != 1 {
+				t.Fatalf("read the bridge of %s: %+v, %v", side.campaign.name, bridge, err)
+			}
+			eventID := bridge.Inbox[0].ID.String()
+			side.campaign.pathIDs["eventId"] = eventID
+			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, eventID)
+			// An open code too, so the Settings card shows one.
+			code, err := testHarness.core.CreateBridgePairingCode(testHarness.context, testHarness.enter(side.dm, side.campaign.id))
+			if err != nil {
+				t.Fatalf("open a pairing code in %s: %v", side.campaign.name, err)
+			}
+			side.campaign.linkCodes = append(side.campaign.linkCodes, code.Code, side.campaign.bridgeToken)
+		},
+		dmProof: []string{"/bridge"},
+	},
+	{
 		feature: "invite link",
 		// The invite code is DM-only: the harness's forbidden lists hold it as a literal.
 		plant:   func(*testing.T, *harness, campaignSide) {},
 		dmProof: []string{"/invite"},
 	},
+}
+
+// pairBridge connects a campaign's Foundry world as the module would: the DM's code, traded from the
+// campaign's Forge origin. It returns the bridge token.
+func (testHarness *harness) pairBridge(campaign *campaignFixture, dm account) string {
+	testHarness.t.Helper()
+	code, err := testHarness.core.CreateBridgePairingCode(testHarness.context, testHarness.enter(dm, campaign.id))
+	if err != nil {
+		testHarness.t.Fatalf("make a pairing code in %s: %v", campaign.name, err)
+	}
+	campaign.linkCodes = append(campaign.linkCodes, code.Code)
+	pairing, err := testHarness.core.PairBridge(testHarness.context, campaign.bridgeOrigin, core.BridgePairInput{Code: code.Code})
+	if err != nil {
+		testHarness.t.Fatalf("pair %s: %v", campaign.name, err)
+	}
+	return pairing.Token
 }
 
 // marketOfferID finds the standing offer for a resource or a role on a market page.

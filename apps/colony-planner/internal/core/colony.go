@@ -72,6 +72,8 @@ type RoleHeadcount struct {
 
 type ColonyBoardDm struct {
 	LastChange *LastChange `json:"lastChange" doc:"What Undo would rewind; null when there is nothing to undo"`
+	// BridgeInbox is what Foundry reported that waits for the DM, oldest first.
+	BridgeInbox []BridgeInboxItem `json:"bridgeInbox"`
 }
 
 // LastChange is the undo slot as the DM's Undo button shows it (spec §5.1).
@@ -103,6 +105,8 @@ type AdvancePreviewInput struct {
 type AdvanceInput struct {
 	Days            int64 `json:"days" doc:"1 or more; no limit beyond what the database can store"`
 	ExpectedVersion int64 `json:"expectedVersion"`
+	// BridgeEventID is the Foundry inbox item this advance answers; the same transaction accepts it.
+	BridgeEventID *uuid.UUID `json:"bridgeEventId,omitempty" format:"uuid" doc:"A PENDING TIME_ADVANCED inbox item this advance accepts"`
 }
 
 // AdvancePreview runs the same rule as Advance without writing (spec §5.2).
@@ -216,6 +220,8 @@ type undoSnapshot struct {
 	Requests map[uuid.UUID]requestBefore `json:"requests,omitempty"`
 	// MarketOrders is each market order the change paid for, keyed by order ID.
 	MarketOrders map[uuid.UUID]marketOrderBefore `json:"marketOrders,omitempty"`
+	// BridgeEventID is the Foundry inbox item the change accepted, which waits again after the undo.
+	BridgeEventID *uuid.UUID `json:"bridgeEventId,omitempty"`
 }
 
 // questBefore is a quest's status as it was before a colony mutation resolved or reopened it.
@@ -308,6 +314,12 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 		if len(docking) > 0 {
 			topics = append(topics, TopicMarket)
 		}
+		if input.BridgeEventID != nil {
+			if err := decideBridgeEvent(requestContext, queries, viewer.campaignID, *input.BridgeEventID, BridgeEventStatusAccepted, service.clock().UTC(), "bridgeEventId"); err != nil {
+				return colonyOutcome{}, err
+			}
+			topics = append(topics, TopicBridge)
+		}
 		title := daysPassTitle(result.Days, result.After.Day)
 		entries = append(entries, plannedEntry{
 			day:        result.After.Day,
@@ -317,7 +329,11 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 			visibility: TimelineVisibilityPublic,
 			deltas:     result.Applied,
 		})
-		return colonyOutcome{after: result.After, label: title, entries: entries, topics: topics}, nil
+		return colonyOutcome{
+			after: result.After, label: title, entries: entries, topics: topics,
+			daysAdvanced:  &bridgeDaysAdvanced{FromDay: colony.state.Day, ToDay: result.After.Day, Days: result.Days},
+			bridgeEventID: input.BridgeEventID,
+		}, nil
 	})
 }
 
@@ -470,6 +486,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	}
 	var change ColonyChange
 	var undoneRequests []RequestOutcome
+	bridged, inboxReopened := false, false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
@@ -504,6 +521,13 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		}
 		if err := restoreMarketOrders(requestContext, queries, viewer.campaignID, record.Before.MarketOrders); err != nil {
 			return err
+		}
+		if record.Before.BridgeEventID != nil {
+			reopened, err := queries.ReopenAcceptedBridgeEvent(requestContext, store.ReopenAcceptedBridgeEventParams{CampaignID: viewer.campaignID, ID: *record.Before.BridgeEventID})
+			if err != nil {
+				return err
+			}
+			inboxReopened = reopened > 0
 		}
 		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
 		if err != nil {
@@ -566,6 +590,10 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err != nil {
 			return err
 		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
 		board, err := service.readBoard(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
 			return err
@@ -576,7 +604,11 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	if err != nil {
 		return ColonyChange{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicQuests, TopicPatrons, TopicRequests, TopicMarket)
+	topics := []Topic{TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicQuests, TopicPatrons, TopicRequests, TopicMarket}
+	if bridged || inboxReopened {
+		topics = append(topics, TopicBridge)
+	}
+	service.broker.Publish(viewer.campaignID, topics...)
 	for _, outcome := range undoneRequests {
 		service.requestNotifier.RequestDecided(requestContext, outcome)
 	}
@@ -817,6 +849,10 @@ type colonyOutcome struct {
 	topics []Topic
 	// afterCommit runs once the transaction has committed (Beny Bot's best-effort posts).
 	afterCommit []func(requestContext context.Context)
+	// daysAdvanced is Advance's DAYS_ADVANCED outbox row; nil for every other change.
+	daysAdvanced *bridgeDaysAdvanced
+	// bridgeEventID is the Foundry inbox item decide accepted; the undo slot records it.
+	bridgeEventID *uuid.UUID
 }
 
 // favorChange is one patron's favor before and after a colony mutation.
@@ -860,6 +896,7 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 	outcomeTouchedNpcs := false
 	var extraTopics []Topic
 	var afterCommit []func(requestContext context.Context)
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
@@ -904,6 +941,7 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		if len(outcome.marketOrders) > 0 {
 			before.MarketOrders = outcome.marketOrders
 		}
+		before.BridgeEventID = outcome.bridgeEventID
 		groupID := uuid.New()
 		if outcome.groupID != uuid.Nil {
 			groupID = outcome.groupID
@@ -926,6 +964,15 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		if err != nil {
 			return err
 		}
+		if outcome.daysAdvanced != nil {
+			if _, err := service.enqueueDaysAdvanced(requestContext, queries, viewer.campaignID, *outcome.daysAdvanced); err != nil {
+				return err
+			}
+		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
 		board, err := service.readBoard(requestContext, queries, viewer.campaignID, viewer.SeesDmFields())
 		if err != nil {
 			return err
@@ -943,6 +990,9 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		topics = append(topics, TopicNpcs)
 	}
 	topics = append(topics, extraTopics...)
+	if bridged {
+		topics = append(topics, TopicBridge)
+	}
 	service.broker.Publish(viewer.campaignID, topics...)
 	for _, run := range afterCommit {
 		run(requestContext)
@@ -1352,7 +1402,11 @@ func (service *Service) readBoard(requestContext context.Context, queries *store
 		return ColonyBoard{}, err
 	}
 	board, err := toColonyBoard(colony, header.CampaignName, resources, roles, dmProjection)
+	if err != nil {
+		return ColonyBoard{}, err
+	}
 	board.Timezone = header.Timezone
+	board.Dm.BridgeInbox, err = bridgeInboxForBoard(requestContext, queries, campaignID, dmProjection)
 	return board, err
 }
 
@@ -1367,7 +1421,7 @@ func toColonyBoard(colony store.Colony, campaignName string, resources []store.R
 		Shipments:    toShipmentSchedule(int64(colony.Day), colony.ShipmentIntervalDays, colony.NextShipmentDay),
 		Resources:    make([]ColonyResource, 0, len(resources)),
 		Roles:        make([]RoleHeadcount, 0, len(roles)),
-		Dm:           &ColonyBoardDm{},
+		Dm:           &ColonyBoardDm{BridgeInbox: []BridgeInboxItem{}},
 	}
 	for _, resource := range resources {
 		if resource.Archived {

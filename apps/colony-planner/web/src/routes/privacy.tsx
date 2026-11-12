@@ -169,6 +169,33 @@ function PrivacyPage() {
 						</p>
 					</PrivacySection>
 
+					<PrivacySection title="The Foundry bridge">
+						<p>
+							A DM may connect their campaign to a Foundry world hosted on the Forge. The site then
+							keeps the Foundry game's address, when it was connected, the last day it was in touch,
+							the world's title, and the versions of Foundry, its game system and the bridge module.
+							It stores only a scrambled fingerprint of the bridge's secret key and of each one-time
+							connection code.
+						</p>
+						<p>
+							The site sends that world what players may see of the colony: the campaign's name and
+							the site's address, its day, stock, workforce, the next shipments, and a note each
+							time days pass. Nothing DM-only goes, and the site keeps a copy of everything it
+							sends. Everyone in that world can read the Colony page it makes there. Foundry sends
+							back only its status (the world's title and versions above) and how far its clock
+							moved, which waits for the DM to accept or dismiss and changes nothing by itself.
+						</p>
+						<p>
+							Only the DM sees any of this on the site, on the campaign's Settings, where they can
+							disconnect at any time; Foundry's waiting notes also show on their colony board. The
+							address and the world's details stay until the campaign is deleted, even after
+							Disconnect, and so do the copies sent, except that copies Foundry has dealt with are
+							cleared about 30 days later. Foundry's notes are cleared about 30 days after they
+							arrive, once the DM has decided them. Both clean-ups happen the next time a connected
+							Foundry is in touch.
+						</p>
+					</PrivacySection>
+
 					<PrivacySection title="Leaving, and deleting your data">
 						<ul className="grid list-disc gap-2 pl-5">
 							<li>

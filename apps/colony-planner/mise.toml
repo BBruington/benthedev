@@ -21,6 +21,7 @@ run = [
   "scripts/setup-env.sh",
   "go mod download",
   "cd web && bun install --frozen-lockfile",
+  "cd foundry && bun install --frozen-lockfile",
 ]
 
 [tasks."db:up"]
@@ -50,28 +51,31 @@ description = "Regenerate sqlc code, the OpenAPI document and the TypeScript API
 run = "scripts/gen.sh"
 
 [tasks.test]
-description = "Run Go tests (against the colony_test database) and web unit tests"
+description = "Run Go tests (against the colony_test database), then the web's and the Foundry module's unit tests"
 depends = ["db:up"]
 run = [
   "go test -tags devauth ./...",
   "cd web && bun run test",
+  "cd foundry && bun run test",
 ]
 
 [tasks.lint]
-description = "Lint: the build-tag check, golangci-lint for both builds, then Biome"
+description = "Lint: the build-tag check, golangci-lint for both builds, then Biome for the web and the Foundry module"
 run = [
   "scripts/check-build-tags.sh",
   "golangci-lint run --build-tags=devauth ./...",
   "golangci-lint run ./...",
   "cd web && bun x biome ci .",
+  "cd foundry && bun x biome ci .",
 ]
 
 [tasks.typecheck]
-description = "Typecheck: go vet for both builds, then the web's tsc"
+description = "Typecheck: go vet for both builds, then the web's and the Foundry module's tsc"
 run = [
   "go vet ./...",
   "go vet -tags devauth ./...",
   "cd web && bun run typecheck",
+  "cd foundry && bun run typecheck",
 ]
 
 [tasks.check]
@@ -79,9 +83,10 @@ description = "Run every check; ends with \"All checks passed\" or the first fai
 run = "scripts/check.sh"
 
 [tasks.build]
-description = "Build the web app and the production binary (no devauth) into bin/colony"
+description = "Build the web app, the Foundry module and the production binary (no devauth) into bin/colony"
 run = [
   "cd web && bun run build",
+  "cd foundry && bun run build",
   "go build -trimpath -o bin/colony ./cmd/colony",
 ]
 

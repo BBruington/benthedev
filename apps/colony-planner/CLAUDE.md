@@ -28,8 +28,8 @@ Run `mise run setup` once (pinned tools, `bun install`, and a `.env` with a rand
 | `mise run db:studio` | DbGate, a web database browser on http://localhost:54330, connected to `colony`; edits skip the app's rules |
 
 Ports: Vite 5173; Go 8080 (bound to 127.0.0.1 outside production); DbGate 54330; Postgres 54329 (container
-`colony-planner-db`, databases `colony` and `colony_test`). Vite proxies /api, /auth, /img, /calendar
-and /healthz to Go and keeps the Host header. Web edits hot-reload; restart `mise run dev` after Go edits.
+`colony-planner-db`, databases `colony` and `colony_test`). Vite proxies /api, /auth, /img, /calendar,
+/foundry and /healthz to Go and keeps the Host header. Web edits hot-reload; restart `mise run dev` after Go edits.
 `reset`/`fresh` may run while dev runs: the server reconnects and everyone signs in again. Outside
 production Go answers only a Host that is localhost, an IP address or PUBLIC_URL's host (DNS rebinding);
 production answers only PUBLIC_URL's host, plus Railway's health check on /healthz.
@@ -42,8 +42,8 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 |---|---|
 | `cmd/colony/main.go` | subcommands serve, migrate up/status, openapi, seed, reset; `cmd/colony/config.go` reads every env var |
 | `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`); `internal/game/market.go` holds an order's total, its docking day and `Unload` (the payment); `internal/game/polls.go` holds a poll's limits (Discord's), its duration, when it is closed or due a lazy close (`DiscordPollCloseGrace`) and the close entry's text |
-| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market, shown as Shipments (items, the party cart, orders, the voyage and ship limit settings); `internal/core/polls.go` is Polls (site votes, closing, the Discord poll's record, its vote sync and the deadline hooks; `internal/core/poll_voting.go` re-exports `PollVoting`) |
-| `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table, security headers), `internal/app/compress.go` (gzip for JSON, html, css, js and svg; never the event stream, images, fonts or the ICS feed), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, one thin file per feature |
+| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market, shown as Shipments (items, the party cart, orders, the voyage and ship limit settings); `internal/core/polls.go` is Polls (site votes, closing, the Discord poll's record, its vote sync and the deadline hooks; `internal/core/poll_voting.go` re-exports `PollVoting`); `internal/core/bridge.go` is the Foundry bridge (pairing codes, links, `EnterBridge` and `BridgeCaller`, the outbox, inbound events, the DM's inbox; `internal/core/bridge_enums.go` re-exports its enums) |
+| `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table, security headers), `internal/app/compress.go` (gzip for JSON, html, css, js and svg; never the event stream, images, fonts or the ICS feed), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, `internal/app/bridge.go` (the bridge's guard: bearer token, CORS, 256 KiB cap, rate limits; its preflight and stream), `internal/app/foundry.go` (serves the module's manifest and zip, with the served manifest inside the zip), one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
 | `internal/bot/` | Beny Bot (discordgo), in-process; `internal/bot/directory.go` lists a linked server's channels, `postToCampaign` in `internal/bot/notify.go` sends every campaign post, `internal/bot/npc.go` is `/npc view`, `internal/bot/requests.go` is the request prompts with Grant and Decline, `internal/bot/polls.go` posts native Discord polls and syncs their voters, `internal/bot/planner.go` is the one timer planner (Discord events, reminders, the cancellation notice, event status updates, poll deadlines) and `internal/bot/colony.go` is `/colony` and `/nextsession` |
@@ -53,6 +53,7 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | `db/scope_test.go` | the SQL scope lint: every query on a campaign-owned table filters it by campaign_id (part of `go test`) |
 | `db/queries/` | sqlc input, one file per feature |
 | `web/` | Vite SPA; `web/src/api/` is the only web code that knows the transport; `web/embed.go` embeds the build; feature folders `web/src/colony/`, `web/src/people/` (workforce, roles), `web/src/npcs/`, `web/src/places/`, `web/src/ventures/` (quests, patrons, requests, the approval sheet), `web/src/maps/` (image maps, pins, the upload button; `web/src/npcs/npc-portrait.tsx` and `web/src/places/place-pin.tsx` use it), `web/src/explore/` (the hex map: canvas layer, Paint-mode gestures, stroke queue), `web/src/sessions/` (the series sheet, session times, the calendar link card, the board's next game night; helpers in `web/src/lib/sessions.ts`), `web/src/market/` (the Shipments page's catalog, party shipment draft and ship list, and its item, shipping, place-order and pay sheets; helpers in `web/src/lib/market.ts`) and `web/src/polls/` (the Polls page's cards, the vote form, the new-poll sheet and the board's poll card) hold the pieces their route files render; `web/src/api/images.ts` uploads images and builds their URLs |
+| `foundry/` | the Colony Bridge Foundry module (design: `docs/design/foundry-bridge.md`), its own Bun project and Biome root like web/: `foundry/src/main.ts` wires Foundry's hooks, `foundry/src/bridge.ts` runs the active GM's session (stream, outbox, inbound events), `foundry/src/adapters/` applies outbox rows per game system, `foundry/build/build.ts` writes the manifest and zip into foundry/dist, and `foundry/embed.go` embeds `foundry/dist` (its version is `foundry/package.json`'s; bump it so Foundry offers the update) |
 | `scripts/` | `scripts/dev.sh`, `scripts/gen.sh`, `scripts/check.sh`, `scripts/check-docs.sh`, `scripts/check-build-tags.sh`, `scripts/vulncheck.sh` (plain govulncheck: it fails only on a vulnerability our code reaches, and accepts none) |
 | `docs/` | `docs/SPEC.md` (the design), `docs/design/multi-campaign.md` (M1.5), `docs/discord-dev-setup.md` (Beny Bot Dev, the test bot that also serves the live site for now), `docs/cutover.md` (the author's M6 runbook) and `docs/checklists/` |
 
@@ -64,8 +65,8 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
   monorepo's colony-planner workflow (.github/workflows/colony-planner.yml at the repo root), filtered to
   the same folder; "Wait for CI" makes Railway deploy main only after it passes. The settings live in the
   project's dashboard, and `docs/cutover.md` lists every one.
-- `Dockerfile` builds the one production image: Bun builds the SPA, Go builds `colony` without devauth
-  (static, with the SPA and migrations embedded), and distroless runs it as non-root with
+- `Dockerfile` builds the one production image: Bun builds the SPA and the Foundry module, Go builds
+  `colony` without devauth (static, with the SPA, the module and migrations embedded), and distroless runs it as non-root with
   `APP_ENV=production`. `.dockerignore` is an allow-list, so `.env` and key files never reach a build.
 - `railway.toml` keeps the service's settings on record: the Dockerfile builder, the `/healthz` health
   check, 1 replica, restart on failure. A new Railway project ignores it, so `docs/cutover.md` sets the
@@ -123,13 +124,16 @@ web/src/** -> web/src/api -> the Go API
 1. Game rules live only in `internal/game`. SQL lives only in `db/queries/` (sqlc generates `internal/store`).
    Handlers in `internal/app` only decode, call one `internal/core` function, and encode.
 2. Every colony change takes the colony lock, runs one transaction, writes grouped timeline entries,
-   records the undo snapshot, and publishes (spec §5.1).
+   records the undo snapshot, writes the Foundry bridge's outbox rows when the campaign has an active
+   link (Invariant 21), and publishes (spec §5.1).
 3. Every route declares its access. huma operations go through `app.Register(api, level, operation, handler)`,
    which writes x-access; everything else is one line in the route table in `internal/app/app.go`. The
    server refuses to start if anything lacks a level. Levels: public, token, account, owner, pending,
    member, dm. A route is pending, member or dm if and only if its path has `{campaignId}` and is outside
    /api/admin/; owner appears only under /api/admin/ and on /api/openapi.json and /api/docs. Exactly
-   three routes admit pending members: `.../me`, `.../stream` and `.../leave`.
+   three routes admit pending members: `.../me`, `.../stream` and `.../leave`. A token is a secret in
+   the URL (the ICS feed) or in the Authorization header (`/api/bridge/`); every `/api/bridge/` route is
+   token except `POST /api/bridge/pair` and the bridge's `OPTIONS`, which are public.
 4. Secrets go in a `Dm` pointer sub-struct (`json:"dm,omitempty"`). The one Transformer strips every `dm`
    object unless the viewer is the DM and not viewing as a player. No handler redacts; `dm` is a reserved key.
 5. Never hand-edit `internal/store`, `web/src/api/openapi.json`, `web/src/api/schema.d.ts` or
@@ -139,6 +143,8 @@ web/src/** -> web/src/api -> the Go API
 8. Single replica: Beny Bot, the planner, the session cache and the SSE broker live in-process.
 9. No timer polls the database and no ordinary request writes bookkeeping (last_seen_at at most daily).
    A visible tab's stream still reconnects every 10 minutes, one membership read each (SPEC §10, M6).
+   The bridge stream reads only on connect and on a bridge publish; a link's last_contact_on is written
+   at most daily.
 10. Agents never touch production: no production credential, no deploy, and no Railway, Neon or Discord
     Developer Portal action (the author runs `docs/cutover.md`); and never read, print or copy a secret
     value from any .env or .pem file, here or in the old party-planner repo.
@@ -254,6 +260,16 @@ web/src/** -> web/src/api -> the Go API
     entry; polls are never edited; delete keeps the entry. Core signals `PollNotifier.PollChanged` after
     create and close (never after a vote or sync: a Discord poll can't be edited), and `PollDeleted`
     after a delete.
+21. The Foundry bridge (`docs/design/foundry-bridge.md`). Outbox payloads come only from the player
+    projection, so nothing DM-only or hidden reaches Foundry. auth never reads the session cookie under
+    `/api/bridge/`, which is what makes that prefix's CrossOriginProtection bypass safe; CORS there echoes
+    only the token's own link origin (pairing: any origin allowed to pair), never with credentials. Only
+    core builds a `BridgeCaller` (`EnterBridge`), and every bridge query takes its campaign; the three
+    `-- unscoped:` bridge queries are the token lookup, the pairing-code claim and the preflight's origin
+    check. Tokens and codes are stored only as SHA-256 hashes. Outbox rows are written in the change's own
+    transaction, one unapplied row per target_key, and the per-campaign seq never goes back. Inbound
+    events change nothing by themselves: only Advance with `bridgeEventId` accepts an inbox item, in the
+    same transaction.
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.
@@ -279,6 +295,8 @@ API details that keep the contract single-sourced:
   those migrations and a local one `mise run fresh`. `reset` drops
   the schema before migrating, so `mise run reset` and `fresh` rebuild such a database. Never renumber or
   delete a migration once it is merged.
+- Under `/api/bridge/`, CrossOriginProtection is bypassed (`AddInsecureBypassPattern`) and bodies are
+  capped at 256 KiB, safe only because no cookie is read there (Invariant 21).
 - Mutations accept JSON bodies only, behind stdlib http.CrossOriginProtection. The one exception is the
   image upload, `POST /api/campaigns/{campaignId}/images`, which must be multipart/form-data with one file
   field `image` (`requireJSONBodies` in `internal/app/app.go`, `isImageUpload` in `internal/app/images.go`).
