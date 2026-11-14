@@ -6,8 +6,18 @@ import "github.com/BBruington/colony-planner/internal/store"
 type BridgeOutboxKind = store.BridgeOutboxKind
 
 const (
-	BridgeOutboxKindColonySummary = store.BridgeOutboxKindCOLONYSUMMARY
-	BridgeOutboxKindDaysAdvanced  = store.BridgeOutboxKindDAYSADVANCED
+	BridgeOutboxKindColonySummary  = store.BridgeOutboxKindCOLONYSUMMARY
+	BridgeOutboxKindDaysAdvanced   = store.BridgeOutboxKindDAYSADVANCED
+	BridgeOutboxKindNpcUpsert      = store.BridgeOutboxKindNPCUPSERT
+	BridgeOutboxKindNpcWithdraw    = store.BridgeOutboxKindNPCWITHDRAW
+	BridgeOutboxKindPlaceUpsert    = store.BridgeOutboxKindPLACEUPSERT
+	BridgeOutboxKindPlaceWithdraw  = store.BridgeOutboxKindPLACEWITHDRAW
+	BridgeOutboxKindQuestUpsert    = store.BridgeOutboxKindQUESTUPSERT
+	BridgeOutboxKindQuestWithdraw  = store.BridgeOutboxKindQUESTWITHDRAW
+	BridgeOutboxKindDelivery       = store.BridgeOutboxKindDELIVERY
+	BridgeOutboxKindDeliveryUndone = store.BridgeOutboxKindDELIVERYUNDONE
+	BridgeOutboxKindPollPosted     = store.BridgeOutboxKindPOLLPOSTED
+	BridgeOutboxKindPollClosed     = store.BridgeOutboxKindPOLLCLOSED
 )
 
 // AllBridgeOutboxKindValues lists every outbox kind, for the API's enum schema.

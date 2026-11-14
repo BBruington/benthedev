@@ -236,6 +236,7 @@ func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer,
 		return Npc{}, err
 	}
 	var npc Npc
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first, so concurrent creates can't each pass the count and go over the limit.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -277,13 +278,24 @@ func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer,
 		if err != nil {
 			return err
 		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.npcUpsert(row.ID); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
 		npc, err = readNpc(requestContext, queries, viewer.campaignID, row.ID, true)
 		return err
 	})
 	if err != nil {
 		return Npc{}, err
 	}
-	service.publishNpcChange(viewer.campaignID)
+	service.publishNpcChange(viewer.campaignID, bridged)
 	return npc, nil
 }
 
@@ -294,16 +306,44 @@ func (service *Service) UpdateNpc(requestContext context.Context, viewer Viewer,
 		return Npc{}, err
 	}
 	var npc Npc
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's backfill can't miss this edit.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		cleaned, err := cleanNpcInput(requestContext, queries, viewer.campaignID, input)
 		if err != nil {
 			return err
 		}
 		cleaned.ID = npcID
-		if _, err := queries.UpdateNpc(requestContext, cleaned); err != nil {
+		before, err := queries.GetNpc(requestContext, store.GetNpcParams{CampaignID: viewer.campaignID, ID: npcID})
+		if err != nil {
+			return npcGone(err)
+		}
+		updated, err := queries.UpdateNpc(requestContext, cleaned)
+		if err != nil {
 			return npcGone(err)
 		}
 		if err := hidePublicEntriesNamingUnknownNames(requestContext, queries, viewer.campaignID, npcID); err != nil {
+			return err
+		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.npcUpsert(npcID); err != nil {
+			return err
+		}
+		// A new known name makes the old display name, the true name, a secret, so the quests they
+		// give must stop showing it.
+		if updated.Revealed && updated.DisplayName != before.DisplayName {
+			if err := outbox.questsOfNpc(npcID); err != nil {
+				return err
+			}
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
 			return err
 		}
 		npc, err = readNpc(requestContext, queries, viewer.campaignID, npcID, true)
@@ -312,7 +352,7 @@ func (service *Service) UpdateNpc(requestContext context.Context, viewer Viewer,
 	if err != nil {
 		return Npc{}, err
 	}
-	service.publishNpcChange(viewer.campaignID)
+	service.publishNpcChange(viewer.campaignID, bridged)
 	return npc, nil
 }
 
@@ -322,18 +362,47 @@ func (service *Service) SetNpcRevealed(requestContext context.Context, viewer Vi
 		return Npc{}, err
 	}
 	var npc Npc
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's backfill can't miss this switch.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		before, err := queries.GetNpc(requestContext, store.GetNpcParams{CampaignID: viewer.campaignID, ID: npcID})
+		if err != nil {
+			return npcGone(err)
+		}
 		if _, err := queries.SetNpcRevealed(requestContext, store.SetNpcRevealedParams{CampaignID: viewer.campaignID, ID: npcID, Revealed: revealed}); err != nil {
 			return npcGone(err)
 		}
-		var err error
+		if before.Revealed != revealed {
+			outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+			if err != nil {
+				return err
+			}
+			if revealed {
+				err = outbox.npcUpsert(npcID)
+			} else {
+				err = outbox.npcWithdraw(npcID)
+			}
+			if err != nil {
+				return err
+			}
+			if err := outbox.questsOfNpc(npcID); err != nil {
+				return err
+			}
+			bridged, err = outbox.finish()
+			if err != nil {
+				return err
+			}
+		}
 		npc, err = readNpc(requestContext, queries, viewer.campaignID, npcID, true)
 		return err
 	})
 	if err != nil {
 		return Npc{}, err
 	}
-	service.publishNpcChange(viewer.campaignID)
+	service.publishNpcChange(viewer.campaignID, bridged)
 	return npc, nil
 }
 
@@ -381,6 +450,7 @@ func (service *Service) DeleteNpc(requestContext context.Context, viewer Viewer,
 	if err := requireDm(viewer); err != nil {
 		return err
 	}
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first, so no join can make them a colonist between the check and the delete.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -402,7 +472,30 @@ func (service *Service) DeleteNpc(requestContext context.Context, viewer Viewer,
 		}); err != nil {
 			return err
 		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		var givenQuests []uuid.UUID
+		if row.Revealed {
+			// Read before the delete, whose foreign key clears these quests' giver.
+			if givenQuests, err = outbox.revealedQuestsOfNpc(npcID); err != nil {
+				return err
+			}
+		}
 		if _, err := queries.DeleteNpc(requestContext, store.DeleteNpcParams{CampaignID: viewer.campaignID, ID: npcID}); err != nil {
+			return err
+		}
+		if row.Revealed {
+			if err := outbox.npcWithdraw(npcID); err != nil {
+				return err
+			}
+			if err := outbox.questUpserts(givenQuests); err != nil {
+				return err
+			}
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
 			return err
 		}
 		return releaseImage(requestContext, queries, viewer.campaignID, row.PortraitImageID)
@@ -410,7 +503,7 @@ func (service *Service) DeleteNpc(requestContext context.Context, viewer Viewer,
 	if err != nil {
 		return err
 	}
-	service.publishNpcChange(viewer.campaignID)
+	service.publishNpcChange(viewer.campaignID, bridged)
 	return nil
 }
 
@@ -438,8 +531,8 @@ func hidePublicEntriesNamingUnknownNames(requestContext context.Context, queries
 
 // publishNpcChange: NPC pages, the places that list them, /people and the board, which list and
 // count revealed named colonists, and the timeline, whose entries about an NPC follow their visibility.
-func (service *Service) publishNpcChange(campaignID uuid.UUID) {
-	service.broker.Publish(campaignID, TopicNpcs, TopicPlaces, TopicPeople, TopicColony, TopicTimeline)
+func (service *Service) publishNpcChange(campaignID uuid.UUID, bridged bool) {
+	service.broker.Publish(campaignID, withBridgeTopic(bridged, TopicNpcs, TopicPlaces, TopicPeople, TopicColony, TopicTimeline)...)
 }
 
 func readNpc(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, npcID uuid.UUID, dmProjection bool) (Npc, error) {

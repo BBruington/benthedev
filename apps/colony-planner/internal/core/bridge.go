@@ -40,8 +40,10 @@ const (
 	// BridgeTimeAdvancedMaxDays is the largest TIME_ADVANCED event (ten years).
 	BridgeTimeAdvancedMaxDays = 3650
 
-	bridgeOutboxPageSize         = 100
-	bridgeOutboxLimit            = 10000
+	bridgeOutboxPageSize = 100
+	bridgeOutboxLimit    = 10000
+	// bridgeOutboxOneShotFloor one-shot rows always stay waiting, however many state rows do.
+	bridgeOutboxOneShotFloor     = 1000
 	bridgeDecidedEventLimit      = 10000
 	bridgeRetention              = 30 * 24 * time.Hour
 	bridgeStatusFieldMaxLength   = 100
@@ -216,6 +218,7 @@ type bridgeColonySummary struct {
 	NextShipmentDay  *int64                  `json:"nextShipmentDay"`
 	NextGoodsShipDay *int64                  `json:"nextGoodsShipDay"`
 	SiteURL          string                  `json:"siteUrl"`
+	NextSession      *bridgeNextSession      `json:"nextSession"`
 }
 
 type bridgeSummaryResource struct {
@@ -345,7 +348,8 @@ func normalizeBridgePairingCode(typed string) string {
 
 // PairBridge trades a pairing code for the campaign's bridge token. The origin is the request's Origin
 // header, which a page script can't forge; the link answers only that origin. Pairing revokes the
-// campaign's earlier link and queues the colony summary, so the new world starts complete.
+// campaign's earlier link and queues the colony summary and every revealed place, NPC and quest, so the
+// new world starts complete.
 func (service *Service) PairBridge(requestContext context.Context, origin string, input BridgePairInput) (BridgePairing, error) {
 	if !service.BridgeOriginAllowed(origin) {
 		return BridgePairing{}, ErrBridgeOrigin
@@ -396,7 +400,17 @@ func (service *Service) PairBridge(requestContext context.Context, origin string
 			return campaignGone(err)
 		}
 		campaignName = header.CampaignName
-		_, err = service.enqueueColonySummary(requestContext, queries, campaignID)
+		if _, err := service.enqueueColonySummary(requestContext, queries, campaignID); err != nil {
+			return err
+		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.backfill(); err != nil {
+			return err
+		}
+		_, err = outbox.finish()
 		return err
 	})
 	if err != nil {
@@ -591,8 +605,19 @@ func (service *Service) enqueueDaysAdvanced(requestContext context.Context, quer
 }
 
 // enqueueBridgeRow replaces the target's unapplied row with a new one, so each target has at most one
-// waiting, and trims the oldest unapplied rows past the cap. Without an active link it writes nothing.
+// waiting, and trims the oldest one-shot rows past the cap. Without an active link it writes nothing.
 func (service *Service) enqueueBridgeRow(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, kind BridgeOutboxKind,
+	targetKey func(seq int64) string, buildPayload func() (any, error),
+) (bool, error) {
+	wrote, err := service.insertBridgeRow(requestContext, queries, campaignID, kind, targetKey, buildPayload)
+	if err != nil || !wrote {
+		return false, err
+	}
+	return true, service.trimBridgeOutbox(requestContext, queries, campaignID)
+}
+
+// insertBridgeRow is enqueueBridgeRow without the cap.
+func (service *Service) insertBridgeRow(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, kind BridgeOutboxKind,
 	targetKey func(seq int64) string, buildPayload func() (any, error),
 ) (bool, error) {
 	seq, err := queries.NextBridgeOutboxSeq(requestContext, campaignID)
@@ -611,7 +636,7 @@ func (service *Service) enqueueBridgeRow(requestContext context.Context, queries
 		return false, fmt.Errorf("core: encode a bridge payload: %w", err)
 	}
 	key := targetKey(seq)
-	if err := queries.DeleteUnappliedBridgeOutboxTarget(requestContext, store.DeleteUnappliedBridgeOutboxTargetParams{CampaignID: campaignID, TargetKey: key}); err != nil {
+	if _, err := queries.DeleteUnappliedBridgeOutboxTarget(requestContext, store.DeleteUnappliedBridgeOutboxTargetParams{CampaignID: campaignID, TargetKey: key}); err != nil {
 		return false, err
 	}
 	if err := queries.CreateBridgeOutboxRow(requestContext, store.CreateBridgeOutboxRowParams{
@@ -619,10 +644,58 @@ func (service *Service) enqueueBridgeRow(requestContext context.Context, queries
 	}); err != nil {
 		return false, err
 	}
-	if _, err := queries.TrimBridgeOutbox(requestContext, store.TrimBridgeOutboxParams{CampaignID: campaignID, Keep: bridgeOutboxLimit}); err != nil {
+	return true, nil
+}
+
+// insertBridgeRows writes a transaction's rows in three statements, with consecutive seqs in their
+// order, after deleting the waiting rows of their targets. The targets are distinct (bridgeOutbox.write
+// keeps one per target). Without an active link it writes nothing.
+func (service *Service) insertBridgeRows(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, rows []bridgePendingRow) (bool, error) {
+	lastSeq, err := queries.ReserveBridgeOutboxSeqs(requestContext, store.ReserveBridgeOutboxSeqsParams{CampaignID: campaignID, RowCount: int64(len(rows))})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	batch := store.CreateBridgeOutboxRowsParams{
+		CampaignID: campaignID,
+		Seqs:       make([]int64, 0, len(rows)),
+		Kinds:      make([]string, 0, len(rows)),
+		TargetKeys: make([]string, 0, len(rows)),
+		Payloads:   make([]string, 0, len(rows)),
+		Now:        service.clock().UTC(),
+	}
+	firstSeq := lastSeq - int64(len(rows)) + 1
+	for index, row := range rows {
+		batch.Seqs = append(batch.Seqs, firstSeq+int64(index))
+		batch.Kinds = append(batch.Kinds, string(row.kind))
+		batch.TargetKeys = append(batch.TargetKeys, row.targetKey)
+		batch.Payloads = append(batch.Payloads, string(row.payload))
+	}
+	if _, err := queries.DeleteUnappliedBridgeOutboxTargets(requestContext, store.DeleteUnappliedBridgeOutboxTargetsParams{CampaignID: campaignID, TargetKeys: batch.TargetKeys}); err != nil {
+		return false, err
+	}
+	if err := queries.CreateBridgeOutboxRows(requestContext, batch); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// trimBridgeOutbox drops the oldest one-shot rows past the cap, keeping at least the newest
+// bridgeOutboxOneShotFloor of them. State rows stay: each is its target's only waiting row, so
+// trimming one would lose that target until it next changed.
+func (service *Service) trimBridgeOutbox(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) error {
+	trimmed, err := queries.TrimBridgeOutbox(requestContext, store.TrimBridgeOutboxParams{
+		CampaignID: campaignID, OneShotKinds: bridgeOneShotKinds, MinOneShots: bridgeOutboxOneShotFloor, Keep: bridgeOutboxLimit,
+	})
+	if err != nil {
+		return err
+	}
+	if trimmed > 0 {
+		service.logger.WarnContext(requestContext, "bridge outbox trimmed", slog.String("campaign_id", campaignID.String()), slog.Int64("rows", trimmed))
+	}
+	return nil
 }
 
 // colonySummary is built from the player projection, as Beny Bot's replies are, so no dm object or
@@ -662,6 +735,15 @@ func (service *Service) colonySummary(requestContext context.Context, queries *s
 		if !game.Docked(board.Day, goodsDay) {
 			summary.NextGoodsShipDay = &goodsDay
 			break
+		}
+	}
+	next, err := service.nextScheduledSession(requestContext, queries, campaignID)
+	if err != nil {
+		return bridgeColonySummary{}, err
+	}
+	if next != nil {
+		summary.NextSession = &bridgeNextSession{
+			Title: next.Title, StartsAt: next.StartsAt.UTC(), EndsAt: next.EndsAt.UTC(), LocalDate: next.LocalDate, Timezone: board.Timezone,
 		}
 	}
 	return summary, nil

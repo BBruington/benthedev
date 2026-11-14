@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { createBridge } from "./bridge";
 import type { Fetch } from "./bridge-client";
 import type { FoundryUser } from "./foundry-types";
+import type { RowApplier } from "./outbox";
 import type { BridgeSettings } from "./settings";
 import { createFakeSchedule, jsonResponse, settle } from "./testing/fakes";
 import { secondsPerDay } from "./time-tracker";
-import type { InboundEvent } from "./wire";
+import type { InboundEvent, OutboxRow } from "./wire";
 
 const thisGm: FoundryUser = { id: "gm-this", isGM: true };
 const otherGm: FoundryUser = { id: "gm-other", isGM: true };
@@ -26,6 +27,7 @@ function memorySettings(initial: {
 		events: [] as InboundEvent[],
 		lastReportedDay: initial.lastReportedDay,
 		token: initial.token ?? "secret-token",
+		withdrawOwed: false,
 		worldId: initial.worldId ?? thisWorld,
 	};
 	const settings: BridgeSettings = {
@@ -50,19 +52,25 @@ function memorySettings(initial: {
 			values.worldId = link.worldId;
 			values.cursor = 0;
 			values.events = [];
+			values.withdrawOwed = link.token !== "";
 			return Promise.resolve();
 		},
 		savePendingEvents: (events) => {
 			values.events = events;
 			return Promise.resolve();
 		},
+		saveWithdrawOwed: (owed) => {
+			values.withdrawOwed = owed;
+			return Promise.resolve();
+		},
 		token: () => values.token,
+		withdrawOwed: () => values.withdrawOwed,
 	};
 	return { settings, values };
 }
 
 function fakeColonyPlanner(
-	options: { holdRequestsWithToken?: string; refuseToken?: boolean } = {},
+	options: { holdRequestsWithToken?: string; outboxRows?: OutboxRow[]; refuseToken?: boolean } = {},
 ) {
 	const requests: { authorization: string | null; method: string; path: string }[] = [];
 	const heldAnswers: ((response: Response) => void)[] = [];
@@ -93,7 +101,9 @@ function fakeColonyPlanner(
 			return Promise.resolve(new Response(body, { status: 200 }));
 		}
 		if (path.startsWith("/api/bridge/outbox")) {
-			return Promise.resolve(jsonResponse(200, { more: false, rows: [] }));
+			const after = Number(new URL(url).searchParams.get("after"));
+			const rows = (options.outboxRows ?? []).filter((outboxRow) => outboxRow.seq > after);
+			return Promise.resolve(jsonResponse(200, { more: false, rows }));
 		}
 		if (path === "/api/bridge/events") {
 			const body: { events: InboundEvent[] } = JSON.parse(String(init.body));
@@ -122,9 +132,12 @@ function fakeColonyPlanner(
 function bridgeFor(options: {
 	activeGm: FoundryUser | null;
 	colonyPlanner: ReturnType<typeof fakeColonyPlanner>;
+	appliers?: Partial<Record<string, RowApplier>>;
 	settings: BridgeSettings;
+	withdrawBridgedEntries?: () => Promise<void>;
 }) {
 	const errors: string[] = [];
+	const schedule = createFakeSchedule();
 	const foundryGame = {
 		modules: { get: () => ({ manifest: `${origin}/foundry/module.json`, version: "1.4.0" }) },
 		system: { id: "dnd5e", version: "5.2.5" },
@@ -135,7 +148,11 @@ function bridgeFor(options: {
 		world: { id: thisWorld, title: "Practice world" },
 	};
 	const bridge = createBridge({
-		adapter: { appliers: {}, name: "core" },
+		adapter: {
+			appliers: options.appliers ?? {},
+			name: "core",
+			withdrawBridgedEntries: options.withdrawBridgedEntries ?? (() => Promise.resolve()),
+		},
 		colonyOrigin: origin,
 		fetchFunction: options.colonyPlanner.fetchFunction,
 		foundryGame,
@@ -144,10 +161,10 @@ function bridgeFor(options: {
 			info: () => undefined,
 			warn: (message) => errors.push(message),
 		},
-		schedule: createFakeSchedule().schedule,
+		schedule: schedule.schedule,
 		settings: options.settings,
 	});
-	return { bridge, errors, foundryGame };
+	return { bridge, errors, foundryGame, schedule };
 }
 
 describe("createBridge", () => {
@@ -247,6 +264,99 @@ describe("createBridge", () => {
 		]);
 	});
 
+	test("a refused token hides every entry the bridge made before forgetting the token, once", async () => {
+		const colonyPlanner = fakeColonyPlanner({ refuseToken: true });
+		const { settings, values } = memorySettings({});
+		let withdrawals = 0;
+		const { bridge, schedule } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			settings,
+			withdrawBridgedEntries: () => {
+				withdrawals += 1;
+				expect(values.token).toBe("secret-token");
+				return Promise.resolve();
+			},
+		});
+		bridge.evaluate();
+		await settle();
+		expect(withdrawals).toBe(1);
+		expect(values.token).toBe("");
+		bridge.evaluate();
+		expect(schedule.waitingDelays()).toEqual([]);
+		await settle();
+		expect(withdrawals).toBe(1);
+		expect(colonyPlanner.requests).toHaveLength(1);
+	});
+
+	test("a refused token still forgets the token when hiding the entries fails, and says so", async () => {
+		const colonyPlanner = fakeColonyPlanner({ refuseToken: true });
+		const { settings, values } = memorySettings({});
+		const { bridge, errors } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			settings,
+			withdrawBridgedEntries: () => Promise.reject(new Error("The server dropped it.")),
+		});
+		bridge.evaluate();
+		await settle();
+		expect(values.token).toBe("");
+		expect(errors.at(-1)).toBe(
+			"Colony Bridge: Foundry couldn't hide the journal entries this link made. Hide them by hand, or connect again to hide them. The server dropped it.",
+		);
+	});
+
+	test("a failing withdraw row holds the outbox, tells the GM once and is tried again after the backoff", async () => {
+		const colonyPlanner = fakeColonyPlanner({
+			outboxRows: [
+				{ kind: "NPC_WITHDRAW", payload: {}, seq: 1, targetKey: "npc:1" },
+				{ kind: "COLONY_SUMMARY", payload: {}, seq: 2, targetKey: "colony" },
+			],
+		});
+		const { settings, values } = memorySettings({});
+		let failing = true;
+		const applied: number[] = [];
+		const { bridge, errors, schedule } = bridgeFor({
+			activeGm: thisGm,
+			appliers: {
+				COLONY_SUMMARY: (outboxRow) => {
+					applied.push(outboxRow.seq);
+					return Promise.resolve();
+				},
+				NPC_WITHDRAW: (outboxRow) => {
+					if (failing) {
+						return Promise.reject(new Error("Foundry refused the entry update."));
+					}
+					applied.push(outboxRow.seq);
+					return Promise.resolve();
+				},
+			},
+			colonyPlanner,
+			settings,
+		});
+		const problem =
+			"Foundry couldn't hide a journal entry Colony Planner hid, so the bridge waits to sync until it can. Foundry refused the entry update.";
+		bridge.evaluate();
+		await settle();
+		expect(applied).toEqual([]);
+		expect(values.cursor).toBe(0);
+		expect(bridge.status().lastProblem).toBe(problem);
+		expect(errors).toEqual([`Colony Bridge: ${problem}`]);
+		expect(schedule.waitingDelays().length).toBeGreaterThan(0);
+		schedule.runNext();
+		await settle();
+		expect(applied).toEqual([]);
+		expect(errors).toHaveLength(1);
+		failing = false;
+		schedule.runNext();
+		await settle();
+		expect(applied).toEqual([1, 2]);
+		expect(values.cursor).toBe(2);
+		expect(
+			colonyPlanner.requests.filter((request) => request.path === "/api/bridge/acks"),
+		).toHaveLength(1);
+	});
+
 	test("reports Foundry's clock moves but not the bridge's own", async () => {
 		const colonyPlanner = fakeColonyPlanner();
 		const { bridge } = bridgeFor({
@@ -306,6 +416,117 @@ describe("createBridge", () => {
 		await bridge.forgetLink();
 		expect(values.token).toBe("");
 		expect(colonyPlanner.liveStreams()).toBe(0);
+	});
+
+	const outboxReads = (colonyPlanner: ReturnType<typeof fakeColonyPlanner>) =>
+		colonyPlanner.requests.filter((request) => request.path.startsWith("/api/bridge/outbox"));
+
+	test("a new link withdraws the bridge's entries before its first outbox read, and only once", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { settings, values } = memorySettings({ token: "" });
+		let withdrawals = 0;
+		let finishWithdrawal: () => void = () => undefined;
+		const { bridge, foundryGame } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			settings,
+			withdrawBridgedEntries: () => {
+				withdrawals += 1;
+				return new Promise<void>((resolve) => {
+					finishWithdrawal = () => resolve();
+				});
+			},
+		});
+		await bridge.saveLink({ campaignName: "Ridgehold", token: "new-token" });
+		await settle();
+		expect(withdrawals).toBe(1);
+		expect(outboxReads(colonyPlanner)).toEqual([]);
+		finishWithdrawal();
+		await settle();
+		expect(outboxReads(colonyPlanner)).toHaveLength(1);
+		expect(values.withdrawOwed).toBe(false);
+		foundryGame.users.activeGM = otherGm;
+		bridge.evaluate();
+		foundryGame.users.activeGM = thisGm;
+		bridge.evaluate();
+		await settle();
+		expect(outboxReads(colonyPlanner)).toHaveLength(2);
+		expect(withdrawals).toBe(1);
+	});
+
+	test("a link saved before a reload still owes its withdrawal, and its rows wait for it", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { settings, values } = memorySettings({});
+		values.withdrawOwed = true;
+		let withdrawals = 0;
+		const { bridge } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			settings,
+			withdrawBridgedEntries: () => {
+				withdrawals += 1;
+				expect(outboxReads(colonyPlanner)).toEqual([]);
+				return Promise.resolve();
+			},
+		});
+		bridge.evaluate();
+		await settle();
+		expect(withdrawals).toBe(1);
+		expect(outboxReads(colonyPlanner)).toHaveLength(1);
+	});
+
+	test("a withdrawal that fails holds the new link's rows back and is tried again on reconnect", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { settings, values } = memorySettings({ token: "" });
+		let failing = true;
+		const { bridge, errors, schedule } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			settings,
+			withdrawBridgedEntries: () =>
+				failing ? Promise.reject(new Error("The server dropped it.")) : Promise.resolve(),
+		});
+		await bridge.saveLink({ campaignName: "Ridgehold", token: "new-token" });
+		await settle();
+		expect(outboxReads(colonyPlanner)).toEqual([]);
+		expect(values.withdrawOwed).toBe(true);
+		expect(bridge.status().lastProblem).toBe(
+			"Foundry couldn't hide the journal entries an earlier link made, so the bridge waits to sync until it can. The server dropped it.",
+		);
+		schedule.runNext();
+		await settle();
+		expect(errors).toEqual([
+			"Colony Bridge: Foundry couldn't hide the journal entries an earlier link made, so the bridge waits to sync until it can. The server dropped it.",
+		]);
+		failing = false;
+		schedule.runNext();
+		await settle();
+		expect(outboxReads(colonyPlanner)).toHaveLength(1);
+		expect(values.withdrawOwed).toBe(false);
+	});
+
+	test("the withdrawal waits for an old link's sync still in flight", async () => {
+		const colonyPlanner = fakeColonyPlanner({ holdRequestsWithToken: "old-token" });
+		const { settings } = memorySettings({ token: "old-token" });
+		let withdrawals = 0;
+		const { bridge } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			settings,
+			withdrawBridgedEntries: () => {
+				withdrawals += 1;
+				return Promise.resolve();
+			},
+		});
+		bridge.evaluate();
+		await settle();
+		await bridge.saveLink({ campaignName: "Ridgehold", token: "new-token" });
+		await settle();
+		expect(withdrawals).toBe(0);
+		colonyPlanner.refuseHeldRequests();
+		await settle();
+		expect(withdrawals).toBe(1);
+		expect(outboxReads(colonyPlanner).at(-1)?.authorization).toBe("Bearer new-token");
 	});
 
 	test("pairing again while the old link's requests are in flight keeps the new link whole", async () => {

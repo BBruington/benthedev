@@ -135,8 +135,18 @@ func AllBridgeEventStatusValues() []BridgeEventStatus {
 type BridgeOutboxKind string
 
 const (
-	BridgeOutboxKindCOLONYSUMMARY BridgeOutboxKind = "COLONY_SUMMARY"
-	BridgeOutboxKindDAYSADVANCED  BridgeOutboxKind = "DAYS_ADVANCED"
+	BridgeOutboxKindCOLONYSUMMARY  BridgeOutboxKind = "COLONY_SUMMARY"
+	BridgeOutboxKindDAYSADVANCED   BridgeOutboxKind = "DAYS_ADVANCED"
+	BridgeOutboxKindNPCUPSERT      BridgeOutboxKind = "NPC_UPSERT"
+	BridgeOutboxKindNPCWITHDRAW    BridgeOutboxKind = "NPC_WITHDRAW"
+	BridgeOutboxKindPLACEUPSERT    BridgeOutboxKind = "PLACE_UPSERT"
+	BridgeOutboxKindPLACEWITHDRAW  BridgeOutboxKind = "PLACE_WITHDRAW"
+	BridgeOutboxKindQUESTUPSERT    BridgeOutboxKind = "QUEST_UPSERT"
+	BridgeOutboxKindQUESTWITHDRAW  BridgeOutboxKind = "QUEST_WITHDRAW"
+	BridgeOutboxKindDELIVERY       BridgeOutboxKind = "DELIVERY"
+	BridgeOutboxKindDELIVERYUNDONE BridgeOutboxKind = "DELIVERY_UNDONE"
+	BridgeOutboxKindPOLLPOSTED     BridgeOutboxKind = "POLL_POSTED"
+	BridgeOutboxKindPOLLCLOSED     BridgeOutboxKind = "POLL_CLOSED"
 )
 
 func (e *BridgeOutboxKind) Scan(src interface{}) error {
@@ -177,7 +187,17 @@ func (ns NullBridgeOutboxKind) Value() (driver.Value, error) {
 func (e BridgeOutboxKind) Valid() bool {
 	switch e {
 	case BridgeOutboxKindCOLONYSUMMARY,
-		BridgeOutboxKindDAYSADVANCED:
+		BridgeOutboxKindDAYSADVANCED,
+		BridgeOutboxKindNPCUPSERT,
+		BridgeOutboxKindNPCWITHDRAW,
+		BridgeOutboxKindPLACEUPSERT,
+		BridgeOutboxKindPLACEWITHDRAW,
+		BridgeOutboxKindQUESTUPSERT,
+		BridgeOutboxKindQUESTWITHDRAW,
+		BridgeOutboxKindDELIVERY,
+		BridgeOutboxKindDELIVERYUNDONE,
+		BridgeOutboxKindPOLLPOSTED,
+		BridgeOutboxKindPOLLCLOSED:
 		return true
 	}
 	return false
@@ -187,6 +207,16 @@ func AllBridgeOutboxKindValues() []BridgeOutboxKind {
 	return []BridgeOutboxKind{
 		BridgeOutboxKindCOLONYSUMMARY,
 		BridgeOutboxKindDAYSADVANCED,
+		BridgeOutboxKindNPCUPSERT,
+		BridgeOutboxKindNPCWITHDRAW,
+		BridgeOutboxKindPLACEUPSERT,
+		BridgeOutboxKindPLACEWITHDRAW,
+		BridgeOutboxKindQUESTUPSERT,
+		BridgeOutboxKindQUESTWITHDRAW,
+		BridgeOutboxKindDELIVERY,
+		BridgeOutboxKindDELIVERYUNDONE,
+		BridgeOutboxKindPOLLPOSTED,
+		BridgeOutboxKindPOLLCLOSED,
 	}
 }
 
@@ -1453,19 +1483,20 @@ type MarketCartLine struct {
 }
 
 type MarketItem struct {
-	ID          uuid.UUID
-	Name        string
-	Description string
-	PriceGold   int32
-	ResourceKey *string
-	Amount      *int32
-	RoleKey     *string
-	MaxPerOrder *int32
-	Archived    bool
-	SortOrder   int32
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	CampaignID  uuid.UUID
+	ID             uuid.UUID
+	Name           string
+	Description    string
+	PriceGold      int32
+	ResourceKey    *string
+	Amount         *int32
+	RoleKey        *string
+	MaxPerOrder    *int32
+	Archived       bool
+	SortOrder      int32
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CampaignID     uuid.UUID
+	CompendiumUuid *string
 }
 
 type MarketOrder struct {

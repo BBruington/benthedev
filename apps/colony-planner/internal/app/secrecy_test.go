@@ -1454,8 +1454,10 @@ func TestPlayersFindOnlyWhatTheyKnow(t *testing.T) {
 // TestBridgeCallersSeeOnlyTheirCampaign is the sweep's bridge pass: each campaign's token against every
 // /api/bridge/ route, its outbox replayed whole and its stream read, after both DMs changed their
 // colonies. A's token never sees B's values, B's never sees A's, and neither sees a DM-only value of
-// its own campaign, since every payload comes from the player projection. A revoked token is then
-// 401 everywhere, like a removed member.
+// its own campaign, since every payload comes from the player projection. The fixture pairs after every
+// other plant, so the replay includes the pairing's backfill; each side then pays and undoes a shipment,
+// runs a poll, plays a session, renames the revealed NPC who gives the revealed quest, and hides and
+// deletes a place, an NPC and a quest of its own. A revoked token is then 401 everywhere, like a removed member.
 func TestBridgeCallersSeeOnlyTheirCampaign(t *testing.T) {
 	testHarness := newHarness(t)
 	plantCanaries(t, testHarness)
@@ -1471,6 +1473,19 @@ func TestBridgeCallersSeeOnlyTheirCampaign(t *testing.T) {
 		if _, err := testHarness.core.Advance(testHarness.context, dmViewer, core.AdvanceInput{Days: 2, ExpectedVersion: board.Version}); err != nil {
 			t.Fatalf("advance %s: %v", side.campaign.name, err)
 		}
+	}
+	// Rows Foundry acknowledges leave the outbox, so every read is kept by seq.
+	seen := map[*campaignFixture]map[int64]core.BridgeOutboxRow{campaignA: {}, campaignB: {}}
+	readOutbox := func(campaign *campaignFixture) []core.BridgeOutboxRow {
+		t.Helper()
+		rows := testHarness.readWholeOutbox(campaign)
+		for _, row := range rows {
+			seen[campaign][row.Seq] = row
+		}
+		return rows
+	}
+	for _, side := range testHarness.sides() {
+		testHarness.changeBridgedContent(t, side, func() []core.BridgeOutboxRow { return readOutbox(side.campaign) })
 	}
 	var bridgeRoutes []sweepRoute
 	for _, route := range routes {
@@ -1496,10 +1511,11 @@ func TestBridgeCallersSeeOnlyTheirCampaign(t *testing.T) {
 	for _, pass := range []struct {
 		name      string
 		campaign  *campaignFixture
+		side      campaignSide
 		forbidden []string
 	}{
-		{"A's token", campaignA, joinValues(secretA, secretB, testHarness.visibleValuesOfB())},
-		{"B's token", campaignB, joinValues(secretB, secretA, []string{campaignA.icsToken, campaignA.name})},
+		{"A's token", campaignA, testHarness.sides()[0], joinValues(secretA, secretB, testHarness.visibleValuesOfB())},
+		{"B's token", campaignB, testHarness.sides()[1], joinValues(secretB, secretA, []string{campaignA.icsToken, campaignA.name})},
 	} {
 		callAll(pass.campaign.bridgeToken, pass.campaign.bridgeOrigin, func(label string, response *httptest.ResponseRecorder) {
 			checkResponse(t, pass.name+": "+label, bridgePathPrefix, pass.forbidden, response)
@@ -1507,28 +1523,10 @@ func TestBridgeCallersSeeOnlyTheirCampaign(t *testing.T) {
 				t.Errorf("%s: %s answered %d; body: %s", pass.name, label, response.Code, response.Body.String())
 			}
 		})
-		// The sweep's ack names seq 1, the pairing summary, which the advance already replaced.
-		response := testHarness.do(http.MethodGet, "/api/bridge/outbox?after=0", requestOptions{headers: bridgeHeaders(pass.campaign.bridgeToken, pass.campaign.bridgeOrigin)})
-		testHarness.expectStatus(response, http.StatusOK)
-		var page core.BridgeOutboxPage
-		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
-			t.Fatalf("%s: decode the outbox: %v", pass.name, err)
-		}
-		kinds := map[core.BridgeOutboxKind]bool{}
-		for _, row := range page.Rows {
-			kinds[row.Kind] = true
-			for _, secret := range pass.forbidden {
-				if strings.Contains(string(row.Payload), secret) {
-					t.Errorf("%s: outbox row %d (%s) leaks %q: %s", pass.name, row.Seq, row.Kind, secret, row.Payload)
-				}
-			}
-		}
-		if !kinds[core.BridgeOutboxKindColonySummary] || !kinds[core.BridgeOutboxKindDaysAdvanced] {
-			t.Errorf("%s: the outbox holds %v, so the replay proves little", pass.name, kinds)
-		}
-		if pass.campaign == campaignB && !strings.Contains(response.Body.String(), "Brine") {
-			t.Errorf("B's summary lacks B's own resource: %s", response.Body.String())
-		}
+		readOutbox(pass.campaign)
+		rows := slices.Collect(maps.Values(seen[pass.campaign]))
+		slices.SortFunc(rows, func(first, second core.BridgeOutboxRow) int { return int(first.Seq - second.Seq) })
+		checkBridgeRows(t, pass.name, testHarness, pass.side, pass.forbidden, rows)
 	}
 
 	revoked := campaignA.bridgeToken
@@ -1548,6 +1546,252 @@ func TestBridgeCallersSeeOnlyTheirCampaign(t *testing.T) {
 			t.Errorf("the server log carries %q", forbidden)
 		}
 	}
+}
+
+// bridgeRowFields are the payload keys each outbox kind may carry (docs/design/foundry-bridge.md §12.3,
+// §13.2): a key outside its list is a field nobody reviewed for secrecy.
+var bridgeRowFields = map[core.BridgeOutboxKind][]string{
+	core.BridgeOutboxKindColonySummary: {"campaignName", "day", "resources", "workforce", "nextShipmentDay", "nextGoodsShipDay", "siteUrl", "nextSession"},
+	core.BridgeOutboxKindDaysAdvanced:  {"fromDay", "toDay", "days"},
+	core.BridgeOutboxKindNpcUpsert: {"displayName", "aliases", "labels", "race", "characterClass", "age", "level", "appearance", "personality",
+		"backstory", "playerNotes", "status", "health", "relation", "currentPlace", "originPlace", "colonyRole", "siteUrl"},
+	core.BridgeOutboxKindPlaceUpsert: {"name", "description", "playerNotes", "siteUrl"},
+	core.BridgeOutboxKindQuestUpsert: {"title", "description", "kind", "status", "giver", "patron", "reward", "rewardFavor", "loot",
+		"resolvedDay", "siteUrl"},
+	core.BridgeOutboxKindDelivery:       {"paidDay", "totalGold", "summary", "items"},
+	core.BridgeOutboxKindDeliveryUndone: {"summary", "items"},
+	core.BridgeOutboxKindPollPosted:     {"question", "options", "allowMultiple", "voting", "closesAt", "pollsUrl"},
+	core.BridgeOutboxKindPollClosed:     {"question", "closedAt", "options"},
+	core.BridgeOutboxKindNpcWithdraw:    {},
+	core.BridgeOutboxKindPlaceWithdraw:  {},
+	core.BridgeOutboxKindQuestWithdraw:  {},
+}
+
+var bridgeWithdrawTargets = map[core.BridgeOutboxKind]string{
+	core.BridgeOutboxKindNpcWithdraw:   "npc:",
+	core.BridgeOutboxKindPlaceWithdraw: "place:",
+	core.BridgeOutboxKindQuestWithdraw: "quest:",
+}
+
+// checkBridgeRows checks every row one campaign's Foundry world was offered: no forbidden value in a
+// payload or a target key (a hidden row's ID only as its own withdraw's key, with nothing in it), only
+// the reviewed fields, and every kind present, so the replay proves something.
+func checkBridgeRows(t *testing.T, label string, testHarness *harness, side campaignSide, forbidden []string, rows []core.BridgeOutboxRow) {
+	t.Helper()
+	campaign := side.campaign
+	kinds := map[core.BridgeOutboxKind]int{}
+	var latestNpc, latestQuest map[string]any
+	hiddenPatronQuestRows := 0
+	for _, row := range rows {
+		kinds[row.Kind]++
+		var payload map[string]any
+		if err := json.Unmarshal(row.Payload, &payload); err != nil {
+			t.Fatalf("%s: decode row %d: %v", label, row.Seq, err)
+		}
+		withdrawHead, isWithdraw := bridgeWithdrawTargets[row.Kind]
+		scanned := string(row.Payload)
+		if row.Kind == core.BridgeOutboxKindDelivery {
+			// A paid shipment hands Foundry its item's DM-only compendium UUID, the one DM-only value a row carries.
+			scanned = strings.ReplaceAll(scanned, testHarness.plantedCompendiumUUID(campaign), "")
+		}
+		for _, secret := range forbidden {
+			if strings.Contains(scanned, secret) {
+				t.Errorf("%s: outbox row %d (%s) leaks %q: %s", label, row.Seq, row.Kind, secret, row.Payload)
+			}
+			ownWithdraw := isWithdraw && len(payload) == 0 && row.TargetKey == withdrawHead+secret && slices.Contains(campaign.hiddenIDs, secret)
+			if strings.Contains(row.TargetKey, secret) && !ownWithdraw {
+				t.Errorf("%s: outbox row %d (%s) names %q in its target %s", label, row.Seq, row.Kind, secret, row.TargetKey)
+			}
+		}
+		allowed, known := bridgeRowFields[row.Kind]
+		if !known {
+			t.Errorf("%s: outbox row %d has an unreviewed kind %s", label, row.Seq, row.Kind)
+		}
+		for key := range payload {
+			if !slices.Contains(allowed, key) {
+				t.Errorf("%s: outbox row %d (%s) carries the unreviewed field %q", label, row.Seq, row.Kind, key)
+			}
+		}
+		switch {
+		case row.Kind == core.BridgeOutboxKindQuestUpsert:
+			for _, cost := range campaign.failureCost {
+				if bridgePayloadHolds(payload, float64(cost)) {
+					t.Errorf("%s: QUEST_UPSERT %s carries the failure cost %d: %s", label, row.TargetKey, cost, row.Payload)
+				}
+			}
+			if row.TargetKey == "quest:"+campaign.pathIDs["questId"] {
+				latestQuest = payload
+			}
+			// The fixture's quest for the hidden patron: its favor is the patron's, so players read 0.
+			if strings.HasPrefix(fmt.Sprint(payload["title"]), "Deliver a Letter") {
+				hiddenPatronQuestRows++
+				if payload["rewardFavor"] != float64(0) || payload["patron"] != nil {
+					t.Errorf("%s: the hidden patron's quest carries its favor or patron: %s", label, row.Payload)
+				}
+			}
+		case row.Kind == core.BridgeOutboxKindNpcUpsert && row.TargetKey == "npc:"+campaign.pathIDs["npcId"]:
+			// The revealed NPC stands in the hidden place, so players never learn where they are.
+			if payload["currentPlace"] != nil {
+				t.Errorf("%s: the revealed NPC's entry names their hidden place: %s", label, row.Payload)
+			}
+			latestNpc = payload
+		case row.Kind == core.BridgeOutboxKindDelivery:
+			items, _ := payload["items"].([]any)
+			if len(items) != 1 || items[0].(map[string]any)["compendiumUuid"] != testHarness.plantedCompendiumUUID(campaign) {
+				t.Errorf("%s: the delivery's items = %v, want the shown item's UUID", label, payload["items"])
+			}
+		case row.Kind == core.BridgeOutboxKindColonySummary && campaign == testHarness.campaignB:
+			if next, _ := payload["nextSession"].(map[string]any); next == nil || !strings.Contains(fmt.Sprint(next["title"]), canaryB) {
+				t.Errorf("%s: B's summary lacks B's next game night: %s", label, row.Payload)
+			}
+			if !strings.Contains(string(row.Payload), "Brine") {
+				t.Errorf("%s: B's summary lacks B's own resource: %s", label, row.Payload)
+			}
+		}
+	}
+	for _, kind := range []core.BridgeOutboxKind{
+		core.BridgeOutboxKindColonySummary, core.BridgeOutboxKindDaysAdvanced, core.BridgeOutboxKindNpcUpsert, core.BridgeOutboxKindNpcWithdraw,
+		core.BridgeOutboxKindPlaceUpsert, core.BridgeOutboxKindPlaceWithdraw, core.BridgeOutboxKindQuestUpsert, core.BridgeOutboxKindDelivery,
+		core.BridgeOutboxKindQuestWithdraw, core.BridgeOutboxKindDeliveryUndone, core.BridgeOutboxKindPollPosted, core.BridgeOutboxKindPollClosed,
+	} {
+		if kinds[kind] == 0 {
+			t.Errorf("%s: the outbox held no %s row (it held %v), so the replay proves little", label, kind, kinds)
+		}
+	}
+	knownName := "The Ferryman" + side.playerVisible
+	if hiddenPatronQuestRows == 0 {
+		t.Errorf("%s: the outbox held no row of the hidden patron's quest", label)
+	}
+	if latestNpc == nil || latestNpc["displayName"] != knownName {
+		t.Errorf("%s: the renamed NPC's last entry = %v, want %q", label, latestNpc, knownName)
+	}
+	if latestQuest == nil || latestQuest["giver"] != knownName {
+		t.Errorf("%s: the revealed quest's last entry = %v, want its giver %q", label, latestQuest, knownName)
+	}
+}
+
+// bridgePayloadHolds reports whether a decoded payload holds number anywhere.
+func bridgePayloadHolds(value any, number float64) bool {
+	switch typed := value.(type) {
+	case float64:
+		return typed == number || typed == -number
+	case map[string]any:
+		for _, inner := range typed {
+			if bridgePayloadHolds(inner, number) {
+				return true
+			}
+		}
+	case []any:
+		for _, inner := range typed {
+			if bridgePayloadHolds(inner, number) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// readWholeOutbox reads every waiting row through the bridge's own route, following more.
+func (testHarness *harness) readWholeOutbox(campaign *campaignFixture) []core.BridgeOutboxRow {
+	testHarness.t.Helper()
+	var rows []core.BridgeOutboxRow
+	after := int64(0)
+	for {
+		response := testHarness.do(http.MethodGet, "/api/bridge/outbox?after="+strconv.FormatInt(after, 10),
+			requestOptions{headers: bridgeHeaders(campaign.bridgeToken, campaign.bridgeOrigin)})
+		testHarness.expectStatus(response, http.StatusOK)
+		var page core.BridgeOutboxPage
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+			testHarness.t.Fatalf("decode %s's outbox: %v", campaign.name, err)
+		}
+		rows = append(rows, page.Rows...)
+		if !page.More || len(page.Rows) == 0 {
+			return rows
+		}
+		after = page.Rows[len(page.Rows)-1].Seq
+	}
+}
+
+// changeBridgedContent makes the Phase 2 changes Foundry mirrors while the link is up (§13.9), reading
+// the outbox after each step that a later step replaces or Foundry acknowledges.
+func (testHarness *harness) changeBridgedContent(t *testing.T, side campaignSide, readOutbox func() []core.BridgeOutboxRow) {
+	t.Helper()
+	service, requestContext, campaign := testHarness.core, testHarness.context, side.campaign
+	dmViewer := testHarness.enter(side.dm, campaign.id)
+	visible := side.playerVisible
+	check := func(what string, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s in %s: %v", what, campaign.name, err)
+		}
+	}
+	version := func() int64 {
+		board, err := service.GetColonyBoard(requestContext, dmViewer)
+		check("read the board", err)
+		return board.Version
+	}
+
+	// The docked order is paid, Foundry applies its DELIVERY, and the payment is undone.
+	paid, err := service.PayMarketOrder(requestContext, dmViewer, uuid.MustParse(campaign.pathIDs["orderId"]), core.PayMarketOrderInput{ExpectedVersion: version()})
+	check("pay the docked order", err)
+	waiting := readOutbox()
+	acknowledged := testHarness.do(http.MethodPost, "/api/bridge/acks", requestOptions{
+		body:    `{"through":` + strconv.FormatInt(waiting[len(waiting)-1].Seq, 10) + `}`,
+		headers: bridgeHeaders(campaign.bridgeToken, campaign.bridgeOrigin),
+	})
+	testHarness.expectStatus(acknowledged, http.StatusNoContent)
+	_, err = service.UndoLastChange(requestContext, dmViewer, core.UndoInput{GroupID: paid.GroupID})
+	check("undo the payment", err)
+
+	poll, err := service.CreatePoll(requestContext, dmViewer, core.CreatePollInput{
+		Question: "Which road north?" + visible, Options: []string{"The ridge" + visible, "The river" + visible}, DurationHours: 24,
+	})
+	check("create a poll", err)
+	_, err = service.ClosePoll(requestContext, dmViewer, poll.ID)
+	check("close the poll", err)
+
+	next, err := service.NextSession(requestContext, dmViewer)
+	check("read the next session", err)
+	if next == nil || next.SeriesID == nil {
+		t.Fatalf("%s has no next session to play: %+v", campaign.name, next)
+	}
+	_, err = service.MarkSessionPlayed(requestContext, dmViewer, core.SessionDateInput{SeriesID: *next.SeriesID, LocalDate: next.LocalDate})
+	check("mark the next session played", err)
+
+	npc, err := service.GetNpc(requestContext, dmViewer, uuid.MustParse(campaign.pathIDs["npcId"]))
+	check("read the revealed NPC", err)
+	renamed := core.NpcInput{
+		Name: npc.Dm.Name, KnownName: "The Ferryman" + visible, Aliases: npc.Aliases, Labels: npc.Labels, Race: npc.Race,
+		CharacterClass: npc.CharacterClass, Level: npc.Level, Age: npc.Age, Appearance: npc.Appearance, Personality: npc.Personality,
+		Backstory: npc.Backstory, PlayerNotes: npc.PlayerNotes, DmNotes: npc.Dm.DmNotes, Status: npc.Status, Health: npc.Health, Relation: npc.Relation,
+	}
+	if npc.CurrentPlace != nil {
+		renamed.CurrentPlaceID = &npc.CurrentPlace.ID
+	}
+	if npc.OriginPlace != nil {
+		renamed.OriginPlaceID = &npc.OriginPlace.ID
+	}
+	_, err = service.UpdateNpc(requestContext, dmViewer, npc.ID, renamed)
+	check("give the revealed NPC a new known name", err)
+
+	lighthouse, err := service.CreatePlace(requestContext, dmViewer, core.NewPlaceInput{Revealed: true, PlaceInput: core.PlaceInput{Name: "Lighthouse" + visible}})
+	check("create a revealed place", err)
+	keeper, err := service.CreateNpc(requestContext, dmViewer, core.NewNpcInput{Revealed: true, NpcInput: core.NpcInput{Name: "Keeper" + visible, CurrentPlaceID: &lighthouse.ID}})
+	check("create a revealed NPC", err)
+	beacon, err := service.CreateQuest(requestContext, dmViewer, core.NewQuestInput{Revealed: true, QuestInput: core.QuestInput{Title: "Light the Beacon" + visible}})
+	check("create a revealed quest", err)
+	readOutbox()
+	_, err = service.SetPlaceRevealed(requestContext, dmViewer, lighthouse.ID, false)
+	check("hide the place", err)
+	_, err = service.SetNpcRevealed(requestContext, dmViewer, keeper.ID, false)
+	check("hide the NPC", err)
+	_, err = service.SetQuestRevealed(requestContext, dmViewer, beacon.ID, core.QuestRevealInput{Revealed: false})
+	check("hide the quest", err)
+	readOutbox()
+	check("delete the NPC", service.DeleteNpc(requestContext, dmViewer, keeper.ID))
+	check("delete the place", service.DeletePlace(requestContext, dmViewer, lighthouse.ID))
+	check("delete the quest", service.DeleteQuest(requestContext, dmViewer, beacon.ID))
+	readOutbox()
 }
 
 // callWithHeaders performs a route with the body and headers given, and no session cookie.

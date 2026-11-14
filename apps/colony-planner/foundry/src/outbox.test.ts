@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type RowApplier, syncOutbox } from "./outbox";
+import { type RowApplier, syncOutbox, WithdrawFailedError } from "./outbox";
 import type { Acknowledgement, OutboxPage, OutboxRow } from "./wire";
 
 const liveSignal = new AbortController().signal;
@@ -97,6 +97,76 @@ describe("syncOutbox", () => {
 			},
 		]);
 		expect(outbox.cursorValue()).toBe(6);
+	});
+
+	test("a failing withdraw acknowledges only the rows before it and stops, so it and the rest wait", async () => {
+		const outbox = fakeOutbox([
+			{ more: true, rows: [row(1), row(2), row(3, "NPC_WITHDRAW"), row(4)] },
+			{ more: false, rows: [row(5)] },
+		]);
+		const applied: number[] = [];
+		const appliers: Record<string, RowApplier> = {
+			COLONY_SUMMARY: (outboxRow) => {
+				applied.push(outboxRow.seq);
+				return outboxRow.seq === 1 ? Promise.reject(new Error("no journal")) : Promise.resolve();
+			},
+			NPC_WITHDRAW: () => Promise.reject(new Error("Foundry refused the entry update.")),
+		};
+		const sync = syncOutbox({
+			appliers,
+			client: outbox.client,
+			cursor: outbox.cursor,
+			signal: liveSignal,
+		});
+		await expect(sync).rejects.toBeInstanceOf(WithdrawFailedError);
+		await expect(sync).rejects.toThrow(
+			"Foundry couldn't hide a journal entry Colony Planner hid, so the bridge waits to sync until it can. Foundry refused the entry update.",
+		);
+		expect(applied).toEqual([1, 2]);
+		expect(outbox.acknowledgements).toEqual([
+			{ failed: [{ reason: "no journal", seq: 1 }], through: 2 },
+		]);
+		expect(outbox.cursorValue()).toBe(2);
+		expect(outbox.requestedAfter).toEqual([0]);
+	});
+
+	test("a withdraw failing as the page's first row acknowledges nothing", async () => {
+		const outbox = fakeOutbox([{ more: false, rows: [row(6, "QUEST_WITHDRAW"), row(7)] }]);
+		await expect(
+			syncOutbox({
+				appliers: {
+					COLONY_SUMMARY: () => Promise.resolve(),
+					QUEST_WITHDRAW: () => Promise.reject(new Error("offline")),
+				},
+				client: outbox.client,
+				cursor: outbox.cursor,
+				signal: liveSignal,
+			}),
+		).rejects.toBeInstanceOf(WithdrawFailedError);
+		expect(outbox.acknowledgements).toEqual([]);
+		expect(outbox.cursorValue()).toBe(0);
+	});
+
+	test("a withdraw kind this module doesn't know is acknowledged as failed like any unknown kind", async () => {
+		const outbox = fakeOutbox([{ more: false, rows: [row(8, "MAP_WITHDRAW")] }]);
+		await syncOutbox({
+			appliers: {},
+			client: outbox.client,
+			cursor: outbox.cursor,
+			signal: liveSignal,
+		});
+		expect(outbox.acknowledgements).toEqual([
+			{
+				failed: [
+					{
+						reason:
+							"This version of Colony Bridge doesn't know MAP_WITHDRAW rows. Update the module.",
+						seq: 8,
+					},
+				],
+				through: 8,
+			},
+		]);
 	});
 
 	test("failed rows are never fetched again: the next sync starts after them", async () => {

@@ -158,6 +158,7 @@ func (service *Service) CreateQuest(requestContext context.Context, viewer Viewe
 	}
 	var quest Quest
 	posted := input.Revealed && input.PostToTimeline
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first, so concurrent creates can't each pass the count and go over the limit.
 		colony, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID)
@@ -198,6 +199,17 @@ func (service *Service) CreateQuest(requestContext context.Context, viewer Viewe
 				return err
 			}
 		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.questUpsert(row.ID); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
 		quest, err = readQuest(requestContext, queries, viewer.campaignID, row.ID, true)
 		return err
 	})
@@ -208,7 +220,7 @@ func (service *Service) CreateQuest(requestContext context.Context, viewer Viewe
 	if posted {
 		topics = append(topics, TopicTimeline)
 	}
-	service.broker.Publish(viewer.campaignID, topics...)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, topics...)...)
 	return quest, nil
 }
 
@@ -218,7 +230,12 @@ func (service *Service) UpdateQuest(requestContext context.Context, viewer Viewe
 		return Quest{}, err
 	}
 	var quest Quest
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's backfill can't miss this edit.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		existing, err := queries.GetQuest(requestContext, store.GetQuestParams{CampaignID: viewer.campaignID, ID: questID})
 		if err != nil {
 			return questGone(err)
@@ -231,13 +248,24 @@ func (service *Service) UpdateQuest(requestContext context.Context, viewer Viewe
 		if _, err := queries.UpdateQuest(requestContext, cleaned); err != nil {
 			return questGone(err)
 		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.questUpsert(questID); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
 		quest, err = readQuest(requestContext, queries, viewer.campaignID, questID, true)
 		return err
 	})
 	if err != nil {
 		return Quest{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicQuests)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicQuests)...)
 	return quest, nil
 }
 
@@ -248,6 +276,7 @@ func (service *Service) SetQuestRevealed(requestContext context.Context, viewer 
 		return Quest{}, err
 	}
 	var quest Quest
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID)
 		if err != nil {
@@ -266,13 +295,31 @@ func (service *Service) SetQuestRevealed(requestContext context.Context, viewer 
 				return err
 			}
 		}
+		if existing.Revealed != input.Revealed {
+			outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+			if err != nil {
+				return err
+			}
+			if input.Revealed {
+				err = outbox.questUpsert(questID)
+			} else {
+				err = outbox.questWithdraw(questID)
+			}
+			if err != nil {
+				return err
+			}
+			bridged, err = outbox.finish()
+			if err != nil {
+				return err
+			}
+		}
 		quest, err = readQuest(requestContext, queries, viewer.campaignID, questID, true)
 		return err
 	})
 	if err != nil {
 		return Quest{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicQuests, TopicTimeline)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicQuests, TopicTimeline)...)
 	return quest, nil
 }
 
@@ -282,6 +329,7 @@ func (service *Service) DeleteQuest(requestContext context.Context, viewer Viewe
 	if err := requireDm(viewer); err != nil {
 		return err
 	}
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first, as undo and the Visible switch lock it, so the delete neither deadlocks with an
 		// undo of this quest's change nor reads a revealed flag that is about to change.
@@ -297,13 +345,29 @@ func (service *Service) DeleteQuest(requestContext context.Context, viewer Viewe
 				return err
 			}
 		}
-		_, err = queries.DeleteQuest(requestContext, store.DeleteQuestParams{CampaignID: viewer.campaignID, ID: questID})
-		return err
+		if _, err := queries.DeleteQuest(requestContext, store.DeleteQuestParams{CampaignID: viewer.campaignID, ID: questID}); err != nil {
+			return err
+		}
+		if !existing.Revealed {
+			return nil
+		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.questWithdraw(questID); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	service.broker.Publish(viewer.campaignID, TopicQuests, TopicTimeline)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicQuests, TopicTimeline)...)
 	return nil
 }
 

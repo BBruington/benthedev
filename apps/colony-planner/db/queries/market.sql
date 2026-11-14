@@ -16,8 +16,8 @@ SELECT count(*) FILTER (WHERE NOT archived) AS unarchived, count(*) AS total
 FROM market_item WHERE campaign_id = @campaign_id AND resource_key IS NULL AND role_key IS NULL;
 
 -- name: CreateMarketItem :one
-INSERT INTO market_item (campaign_id, name, description, price_gold, max_per_order)
-VALUES (@campaign_id, @name, @description, @price_gold, sqlc.narg(max_per_order))
+INSERT INTO market_item (campaign_id, name, description, price_gold, max_per_order, compendium_uuid)
+VALUES (@campaign_id, @name, @description, @price_gold, sqlc.narg(max_per_order), sqlc.narg(compendium_uuid))
 RETURNING *;
 
 -- PUT semantics for a special item; an offer's ID matches no row. Archived changes only through
@@ -25,7 +25,7 @@ RETURNING *;
 -- name: UpdateMarketItem :one
 UPDATE market_item
 SET name = @name, description = @description, price_gold = @price_gold,
-    max_per_order = sqlc.narg(max_per_order), updated_at = now()
+    max_per_order = sqlc.narg(max_per_order), compendium_uuid = sqlc.narg(compendium_uuid), updated_at = now()
 WHERE campaign_id = @campaign_id AND id = @id AND resource_key IS NULL AND role_key IS NULL
 RETURNING *;
 
@@ -138,6 +138,11 @@ VALUES (@campaign_id, @order_id, @position, @item_id, @name, @unit_price, @quant
 SELECT * FROM market_order_line
 WHERE campaign_id = @campaign_id AND order_id = ANY(@order_ids::uuid[])
 ORDER BY order_id, position;
+
+-- A paid shipment's Foundry items are read at Pay, so a UUID the DM set while the ship sailed counts.
+-- name: ListMarketItemCompendiumUuids :many
+SELECT id, compendium_uuid FROM market_item
+WHERE campaign_id = @campaign_id AND id = ANY(@item_ids::uuid[]) AND compendium_uuid IS NOT NULL;
 
 -- name: ListRecentMarketOrders :many
 SELECT * FROM market_order

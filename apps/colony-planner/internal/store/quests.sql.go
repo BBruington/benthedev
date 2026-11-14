@@ -272,6 +272,133 @@ func (q *Queries) ListQuests(ctx context.Context, arg ListQuestsParams) ([]ListQ
 	return items, nil
 }
 
+const listRevealedQuestIdsByGiver = `-- name: ListRevealedQuestIdsByGiver :many
+SELECT id FROM quest WHERE campaign_id = $1 AND revealed AND giver_npc_id = $2
+ORDER BY created_at DESC, id
+`
+
+type ListRevealedQuestIdsByGiverParams struct {
+	CampaignID uuid.UUID
+	NpcID      *uuid.UUID
+}
+
+// The revealed quests an NPC or a patron gives, whose Foundry entries name them.
+func (q *Queries) ListRevealedQuestIdsByGiver(ctx context.Context, arg ListRevealedQuestIdsByGiverParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listRevealedQuestIdsByGiver, arg.CampaignID, arg.NpcID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRevealedQuestIdsByPatron = `-- name: ListRevealedQuestIdsByPatron :many
+SELECT id FROM quest WHERE campaign_id = $1 AND revealed AND patron_id = $2
+ORDER BY created_at DESC, id
+`
+
+type ListRevealedQuestIdsByPatronParams struct {
+	CampaignID uuid.UUID
+	PatronID   *uuid.UUID
+}
+
+func (q *Queries) ListRevealedQuestIdsByPatron(ctx context.Context, arg ListRevealedQuestIdsByPatronParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listRevealedQuestIdsByPatron, arg.CampaignID, arg.PatronID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRevealedQuestViews = `-- name: ListRevealedQuestViews :many
+SELECT quest.id, quest.title, quest.description, quest.kind, quest.status, quest.revealed, quest.giver_npc_id, quest.patron_id, quest.reward_effects, quest.reward_favor, quest.failure_effects, quest.failure_favor, quest.loot, quest.dm_notes, quest.resolved_day, quest.resolved_at, quest.created_at, quest.updated_at, quest.campaign_id,
+       giver.display_name AS giver_npc_name,
+       patron.name AS patron_name
+FROM quest
+LEFT JOIN npc AS giver ON giver.campaign_id = quest.campaign_id
+    AND giver.id = quest.giver_npc_id AND giver.revealed
+LEFT JOIN patron ON patron.campaign_id = quest.campaign_id
+    AND patron.id = quest.patron_id AND patron.revealed
+WHERE quest.campaign_id = $1 AND quest.id = ANY($2::uuid[]) AND quest.revealed
+`
+
+type ListRevealedQuestViewsParams struct {
+	CampaignID uuid.UUID
+	Ids        []uuid.UUID
+}
+
+type ListRevealedQuestViewsRow struct {
+	Quest        Quest
+	GiverNpcName *string
+	PatronName   *string
+}
+
+// These quests as players see them, for Foundry; a hidden one is absent.
+func (q *Queries) ListRevealedQuestViews(ctx context.Context, arg ListRevealedQuestViewsParams) ([]ListRevealedQuestViewsRow, error) {
+	rows, err := q.db.Query(ctx, listRevealedQuestViews, arg.CampaignID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRevealedQuestViewsRow
+	for rows.Next() {
+		var i ListRevealedQuestViewsRow
+		if err := rows.Scan(
+			&i.Quest.ID,
+			&i.Quest.Title,
+			&i.Quest.Description,
+			&i.Quest.Kind,
+			&i.Quest.Status,
+			&i.Quest.Revealed,
+			&i.Quest.GiverNpcID,
+			&i.Quest.PatronID,
+			&i.Quest.RewardEffects,
+			&i.Quest.RewardFavor,
+			&i.Quest.FailureEffects,
+			&i.Quest.FailureFavor,
+			&i.Quest.Loot,
+			&i.Quest.DmNotes,
+			&i.Quest.ResolvedDay,
+			&i.Quest.ResolvedAt,
+			&i.Quest.CreatedAt,
+			&i.Quest.UpdatedAt,
+			&i.Quest.CampaignID,
+			&i.GiverNpcName,
+			&i.PatronName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reopenFailedQuest = `-- name: ReopenFailedQuest :one
 UPDATE quest
 SET status = 'ACTIVE', resolved_day = NULL, resolved_at = NULL, updated_at = now()

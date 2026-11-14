@@ -711,8 +711,9 @@ var secrecyFixtures = []secrecyFixture{
 	},
 	{
 		feature: "market",
-		// The market has no DM-only values, so B's carry canaryB in every text. A shown special item (the
-		// {itemId} row), the standing offers of the campaign's own {resourceKey} resource (food in A, whose
+		// The market's one DM-only value is a special item's compendium UUID; B's other values carry canaryB
+		// in every text. A shown special item (the {itemId} row, its UUID carrying the DM-only canary), the
+		// standing offers of the campaign's own {resourceKey} resource (food in A, whose
 		// key is gold) and {roleKey} role, whose names carry the labels, an archived item, an unpaid order
 		// of all three (the {orderId} row, its lines a snapshot), and a cart line left after the order was
 		// placed. The order is docked, so pay-preview and pay run their data paths; it is moved back a day
@@ -732,8 +733,9 @@ var secrecyFixtures = []secrecyFixture{
 					t.Fatalf("%s in %s: %v", what, side.campaign.name, err)
 				}
 			}
+			compendiumUUID := testHarness.plantedCompendiumUUID(side.campaign)
 			shown, err := testHarness.core.CreateMarketItem(testHarness.context, dmViewer, core.MarketItemInput{
-				Name: "Seed Grain" + visible, Description: "From the mainland" + visible, PriceGold: 3,
+				Name: "Seed Grain" + visible, Description: "From the mainland" + visible, PriceGold: 3, CompendiumUUID: &compendiumUUID,
 			})
 			check("plant a market item", err)
 			supplies, err := testHarness.core.SetSupplyOffer(testHarness.context, dmViewer, resourceKey, core.SupplyOfferInput{PriceGold: 2, Amount: 3})
@@ -773,8 +775,7 @@ var secrecyFixtures = []secrecyFixture{
 			side.campaign.pathIDs["orderId"] = placed.Orders[0].ID.String()
 			side.campaign.archivedIDs = append(side.campaign.archivedIDs, archived.ID.String())
 		},
-		// Nothing here is DM-only but the archived item, which holds no canary, so the proof is borrowed.
-		dmProof: []string{"/npcs"},
+		dmProof: []string{"/market"},
 	},
 	{
 		feature: "polls",
@@ -886,6 +887,16 @@ func (testHarness *harness) pairBridge(campaign *campaignFixture, dm account) st
 		testHarness.t.Fatalf("pair %s: %v", campaign.name, err)
 	}
 	return pairing.Token
+}
+
+// plantedCompendiumUUID is the shown special item's DM-only Foundry item, its package the campaign's
+// DM-only canary.
+func (testHarness *harness) plantedCompendiumUUID(campaign *campaignFixture) string {
+	compendiumPackage := canaryA
+	if campaign == testHarness.campaignB {
+		compendiumPackage = canaryBdm
+	}
+	return "Compendium." + compendiumPackage + ".equipment-srd.Item.abcdefghij123456"
 }
 
 // marketOfferID finds the standing offer for a resource or a role on a market page.

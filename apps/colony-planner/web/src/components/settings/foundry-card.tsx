@@ -33,6 +33,16 @@ const calendarDay = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", ti
 const outboxKindNames: Record<BridgeOutboxKind, string> = {
 	COLONY_SUMMARY: "The Colony journal page",
 	DAYS_ADVANCED: "A days-passed chat message",
+	DELIVERY: "A paid shipment",
+	DELIVERY_UNDONE: "An undone payment's note to the GMs",
+	NPC_UPSERT: "An NPC's journal entry",
+	NPC_WITHDRAW: "Hiding an NPC's journal entry",
+	PLACE_UPSERT: "A place's journal entry",
+	PLACE_WITHDRAW: "Hiding a place's journal entry",
+	POLL_CLOSED: "A closed poll's chat message",
+	POLL_POSTED: "A new poll's chat message",
+	QUEST_UPSERT: "A quest's journal entry",
+	QUEST_WITHDRAW: "Hiding a quest's journal entry",
 };
 
 function originHost(origin: string): string {

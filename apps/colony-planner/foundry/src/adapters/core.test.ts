@@ -26,12 +26,13 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 	const failNext = { advance: false, chat: false };
 
 	/** A chat message keeps its own flags, and an update of `flags.colony-bridge.<key>` changes one. */
-	function fakeMessage(data: object): FoundryChatMessage {
+	function fakeMessage(data: object, author = { id: "gm-1", isGM: true }): FoundryChatMessage {
 		const ownFlags = readField(readField(data, "flags"), "colony-bridge");
 		const flags = new Map<string, unknown>(
 			typeof ownFlags === "object" && ownFlags !== null ? Object.entries(ownFlags) : [],
 		);
 		return {
+			author,
 			getFlag: (scope, key) => (scope === "colony-bridge" ? flags.get(key) : undefined),
 			update: (update, writeOptions) => {
 				writes.push({ data: update, options: writeOptions, target: "chat update" });
@@ -63,7 +64,11 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 				writes.push({ data: data[0] ?? {}, options: writeOptions, target: "new page" });
 				return Promise.resolve([]);
 			},
-			pages: { find: (predicate) => pages.find(predicate) },
+			id: `entry-${externalId}`,
+			pages: {
+				filter: (predicate) => pages.filter(predicate),
+				find: (predicate) => pages.find(predicate),
+			},
 			update: () => Promise.resolve(),
 		};
 	}
@@ -81,9 +86,17 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 				return Promise.resolve(message);
 			},
 		},
+		folder: { create: () => Promise.resolve(undefined) },
 		foundryGame: {
-			journal: { find: (predicate) => journalEntries.find(predicate) },
-			messages: { find: (predicate) => messages.find(predicate) },
+			folders: { filter: () => [], find: () => undefined },
+			journal: {
+				filter: (predicate) => journalEntries.filter(predicate),
+				find: (predicate) => journalEntries.find(predicate),
+			},
+			messages: {
+				filter: (predicate) => messages.filter(predicate),
+				find: (predicate) => messages.find(predicate),
+			},
 			time: {
 				advance: (seconds, advanceOptions) => {
 					if (failNext.advance) {
@@ -95,16 +108,21 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 				},
 				worldTime: 0,
 			},
+			users: { activeGM: null, filter: () => [] },
 		},
 		journalEntry: {
 			create: (data, writeOptions) => {
 				writes.push({ data, options: writeOptions, target: "new entry" });
 				return Promise.resolve(undefined);
 			},
+			updateDocuments: () => Promise.resolve([]),
 		},
 		moveClockWithColonyDays: () => options.moveClock === true,
 	});
-	return { adapter, advances, failNext, fakeEntry, fakePage, journalEntries, writes };
+	/** A message a player posted, which Foundry lets carry any flag. */
+	const plantMessage = (data: object) =>
+		messages.push(fakeMessage(data, { id: "player-1", isGM: false }));
+	return { adapter, advances, failNext, fakeEntry, fakePage, journalEntries, plantMessage, writes };
 }
 
 const summary = {
@@ -210,6 +228,53 @@ describe("renderColonySummary", () => {
 	});
 });
 
+describe("COLONY_SUMMARY's next game night", () => {
+	const nextSession = {
+		endsAt: "2026-11-21T06:00:00Z",
+		localDate: "2026-11-20",
+		startsAt: "2026-11-21T03:00:00Z",
+		timezone: "America/Los_Angeles",
+		title: "Session <12>",
+	};
+
+	test("renders in the campaign's time zone, escaped", () => {
+		expect(renderColonySummary({ ...summary, nextSession })).toContain(
+			`<p>Next game night: Session &lt;12&gt;, Friday, November 20, 2026, ${new Date(nextSession.startsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit", timeZone: nextSession.timezone })} to ${new Date(nextSession.endsAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit", timeZone: nextSession.timezone })} (America/Los_Angeles)</p>`,
+		);
+	});
+
+	test("falls back to the local date for a time zone this browser doesn't know", () => {
+		expect(
+			renderColonySummary({
+				...summary,
+				nextSession: { ...nextSession, timezone: "Mars/Olympus" },
+			}),
+		).toContain("<p>Next game night: Session &lt;12&gt;, 2026-11-20</p>");
+	});
+
+	test("a null or absent next session, from a Phase 1 server's queued row, renders no line", async () => {
+		const world = fakeWorld();
+		await world.adapter.appliers.COLONY_SUMMARY?.({
+			...summaryRow,
+			payload: { ...summary, nextSession: null },
+		});
+		await world.adapter.appliers.COLONY_SUMMARY?.(summaryRow);
+		expect(world.writes).toHaveLength(2);
+		expect(renderColonySummary({ ...summary, nextSession: null })).not.toContain("game night");
+		expect(renderColonySummary(summary)).not.toContain("game night");
+	});
+
+	test("a next session of the wrong shape fails the row", async () => {
+		const world = fakeWorld();
+		await expect(
+			world.adapter.appliers.COLONY_SUMMARY?.({
+				...summaryRow,
+				payload: { ...summary, nextSession: { ...nextSession, startsAt: "soon" } },
+			}),
+		).rejects.toThrow("The colony summary's payload wasn't understood.");
+	});
+});
+
 describe("DAYS_ADVANCED", () => {
 	test("posts a chat message and leaves the clock alone while the world setting is off", async () => {
 		const world = fakeWorld();
@@ -247,6 +312,16 @@ describe("DAYS_ADVANCED", () => {
 		expect(update?.options).toEqual({ colonyBridge: true });
 		expect(update?.options).not.toBe(create?.options);
 		expect(update?.options).not.toBe(world.advances[0]?.options);
+	});
+
+	test("a player's message flagged with the row's key neither stops the post nor moves the clock", async () => {
+		const world = fakeWorld();
+		world.plantMessage({
+			flags: { "colony-bridge": { clockOwed: true, externalId: "advance:2" } },
+		});
+		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
+		expect(world.writes.map((write) => write.target)).toEqual(["chat"]);
+		expect(world.advances).toEqual([]);
 	});
 
 	test("a repeat of the same row does nothing", async () => {

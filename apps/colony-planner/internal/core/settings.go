@@ -175,6 +175,11 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 	timezoneChanged := false
 	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as every session and bridge write locks it, so a time zone change that moves
+		// sessions can't deadlock with them.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		current, err := queries.GetSettings(requestContext, viewer.campaignID)
 		if err != nil {
 			return campaignGone(err)

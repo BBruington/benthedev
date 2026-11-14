@@ -379,41 +379,49 @@ func (service *Service) RecordDiscordEventStatus(requestContext context.Context,
 		return nil
 	}
 	planner := Viewer{campaignID: link.CampaignID}
-	changed := false
+	changed, bridged := false, false
 	err = service.inTransaction(requestContext, func(queries *store.Queries) error {
-		colony, err := queries.GetColonyForUpdate(requestContext, link.CampaignID)
-		if err != nil {
-			return campaignGone(err)
-		}
-		row, err := queries.GetSessionByDiscordEvent(requestContext, store.GetSessionByDiscordEventParams{CampaignID: link.CampaignID, DiscordEventID: &discordEventID})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		day := int64(colony.Day)
-		if row.Status == SessionStatusScheduled {
-			if row, err = markPlayed(requestContext, queries, planner, row, day); err != nil {
+		stamp := func() error {
+			colony, err := queries.GetColonyForUpdate(requestContext, link.CampaignID)
+			if err != nil {
+				return campaignGone(err)
+			}
+			row, err := queries.GetSessionByDiscordEvent(requestContext, store.GetSessionByDiscordEventParams{CampaignID: link.CampaignID, DiscordEventID: &discordEventID})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			day := int64(colony.Day)
+			if row.Status == SessionStatusScheduled {
+				if row, err = markPlayed(requestContext, queries, planner, row, day); err != nil {
+					return err
+				}
+				changed = true
+			}
+			if status != DiscordEventCompleted || row.Status != SessionStatusPlayed || row.ColonyDayEnd != nil {
+				return nil
+			}
+			if row.ColonyDayStart != nil && day < int64(*row.ColonyDayStart) {
+				return nil
+			}
+			if _, err := queries.EndSession(requestContext, store.EndSessionParams{CampaignID: link.CampaignID, ID: row.ID, ColonyDayEnd: int32Pointer(day)}); err != nil {
 				return err
 			}
 			changed = true
-		}
-		if status != DiscordEventCompleted || row.Status != SessionStatusPlayed || row.ColonyDayEnd != nil {
 			return nil
 		}
-		if row.ColonyDayStart != nil && day < int64(*row.ColonyDayStart) {
-			return nil
-		}
-		if _, err := queries.EndSession(requestContext, store.EndSessionParams{CampaignID: link.CampaignID, ID: row.ID, ColonyDayEnd: int32Pointer(day)}); err != nil {
+		if err := stamp(); err != nil || !changed {
 			return err
 		}
-		changed = true
-		return nil
+		var err error
+		bridged, err = service.enqueueColonySummary(requestContext, queries, link.CampaignID)
+		return err
 	})
 	if err != nil || !changed {
 		return err
 	}
-	service.afterSessionWrite(link.CampaignID, TopicTimeline, TopicColony)
+	service.afterSessionWrite(link.CampaignID, withBridgeTopic(bridged, TopicTimeline, TopicColony)...)
 	return nil
 }

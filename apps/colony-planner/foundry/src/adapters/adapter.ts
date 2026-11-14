@@ -1,22 +1,24 @@
 import type { RowApplier } from "../outbox";
-import { type CoreAdapterDependencies, createCoreAdapter } from "./core";
+import { createCoreAdapter } from "./core";
+import { createPf2eAdapter, type Pf2eAdapterDependencies } from "./pf2e";
 
 /** How one kind of world applies outbox rows, keyed by row kind. */
 export interface BridgeAdapter {
 	appliers: Partial<Record<string, RowApplier>>;
 	name: string;
+	/** Withdraws every NPC, place and quest entry the bridge made, as their withdraw rows do. */
+	withdrawBridgedEntries(): Promise<void>;
 }
 
-type AdapterFactory = (dependencies: CoreAdapterDependencies) => BridgeAdapter;
+/** Everything any adapter needs; each takes the part it uses. */
+export type AdapterDependencies = Pf2eAdapterDependencies;
 
-// Phase 2 adds pf2e here, spreading the core appliers and adding its own kinds (design §6).
-const systemAdapters: Partial<Record<string, AdapterFactory>> = {};
+type AdapterFactory = (dependencies: AdapterDependencies) => BridgeAdapter;
+
+const systemAdapters: Partial<Record<string, AdapterFactory>> = { pf2e: createPf2eAdapter };
 
 /** Chosen once at `ready` from game.system.id; any system without its own adapter gets the core one. */
-export function selectAdapter(
-	systemId: string,
-	dependencies: CoreAdapterDependencies,
-): BridgeAdapter {
+export function selectAdapter(systemId: string, dependencies: AdapterDependencies): BridgeAdapter {
 	const createSystemAdapter = systemAdapters[systemId] ?? createCoreAdapter;
 	return createSystemAdapter(dependencies);
 }

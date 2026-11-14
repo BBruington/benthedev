@@ -2635,7 +2635,7 @@ export interface components {
             expiresAt: string;
         } | null;
         /** @enum {string} */
-        BridgeOutboxKind: "COLONY_SUMMARY" | "DAYS_ADVANCED";
+        BridgeOutboxKind: "COLONY_SUMMARY" | "DAYS_ADVANCED" | "NPC_UPSERT" | "NPC_WITHDRAW" | "PLACE_UPSERT" | "PLACE_WITHDRAW" | "QUEST_UPSERT" | "QUEST_WITHDRAW" | "DELIVERY" | "DELIVERY_UNDONE" | "POLL_POSTED" | "POLL_CLOSED";
         BridgeOutboxPage: {
             /** @description More unapplied rows follow the last one */
             more: boolean;
@@ -3103,6 +3103,7 @@ export interface components {
             amount: number | null;
             archived: boolean;
             description: string;
+            dm?: components["schemas"]["MarketItemDm"];
             /** Format: uuid */
             id: string;
             /**
@@ -3123,7 +3124,13 @@ export interface components {
             /** Format: int64 */
             sortOrder: number;
         };
+        MarketItemDm: {
+            /** @description A special item's Foundry compendium item, e.g. Compendium.pf2e.equipment-srd.Item.abcdefghij123456, which a paid shipment hands the party; null when unset and for offers */
+            compendiumUuid: string | null;
+        };
         MarketItemInput: {
+            /** @description The Foundry compendium item paid shipments hand the party, at most 200 characters; null or blank for none */
+            compendiumUuid?: string | null;
             /** @description At most 4000 characters; may be blank */
             description: string;
             /**

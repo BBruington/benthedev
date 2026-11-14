@@ -654,7 +654,17 @@
       "BridgeOutboxKind": {
         "enum": [
           "COLONY_SUMMARY",
-          "DAYS_ADVANCED"
+          "DAYS_ADVANCED",
+          "NPC_UPSERT",
+          "NPC_WITHDRAW",
+          "PLACE_UPSERT",
+          "PLACE_WITHDRAW",
+          "QUEST_UPSERT",
+          "QUEST_WITHDRAW",
+          "DELIVERY",
+          "DELIVERY_UNDONE",
+          "POLL_POSTED",
+          "POLL_CLOSED"
         ],
         "type": "string"
       },
@@ -2087,6 +2097,9 @@
           "description": {
             "type": "string"
           },
+          "dm": {
+            "$ref": "#/components/schemas/MarketItemDm"
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -2140,9 +2153,32 @@
         ],
         "type": "object"
       },
+      "MarketItemDm": {
+        "additionalProperties": false,
+        "properties": {
+          "compendiumUuid": {
+            "description": "A special item's Foundry compendium item, e.g. Compendium.pf2e.equipment-srd.Item.abcdefghij123456, which a paid shipment hands the party; null when unset and for offers",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "compendiumUuid"
+        ],
+        "type": "object"
+      },
       "MarketItemInput": {
         "additionalProperties": false,
         "properties": {
+          "compendiumUuid": {
+            "description": "The Foundry compendium item paid shipments hand the party, at most 200 characters; null or blank for none",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "description": {
             "description": "At most 4000 characters; may be blank",
             "type": "string"

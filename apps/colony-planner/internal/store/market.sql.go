@@ -119,17 +119,18 @@ func (q *Queries) CreateDefaultSupplyOffers(ctx context.Context, campaignID uuid
 }
 
 const createMarketItem = `-- name: CreateMarketItem :one
-INSERT INTO market_item (campaign_id, name, description, price_gold, max_per_order)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id
+INSERT INTO market_item (campaign_id, name, description, price_gold, max_per_order, compendium_uuid)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id, compendium_uuid
 `
 
 type CreateMarketItemParams struct {
-	CampaignID  uuid.UUID
-	Name        string
-	Description string
-	PriceGold   int32
-	MaxPerOrder *int32
+	CampaignID     uuid.UUID
+	Name           string
+	Description    string
+	PriceGold      int32
+	MaxPerOrder    *int32
+	CompendiumUuid *string
 }
 
 func (q *Queries) CreateMarketItem(ctx context.Context, arg CreateMarketItemParams) (MarketItem, error) {
@@ -139,6 +140,7 @@ func (q *Queries) CreateMarketItem(ctx context.Context, arg CreateMarketItemPara
 		arg.Description,
 		arg.PriceGold,
 		arg.MaxPerOrder,
+		arg.CompendiumUuid,
 	)
 	var i MarketItem
 	err := row.Scan(
@@ -155,6 +157,7 @@ func (q *Queries) CreateMarketItem(ctx context.Context, arg CreateMarketItemPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.CompendiumUuid,
 	)
 	return i, err
 }
@@ -271,7 +274,7 @@ func (q *Queries) GetMarketCartEditor(ctx context.Context, campaignID uuid.UUID)
 }
 
 const getMarketItem = `-- name: GetMarketItem :one
-SELECT id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id FROM market_item WHERE campaign_id = $1 AND id = $2
+SELECT id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id, compendium_uuid FROM market_item WHERE campaign_id = $1 AND id = $2
 `
 
 type GetMarketItemParams struct {
@@ -296,6 +299,7 @@ func (q *Queries) GetMarketItem(ctx context.Context, arg GetMarketItemParams) (M
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.CompendiumUuid,
 	)
 	return i, err
 }
@@ -376,7 +380,7 @@ func (q *Queries) GetMarketSettings(ctx context.Context, campaignID uuid.UUID) (
 }
 
 const listCartLines = `-- name: ListCartLines :many
-SELECT market_cart_line.item_id, market_cart_line.quantity, market_cart_line.campaign_id, market_item.id, market_item.name, market_item.description, market_item.price_gold, market_item.resource_key, market_item.amount, market_item.role_key, market_item.max_per_order, market_item.archived, market_item.sort_order, market_item.created_at, market_item.updated_at, market_item.campaign_id
+SELECT market_cart_line.item_id, market_cart_line.quantity, market_cart_line.campaign_id, market_item.id, market_item.name, market_item.description, market_item.price_gold, market_item.resource_key, market_item.amount, market_item.role_key, market_item.max_per_order, market_item.archived, market_item.sort_order, market_item.created_at, market_item.updated_at, market_item.campaign_id, market_item.compendium_uuid
 FROM market_cart_line
 JOIN market_item ON market_item.campaign_id = market_cart_line.campaign_id AND market_item.id = market_cart_line.item_id
 WHERE market_cart_line.campaign_id = $1
@@ -414,7 +418,44 @@ func (q *Queries) ListCartLines(ctx context.Context, campaignID uuid.UUID) ([]Li
 			&i.MarketItem.CreatedAt,
 			&i.MarketItem.UpdatedAt,
 			&i.MarketItem.CampaignID,
+			&i.MarketItem.CompendiumUuid,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMarketItemCompendiumUuids = `-- name: ListMarketItemCompendiumUuids :many
+SELECT id, compendium_uuid FROM market_item
+WHERE campaign_id = $1 AND id = ANY($2::uuid[]) AND compendium_uuid IS NOT NULL
+`
+
+type ListMarketItemCompendiumUuidsParams struct {
+	CampaignID uuid.UUID
+	ItemIds    []uuid.UUID
+}
+
+type ListMarketItemCompendiumUuidsRow struct {
+	ID             uuid.UUID
+	CompendiumUuid *string
+}
+
+// A paid shipment's Foundry items are read at Pay, so a UUID the DM set while the ship sailed counts.
+func (q *Queries) ListMarketItemCompendiumUuids(ctx context.Context, arg ListMarketItemCompendiumUuidsParams) ([]ListMarketItemCompendiumUuidsRow, error) {
+	rows, err := q.db.Query(ctx, listMarketItemCompendiumUuids, arg.CampaignID, arg.ItemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMarketItemCompendiumUuidsRow
+	for rows.Next() {
+		var i ListMarketItemCompendiumUuidsRow
+		if err := rows.Scan(&i.ID, &i.CompendiumUuid); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -427,7 +468,7 @@ func (q *Queries) ListCartLines(ctx context.Context, campaignID uuid.UUID) ([]Li
 
 const listMarketItems = `-- name: ListMarketItems :many
 
-SELECT id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id FROM market_item
+SELECT id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id, compendium_uuid FROM market_item
 WHERE campaign_id = $1
   AND ($2::boolean OR NOT archived)
 ORDER BY archived, sort_order, lower(name), id
@@ -462,6 +503,7 @@ func (q *Queries) ListMarketItems(ctx context.Context, arg ListMarketItemsParams
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CampaignID,
+			&i.CompendiumUuid,
 		); err != nil {
 			return nil, err
 		}
@@ -673,7 +715,7 @@ func (q *Queries) ReopenPaidMarketOrder(ctx context.Context, arg ReopenPaidMarke
 }
 
 const setMarketItemArchived = `-- name: SetMarketItemArchived :one
-UPDATE market_item SET archived = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id
+UPDATE market_item SET archived = $1, updated_at = now() WHERE campaign_id = $2 AND id = $3 RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id, compendium_uuid
 `
 
 type SetMarketItemArchivedParams struct {
@@ -699,6 +741,7 @@ func (q *Queries) SetMarketItemArchived(ctx context.Context, arg SetMarketItemAr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.CompendiumUuid,
 	)
 	return i, err
 }
@@ -737,18 +780,19 @@ func (q *Queries) TouchMarketCart(ctx context.Context, arg TouchMarketCartParams
 const updateMarketItem = `-- name: UpdateMarketItem :one
 UPDATE market_item
 SET name = $1, description = $2, price_gold = $3,
-    max_per_order = $4, updated_at = now()
-WHERE campaign_id = $5 AND id = $6 AND resource_key IS NULL AND role_key IS NULL
-RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id
+    max_per_order = $4, compendium_uuid = $5, updated_at = now()
+WHERE campaign_id = $6 AND id = $7 AND resource_key IS NULL AND role_key IS NULL
+RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id, compendium_uuid
 `
 
 type UpdateMarketItemParams struct {
-	Name        string
-	Description string
-	PriceGold   int32
-	MaxPerOrder *int32
-	CampaignID  uuid.UUID
-	ID          uuid.UUID
+	Name           string
+	Description    string
+	PriceGold      int32
+	MaxPerOrder    *int32
+	CompendiumUuid *string
+	CampaignID     uuid.UUID
+	ID             uuid.UUID
 }
 
 // PUT semantics for a special item; an offer's ID matches no row. Archived changes only through
@@ -759,6 +803,7 @@ func (q *Queries) UpdateMarketItem(ctx context.Context, arg UpdateMarketItemPara
 		arg.Description,
 		arg.PriceGold,
 		arg.MaxPerOrder,
+		arg.CompendiumUuid,
 		arg.CampaignID,
 		arg.ID,
 	)
@@ -777,6 +822,7 @@ func (q *Queries) UpdateMarketItem(ctx context.Context, arg UpdateMarketItemPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.CompendiumUuid,
 	)
 	return i, err
 }
@@ -803,7 +849,7 @@ INSERT INTO market_item (campaign_id, role_key, price_gold)
 VALUES ($1, $2, $3)
 ON CONFLICT (campaign_id, role_key) WHERE role_key IS NOT NULL DO UPDATE
 SET price_gold = excluded.price_gold, archived = false, updated_at = now()
-RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id
+RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id, compendium_uuid
 `
 
 type UpsertColonistOfferParams struct {
@@ -829,6 +875,7 @@ func (q *Queries) UpsertColonistOffer(ctx context.Context, arg UpsertColonistOff
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.CompendiumUuid,
 	)
 	return i, err
 }
@@ -838,7 +885,7 @@ INSERT INTO market_item (campaign_id, resource_key, amount, price_gold)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (campaign_id, resource_key) WHERE resource_key IS NOT NULL DO UPDATE
 SET amount = excluded.amount, price_gold = excluded.price_gold, archived = false, updated_at = now()
-RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id
+RETURNING id, name, description, price_gold, resource_key, amount, role_key, max_per_order, archived, sort_order, created_at, updated_at, campaign_id, compendium_uuid
 `
 
 type UpsertSupplyOfferParams struct {
@@ -871,6 +918,7 @@ func (q *Queries) UpsertSupplyOffer(ctx context.Context, arg UpsertSupplyOfferPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.CompendiumUuid,
 	)
 	return i, err
 }

@@ -106,6 +106,7 @@ func (service *Service) CreatePlace(requestContext context.Context, viewer Viewe
 		return Place{}, err
 	}
 	var place Place
+	bridged := false
 	err = service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first, so concurrent creates can't each pass the count and go over the limit.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -129,13 +130,24 @@ func (service *Service) CreatePlace(requestContext context.Context, viewer Viewe
 		if err != nil {
 			return err
 		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.placeUpsert(row.ID); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
 		place, err = readPlace(requestContext, queries, viewer.campaignID, row.ID, true)
 		return err
 	})
 	if err != nil {
 		return Place{}, err
 	}
-	service.publishPlaceChange(viewer.campaignID)
+	service.publishPlaceChange(viewer.campaignID, bridged)
 	return place, nil
 }
 
@@ -149,20 +161,45 @@ func (service *Service) UpdatePlace(requestContext context.Context, viewer Viewe
 		return Place{}, err
 	}
 	var place Place
+	bridged := false
 	err = service.inTransaction(requestContext, func(queries *store.Queries) error {
-		cleaned.CampaignID = viewer.campaignID
-		cleaned.ID = placeID
-		if _, err := queries.UpdatePlace(requestContext, cleaned); err != nil {
+		// Locked first, as PairBridge locks it, so a pairing's backfill can't miss this edit.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		before, err := queries.GetPlace(requestContext, store.GetPlaceParams{CampaignID: viewer.campaignID, ID: placeID})
+		if err != nil {
 			return placeGone(err)
 		}
-		var err error
+		cleaned.CampaignID = viewer.campaignID
+		cleaned.ID = placeID
+		updated, err := queries.UpdatePlace(requestContext, cleaned)
+		if err != nil {
+			return placeGone(err)
+		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.placeUpsert(placeID); err != nil {
+			return err
+		}
+		if updated.Revealed && updated.Name != before.Name {
+			if err := outbox.npcsOfPlace(placeID); err != nil {
+				return err
+			}
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
 		place, err = readPlace(requestContext, queries, viewer.campaignID, placeID, true)
 		return err
 	})
 	if err != nil {
 		return Place{}, err
 	}
-	service.publishPlaceChange(viewer.campaignID)
+	service.publishPlaceChange(viewer.campaignID, bridged)
 	return place, nil
 }
 
@@ -172,18 +209,47 @@ func (service *Service) SetPlaceRevealed(requestContext context.Context, viewer 
 		return Place{}, err
 	}
 	var place Place
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's backfill can't miss this switch.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		before, err := queries.GetPlace(requestContext, store.GetPlaceParams{CampaignID: viewer.campaignID, ID: placeID})
+		if err != nil {
+			return placeGone(err)
+		}
 		if _, err := queries.SetPlaceRevealed(requestContext, store.SetPlaceRevealedParams{CampaignID: viewer.campaignID, ID: placeID, Revealed: revealed}); err != nil {
 			return placeGone(err)
 		}
-		var err error
+		if before.Revealed != revealed {
+			outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+			if err != nil {
+				return err
+			}
+			if revealed {
+				err = outbox.placeUpsert(placeID)
+			} else {
+				err = outbox.placeWithdraw(placeID)
+			}
+			if err != nil {
+				return err
+			}
+			if err := outbox.npcsOfPlace(placeID); err != nil {
+				return err
+			}
+			bridged, err = outbox.finish()
+			if err != nil {
+				return err
+			}
+		}
 		place, err = readPlace(requestContext, queries, viewer.campaignID, placeID, true)
 		return err
 	})
 	if err != nil {
 		return Place{}, err
 	}
-	service.publishPlaceChange(viewer.campaignID)
+	service.publishPlaceChange(viewer.campaignID, bridged)
 	return place, nil
 }
 
@@ -192,14 +258,48 @@ func (service *Service) DeletePlace(requestContext context.Context, viewer Viewe
 	if err := requireDm(viewer); err != nil {
 		return err
 	}
-	deleted, err := service.queries.DeletePlace(requestContext, store.DeletePlaceParams{CampaignID: viewer.campaignID, ID: placeID})
+	bridged := false
+	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's backfill can't miss this delete.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		existing, err := queries.GetPlace(requestContext, store.GetPlaceParams{CampaignID: viewer.campaignID, ID: placeID})
+		if err != nil {
+			return placeGone(err)
+		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		var namingNpcs []uuid.UUID
+		if existing.Revealed {
+			// Read before the delete, whose foreign keys clear these NPCs' place.
+			if namingNpcs, err = outbox.revealedNpcsOfPlace(placeID); err != nil {
+				return err
+			}
+		}
+		if _, err := queries.DeletePlace(requestContext, store.DeletePlaceParams{CampaignID: viewer.campaignID, ID: placeID}); err != nil {
+			return err
+		}
+		if existing.Revealed {
+			if err := outbox.placeWithdraw(placeID); err != nil {
+				return err
+			}
+			if err := outbox.npcUpserts(namingNpcs); err != nil {
+				return err
+			}
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	if deleted == 0 {
-		return errPlaceNotFound
-	}
-	service.publishPlaceChange(viewer.campaignID)
+	service.publishPlaceChange(viewer.campaignID, bridged)
 	return nil
 }
 
@@ -267,8 +367,8 @@ func (service *Service) changePlacePin(requestContext context.Context, viewer Vi
 }
 
 // publishPlaceChange: NPC pages name their places too, and map pages list pins by place name.
-func (service *Service) publishPlaceChange(campaignID uuid.UUID) {
-	service.broker.Publish(campaignID, TopicPlaces, TopicNpcs, TopicMaps)
+func (service *Service) publishPlaceChange(campaignID uuid.UUID, bridged bool) {
+	service.broker.Publish(campaignID, withBridgeTopic(bridged, TopicPlaces, TopicNpcs, TopicMaps)...)
 }
 
 func readPlace(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, placeID uuid.UUID, dmProjection bool) (Place, error) {

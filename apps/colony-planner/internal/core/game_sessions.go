@@ -424,7 +424,12 @@ func (service *Service) CreateSessionSeries(requestContext context.Context, view
 	}
 	parameters.CampaignID = viewer.campaignID
 	var series SessionSeries
+	bridged := false
 	err = service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		count, err := queries.CountSessionSeries(requestContext, viewer.campaignID)
 		if err != nil {
 			return err
@@ -437,12 +442,13 @@ func (service *Service) CreateSessionSeries(requestContext context.Context, view
 			return err
 		}
 		series = toSessionSeries(row)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return SessionSeries{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicColony)...)
 	return series, nil
 }
 
@@ -458,7 +464,12 @@ func (service *Service) UpdateSessionSeries(requestContext context.Context, view
 		return SessionSeries{}, err
 	}
 	var series SessionSeries
+	bridged := false
 	err = service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		row, err := queries.UpdateSessionSeries(requestContext, store.UpdateSessionSeriesParams{
 			CampaignID:      viewer.campaignID,
 			ID:              seriesID,
@@ -480,12 +491,16 @@ func (service *Service) UpdateSessionSeries(requestContext context.Context, view
 			return err
 		}
 		series = toSessionSeries(row)
-		return refreshFollowingSessions(requestContext, queries, viewer.campaignID)
+		if err := refreshFollowingSessions(requestContext, queries, viewer.campaignID); err != nil {
+			return err
+		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return SessionSeries{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicColony)...)
 	return series, nil
 }
 
@@ -495,7 +510,12 @@ func (service *Service) DeleteSessionSeries(requestContext context.Context, view
 	if err := requireDm(viewer); err != nil {
 		return err
 	}
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		if err := queries.DeleteIdleSeriesSessions(requestContext, store.DeleteIdleSeriesSessionsParams{CampaignID: viewer.campaignID, SeriesID: &seriesID}); err != nil {
 			return err
 		}
@@ -506,12 +526,13 @@ func (service *Service) DeleteSessionSeries(requestContext context.Context, view
 		if deleted == 0 {
 			return errSessionSeriesNotFound
 		}
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicColony)...)
 	return nil
 }
 
@@ -604,7 +625,12 @@ func (service *Service) CancelSessionDate(requestContext context.Context, viewer
 		return Session{}, err
 	}
 	var session Session
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		series, occurrence, err := loadOccurrence(requestContext, queries, viewer.campaignID, input)
 		if err != nil {
 			return err
@@ -621,12 +647,13 @@ func (service *Service) CancelSessionDate(requestContext context.Context, viewer
 			return err
 		}
 		session = occurrenceSession(series, occurrence, &cancelled)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return Session{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicColony)...)
 	service.sessionPlanner.SessionCancelled(requestContext, CancelledSession{
 		CampaignID: viewer.campaignID, SessionID: *session.ID, Title: session.Title, StartsAt: session.StartsAt,
 	})
@@ -640,7 +667,12 @@ func (service *Service) RestoreSessionDate(requestContext context.Context, viewe
 		return Session{}, err
 	}
 	var session Session
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		series, occurrence, err := loadOccurrence(requestContext, queries, viewer.campaignID, input)
 		if err != nil {
 			return err
@@ -657,12 +689,13 @@ func (service *Service) RestoreSessionDate(requestContext context.Context, viewe
 			return err
 		}
 		session = occurrenceSession(series, occurrence, &restored)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return Session{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicColony)...)
 	return session, nil
 }
 
@@ -686,6 +719,7 @@ func (service *Service) MarkSessionPlayed(requestContext context.Context, viewer
 		return Session{}, err
 	}
 	var session Session
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID)
 		if err != nil {
@@ -704,12 +738,13 @@ func (service *Service) MarkSessionPlayed(requestContext context.Context, viewer
 			return err
 		}
 		session = toSession(played)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return Session{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicTimeline, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicTimeline, TopicColony)...)
 	return session, nil
 }
 
@@ -742,6 +777,7 @@ func (service *Service) EndSession(requestContext context.Context, viewer Viewer
 		return Session{}, err
 	}
 	var session Session
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID)
 		if err != nil {
@@ -764,12 +800,13 @@ func (service *Service) EndSession(requestContext context.Context, viewer Viewer
 			return err
 		}
 		session = toSession(ended)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return Session{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicTimeline, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicTimeline, TopicColony)...)
 	return session, nil
 }
 
@@ -802,7 +839,12 @@ func (service *Service) SetSessionDays(requestContext context.Context, viewer Vi
 		dayEnd = int32Pointer(*input.ColonyDayEnd)
 	}
 	var session Session
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		row, err := loadSession(requestContext, queries, viewer.campaignID, sessionID)
 		if err != nil {
 			return err
@@ -822,12 +864,13 @@ func (service *Service) SetSessionDays(requestContext context.Context, viewer Vi
 			return err
 		}
 		session = toSession(updated)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return Session{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicTimeline)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicTimeline)...)
 	return session, nil
 }
 
@@ -840,14 +883,28 @@ func (service *Service) SetSessionRecap(requestContext context.Context, viewer V
 	if fieldError != nil {
 		return Session{}, Invalid("The recap needs fixing.", *fieldError)
 	}
-	row, err := service.queries.SetSessionRecap(requestContext, store.SetSessionRecapParams{CampaignID: viewer.campaignID, ID: sessionID, Recap: recap})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Session{}, errSessionNotFound
-	}
+	var row store.Session
+	bridged := false
+	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		var err error
+		row, err = queries.SetSessionRecap(requestContext, store.SetSessionRecapParams{CampaignID: viewer.campaignID, ID: sessionID, Recap: recap})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errSessionNotFound
+		}
+		if err != nil {
+			return err
+		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
+	})
 	if err != nil {
 		return Session{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicColony)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicColony)...)
 	return toSession(row), nil
 }
 
@@ -865,7 +922,12 @@ func (service *Service) SetSessionTitle(requestContext context.Context, viewer V
 		return Session{}, Invalid("The title needs fixing.", *fieldError)
 	}
 	var session Session
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		// Locked first, as PairBridge locks it, so a pairing's summary can't miss this date.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
 		row, err := loadSession(requestContext, queries, viewer.campaignID, sessionID)
 		if err != nil {
 			return err
@@ -878,12 +940,13 @@ func (service *Service) SetSessionTitle(requestContext context.Context, viewer V
 			return err
 		}
 		session = toSession(updated)
-		return nil
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return Session{}, err
 	}
-	service.afterSessionWrite(viewer.campaignID, TopicColony, TopicNpcs)
+	service.afterSessionWrite(viewer.campaignID, withBridgeTopic(bridged, TopicColony, TopicNpcs)...)
 	return session, nil
 }
 
@@ -908,13 +971,13 @@ func (service *Service) ListUpcomingSessions(requestContext context.Context, vie
 		return nil, err
 	}
 	now := service.now()
-	return service.upcomingSessions(requestContext, viewer.campaignID, now, now.AddDate(0, 0, 7*upcomingSessionWeeks), true)
+	return service.upcomingSessions(requestContext, service.queries, viewer.campaignID, now, now.AddDate(0, 0, 7*upcomingSessionWeeks), true)
 }
 
 // upcomingSessions merges every series' occurrences that haven't ended by `from` and start before `to`
 // with their stored rows.
-func (service *Service) upcomingSessions(requestContext context.Context, campaignID uuid.UUID, from time.Time, to time.Time, includeCancelled bool) ([]Session, error) {
-	settings, err := service.queries.GetSettings(requestContext, campaignID)
+func (service *Service) upcomingSessions(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, from time.Time, to time.Time, includeCancelled bool) ([]Session, error) {
+	settings, err := queries.GetSettings(requestContext, campaignID)
 	if err != nil {
 		return nil, campaignGone(err)
 	}
@@ -922,12 +985,12 @@ func (service *Service) upcomingSessions(requestContext context.Context, campaig
 	if err != nil {
 		return nil, err
 	}
-	seriesRows, err := service.queries.ListSessionSeries(requestContext, campaignID)
+	seriesRows, err := queries.ListSessionSeries(requestContext, campaignID)
 	if err != nil {
 		return nil, err
 	}
 	searchFrom := from.Add(-maximumSessionMinutes * time.Minute)
-	rows, err := service.queries.ListSessionsByDate(requestContext, store.ListSessionsByDateParams{
+	rows, err := queries.ListSessionsByDate(requestContext, store.ListSessionsByDateParams{
 		CampaignID: campaignID,
 		FromDate:   toPgDate(game.DateOf(searchFrom, location).AddDays(-1)),
 		ToDate:     toPgDate(game.DateOf(to, location).AddDays(1)),
@@ -983,8 +1046,13 @@ func (service *Service) NextSession(requestContext context.Context, viewer Viewe
 	if err := requireActive(viewer); err != nil {
 		return nil, err
 	}
+	return service.nextScheduledSession(requestContext, service.queries, viewer.campaignID)
+}
+
+// nextScheduledSession reads with the queries given, so Foundry's summary sees its own transaction's writes.
+func (service *Service) nextScheduledSession(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) (*Session, error) {
 	now := service.now()
-	sessions, err := service.upcomingSessions(requestContext, viewer.campaignID, now, now.AddDate(2, 0, 0), false)
+	sessions, err := service.upcomingSessions(requestContext, queries, campaignID, now, now.AddDate(2, 0, 0), false)
 	if err != nil {
 		return nil, err
 	}
@@ -1118,7 +1186,7 @@ func (service *Service) CalendarFeed(requestContext context.Context, token strin
 	}
 	now := service.now()
 	from, to := now.AddDate(0, 0, -calendarPastDays), now.AddDate(0, calendarAheadMonths, 0)
-	sessions, err := service.upcomingSessions(requestContext, campaign.CampaignID, from, to, false)
+	sessions, err := service.upcomingSessions(requestContext, service.queries, campaign.CampaignID, from, to, false)
 	if err != nil {
 		return "", err
 	}

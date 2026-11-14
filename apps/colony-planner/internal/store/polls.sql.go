@@ -80,7 +80,8 @@ func (q *Queries) CountPollOptionsAmong(ctx context.Context, arg CountPollOption
 }
 
 const countPollVotesByOption = `-- name: CountPollVotesByOption :many
-SELECT poll_option.label, (count(poll_vote.voter) + poll_option.discord_other_votes)::bigint AS votes
+SELECT poll_option.label, (count(poll_vote.voter) + poll_option.discord_other_votes)::bigint AS votes,
+       poll_option.discord_other_votes
 FROM poll_option
 LEFT JOIN poll_vote ON poll_vote.campaign_id = poll_option.campaign_id
   AND poll_vote.poll_id = poll_option.poll_id AND poll_vote.option_id = poll_option.id
@@ -95,8 +96,9 @@ type CountPollVotesByOptionParams struct {
 }
 
 type CountPollVotesByOptionRow struct {
-	Label string
-	Votes int64
+	Label             string
+	Votes             int64
+	DiscordOtherVotes int32
 }
 
 func (q *Queries) CountPollVotesByOption(ctx context.Context, arg CountPollVotesByOptionParams) ([]CountPollVotesByOptionRow, error) {
@@ -108,7 +110,7 @@ func (q *Queries) CountPollVotesByOption(ctx context.Context, arg CountPollVotes
 	var items []CountPollVotesByOptionRow
 	for rows.Next() {
 		var i CountPollVotesByOptionRow
-		if err := rows.Scan(&i.Label, &i.Votes); err != nil {
+		if err := rows.Scan(&i.Label, &i.Votes, &i.DiscordOtherVotes); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

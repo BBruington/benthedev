@@ -179,11 +179,20 @@ function PrivacyPage() {
 						</p>
 						<p>
 							The site sends that world what players may see of the colony: the campaign's name and
-							the site's address, its day, stock, workforce, the next shipments, and a note each
-							time days pass. Nothing DM-only goes, and the site keeps a copy of everything it
-							sends. Everyone in that world can read the Colony page it makes there. Foundry sends
-							back only its status (the world's title and versions above) and how far its clock
-							moved, which waits for the DM to accept or dismiss and changes nothing by itself.
+							the site's address, its day, stock, workforce, the next shipments, the next game night
+							(its title, date, times and time zone), and a note each time days pass. It also sends
+							the NPCs, places and quests players can see, as players see them; each paid shipment
+							with its day, its price, what it brought and the Foundry items the DM linked to the
+							catalog, and a note to the world's GMs when a payment is undone; and each poll's
+							question, options, where it is voted and closing time, then each option's final count
+							(Discord votes from people outside the campaign included), never who voted. Apart from
+							those Foundry items, which only the DM sees on the site, nothing DM-only or hidden
+							goes, and the site keeps a copy of everything it sends. Everyone in that world can
+							read the pages and chat messages it makes there; when something is hidden or deleted
+							on the site, its page there is set so players can't open it, and kept for the GM.
+							Foundry sends back only its status (the world's title and versions above) and how far
+							its clock moved, which waits for the DM to accept or dismiss and changes nothing by
+							itself.
 						</p>
 						<p>
 							Only the DM sees any of this on the site, on the campaign's Settings, where they can

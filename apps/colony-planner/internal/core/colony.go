@@ -594,6 +594,26 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err != nil {
 			return err
 		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.npcUpserts(slices.SortedFunc(maps.Keys(record.Before.NpcColonyRoles), compareIDs)); err != nil {
+			return err
+		}
+		if err := outbox.questUpserts(slices.SortedFunc(maps.Keys(record.Before.Quests), compareIDs)); err != nil {
+			return err
+		}
+		for _, orderID := range slices.SortedFunc(maps.Keys(record.Before.MarketOrders), compareIDs) {
+			if err := outbox.undoDelivery(colony, record.GroupID, orderID); err != nil {
+				return err
+			}
+		}
+		contentBridged, err := outbox.finish()
+		if err != nil {
+			return err
+		}
+		bridged = bridged || contentBridged
 		board, err := service.readBoard(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
 			return err
@@ -973,6 +993,26 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		if err != nil {
 			return err
 		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.npcUpserts(slices.SortedFunc(maps.Keys(outcome.npcRoles), compareIDs)); err != nil {
+			return err
+		}
+		if err := outbox.questUpserts(slices.SortedFunc(maps.Keys(outcome.quests), compareIDs)); err != nil {
+			return err
+		}
+		for _, orderID := range slices.SortedFunc(maps.Keys(outcome.marketOrders), compareIDs) {
+			if err := outbox.delivery(colony, orderID); err != nil {
+				return err
+			}
+		}
+		contentBridged, err := outbox.finish()
+		if err != nil {
+			return err
+		}
+		bridged = bridged || contentBridged
 		board, err := service.readBoard(requestContext, queries, viewer.campaignID, viewer.SeesDmFields())
 		if err != nil {
 			return err

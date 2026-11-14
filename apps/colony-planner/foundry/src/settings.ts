@@ -21,7 +21,10 @@ export interface BridgeSettings {
 	saveLastReportedDay(day: number): Promise<unknown>;
 	saveLink(link: BridgeLink): Promise<unknown>;
 	savePendingEvents(events: InboundEvent[]): Promise<unknown>;
+	saveWithdrawOwed(owed: boolean): Promise<unknown>;
 	token(): string;
+	/** True from a new link's save until the bridge's old journal entries are withdrawn (design §13.5). */
+	withdrawOwed(): boolean;
 }
 
 /**
@@ -85,6 +88,12 @@ export function registerSettings(
 		scope: "client",
 		type: Number,
 	});
+	settings.register(moduleId, "withdrawOwed", {
+		config: false,
+		default: false,
+		scope: "client",
+		type: Boolean,
+	});
 	settings.register(moduleId, "pendingEvents", {
 		config: false,
 		default: { events: [] },
@@ -116,12 +125,15 @@ export function createBridgeSettings(settings: FoundrySettings): BridgeSettings 
 			await write("token", "");
 			await write("outboxCursor", 0);
 			await write("pendingEvents", { events: [] });
+			await write("withdrawOwed", link.token !== "");
 			await write("campaignName", link.campaignName);
 			await write("worldId", link.worldId);
 			await write("token", link.token);
 		},
 		savePendingEvents: (events) => write("pendingEvents", { events }),
+		saveWithdrawOwed: (owed) => write("withdrawOwed", owed),
 		token: () => readString(read("token")),
+		withdrawOwed: () => read("withdrawOwed") === true,
 	};
 }
 

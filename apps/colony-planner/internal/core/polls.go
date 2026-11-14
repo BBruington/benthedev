@@ -186,6 +186,7 @@ func (service *Service) CreatePoll(requestContext context.Context, viewer Viewer
 		return Poll{}, err
 	}
 	var created Poll
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first, so concurrent creates can't each pass the count and go over the limit.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -227,10 +228,24 @@ func (service *Service) CreatePoll(requestContext context.Context, viewer Viewer
 			return err
 		}
 		created = polls[0]
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.pollPosted(created); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
 		return Poll{}, err
+	}
+	if bridged {
+		service.broker.Publish(viewer.campaignID, TopicBridge)
 	}
 	service.pollChanged(viewer.campaignID, created.ID)
 	return created, nil
@@ -311,11 +326,31 @@ func (service *Service) DeletePoll(requestContext context.Context, viewer Viewer
 	if err := service.closeOverduePolls(requestContext, viewer); err != nil {
 		return err
 	}
-	message, err := service.queries.DeletePoll(requestContext, store.DeletePollParams{CampaignID: viewer.campaignID, ID: pollID})
+	var message store.DeletePollRow
+	bridged := false
+	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
+		var err error
+		message, err = queries.DeletePoll(requestContext, store.DeletePollParams{CampaignID: viewer.campaignID, ID: pollID})
+		if err != nil {
+			return pollGone(err)
+		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.withdrawPollRows(pollID); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return pollGone(err)
+		return err
 	}
-	service.broker.Publish(viewer.campaignID, TopicPolls)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicPolls)...)
 	service.pollNotifier.PollDeleted(viewer.campaignID, stringValue(message.DiscordChannelID), stringValue(message.DiscordMessageID))
 	return nil
 }
@@ -701,7 +736,7 @@ func (service *Service) closeOverduePolls(requestContext context.Context, viewer
 // colony's version and undo slot alone. With onlyOverdue it closes only a poll past its deadline. It
 // reports whether this call closed the poll.
 func (service *Service) closePoll(requestContext context.Context, campaignID uuid.UUID, pollID uuid.UUID, onlyOverdue bool) (bool, error) {
-	closed := false
+	closed, bridged := false, false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := queries.GetColonyForUpdate(requestContext, campaignID)
 		if err != nil {
@@ -732,18 +767,32 @@ func (service *Service) closePoll(requestContext context.Context, campaignID uui
 			tallies = append(tallies, game.PollTally{Label: count.Label, Count: count.Votes})
 		}
 		closed = true
-		return writeLooseEntry(requestContext, queries, Viewer{campaignID: campaignID}, plannedEntry{
+		if err := writeLooseEntry(requestContext, queries, Viewer{campaignID: campaignID}, plannedEntry{
 			day:        int64(colony.Day),
 			kind:       TimelineKindPollClosed,
 			title:      game.PollClosedTitle(row.Question, tallies),
 			visibility: TimelineVisibilityPublic,
-		})
+		}); err != nil {
+			return err
+		}
+		outbox, err := service.openBridgeOutbox(requestContext, queries, campaignID)
+		if err != nil {
+			return err
+		}
+		if err := outbox.pollClosed(pollID, row.Question, closedAt, counts); err != nil {
+			return err
+		}
+		bridged, err = outbox.finish()
+		if err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return false, err
 	}
 	if closed {
-		service.broker.Publish(campaignID, TopicPolls, TopicTimeline)
+		service.broker.Publish(campaignID, withBridgeTopic(bridged, TopicPolls, TopicTimeline)...)
 		service.pollNotifier.PollChanged(campaignID, pollID)
 	}
 	return closed, nil

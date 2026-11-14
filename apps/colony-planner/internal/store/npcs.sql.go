@@ -400,6 +400,130 @@ func (q *Queries) ListNpcs(ctx context.Context, arg ListNpcsParams) ([]ListNpcsR
 	return items, nil
 }
 
+const listRevealedNpcIdsByPlace = `-- name: ListRevealedNpcIdsByPlace :many
+SELECT id FROM npc
+WHERE campaign_id = $1 AND revealed AND (current_place_id = $2 OR origin_place_id = $2)
+ORDER BY lower(display_name), created_at, id
+`
+
+type ListRevealedNpcIdsByPlaceParams struct {
+	CampaignID uuid.UUID
+	PlaceID    *uuid.UUID
+}
+
+// The revealed NPCs whose current or origin place this is, whatever the place's own visibility: the
+// NPCs Foundry's entries name it on.
+func (q *Queries) ListRevealedNpcIdsByPlace(ctx context.Context, arg ListRevealedNpcIdsByPlaceParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listRevealedNpcIdsByPlace, arg.CampaignID, arg.PlaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRevealedNpcViews = `-- name: ListRevealedNpcViews :many
+SELECT npc.id, npc.name, npc.known_name, npc.display_name, npc.revealed, npc.aliases, npc.labels, npc.race, npc.character_class, npc.level, npc.age, npc.appearance, npc.personality, npc.backstory, npc.player_notes, npc.dm_notes, npc.status, npc.health, npc.relation, npc.current_place_id, npc.origin_place_id, npc.colony_role_key, npc.created_at, npc.updated_at, npc.campaign_id, npc.portrait_image_id, npc.first_session_id,
+       current_place.name AS current_place_name,
+       origin_place.name AS origin_place_name,
+       role.label AS colony_role_label,
+       role.icon AS colony_role_icon,
+       first_session.title AS first_session_title,
+       first_session.local_date AS first_session_local_date,
+       first_session.starts_at AS first_session_starts_at
+FROM npc
+LEFT JOIN session AS first_session ON first_session.campaign_id = npc.campaign_id AND first_session.id = npc.first_session_id
+LEFT JOIN place AS current_place ON current_place.campaign_id = npc.campaign_id
+    AND current_place.id = npc.current_place_id AND current_place.revealed
+LEFT JOIN place AS origin_place ON origin_place.campaign_id = npc.campaign_id
+    AND origin_place.id = npc.origin_place_id AND origin_place.revealed
+LEFT JOIN role ON role.campaign_id = npc.campaign_id AND role.key = npc.colony_role_key
+WHERE npc.campaign_id = $1 AND npc.id = ANY($2::uuid[]) AND npc.revealed
+`
+
+type ListRevealedNpcViewsParams struct {
+	CampaignID uuid.UUID
+	Ids        []uuid.UUID
+}
+
+type ListRevealedNpcViewsRow struct {
+	Npc                   Npc
+	CurrentPlaceName      *string
+	OriginPlaceName       *string
+	ColonyRoleLabel       *string
+	ColonyRoleIcon        *ColonyIcon
+	FirstSessionTitle     *string
+	FirstSessionLocalDate pgtype.Date
+	FirstSessionStartsAt  *time.Time
+}
+
+// These NPCs as players see them, for Foundry; a hidden one is absent.
+func (q *Queries) ListRevealedNpcViews(ctx context.Context, arg ListRevealedNpcViewsParams) ([]ListRevealedNpcViewsRow, error) {
+	rows, err := q.db.Query(ctx, listRevealedNpcViews, arg.CampaignID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRevealedNpcViewsRow
+	for rows.Next() {
+		var i ListRevealedNpcViewsRow
+		if err := rows.Scan(
+			&i.Npc.ID,
+			&i.Npc.Name,
+			&i.Npc.KnownName,
+			&i.Npc.DisplayName,
+			&i.Npc.Revealed,
+			&i.Npc.Aliases,
+			&i.Npc.Labels,
+			&i.Npc.Race,
+			&i.Npc.CharacterClass,
+			&i.Npc.Level,
+			&i.Npc.Age,
+			&i.Npc.Appearance,
+			&i.Npc.Personality,
+			&i.Npc.Backstory,
+			&i.Npc.PlayerNotes,
+			&i.Npc.DmNotes,
+			&i.Npc.Status,
+			&i.Npc.Health,
+			&i.Npc.Relation,
+			&i.Npc.CurrentPlaceID,
+			&i.Npc.OriginPlaceID,
+			&i.Npc.ColonyRoleKey,
+			&i.Npc.CreatedAt,
+			&i.Npc.UpdatedAt,
+			&i.Npc.CampaignID,
+			&i.Npc.PortraitImageID,
+			&i.Npc.FirstSessionID,
+			&i.CurrentPlaceName,
+			&i.OriginPlaceName,
+			&i.ColonyRoleLabel,
+			&i.ColonyRoleIcon,
+			&i.FirstSessionTitle,
+			&i.FirstSessionLocalDate,
+			&i.FirstSessionStartsAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setNpcColonyRole = `-- name: SetNpcColonyRole :exec
 UPDATE npc
 SET colony_role_key = $1, updated_at = now()

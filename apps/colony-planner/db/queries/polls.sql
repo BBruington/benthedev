@@ -52,7 +52,8 @@ ORDER BY poll_vote.poll_id, poll_vote.created_at,
   COALESCE(NULLIF(voter.character_name, ''), voter_account.display_name), poll_vote.voter, poll_vote.option_id;
 
 -- name: CountPollVotesByOption :many
-SELECT poll_option.label, (count(poll_vote.voter) + poll_option.discord_other_votes)::bigint AS votes
+SELECT poll_option.label, (count(poll_vote.voter) + poll_option.discord_other_votes)::bigint AS votes,
+       poll_option.discord_other_votes
 FROM poll_option
 LEFT JOIN poll_vote ON poll_vote.campaign_id = poll_option.campaign_id
   AND poll_vote.poll_id = poll_option.poll_id AND poll_vote.option_id = poll_option.id
