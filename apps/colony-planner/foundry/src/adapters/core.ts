@@ -15,6 +15,7 @@ import { secondsPerDay } from "../time-tracker";
 import {
 	type ColonySummaryPayload,
 	type DaysAdvancedPayload,
+	type DeliveryUndonePayload,
 	isColonySummaryPayload,
 	isDaysAdvancedPayload,
 	isDeliveryPayload,
@@ -185,7 +186,26 @@ async function replaceBridgePage(
 		await page.update({ "text.content": pageData.text.content }, bridgeWriteOptions());
 		return;
 	}
-	await entry.createEmbeddedDocuments("JournalEntryPage", [pageData], bridgeWriteOptions());
+	const created = await entry.createEmbeddedDocuments(
+		"JournalEntryPage",
+		[pageData],
+		bridgeWriteOptions(),
+	);
+	if (created.length === 0) {
+		throw new Error(`Foundry didn't add the ${pageData.name} page.`);
+	}
+}
+
+/** A hook can cancel a create, and Foundry then resolves with nothing, so the row must not pass. */
+async function createJournalEntry(
+	data: object,
+	externalId: string,
+	dependencies: CoreAdapterDependencies,
+): Promise<void> {
+	const created = await dependencies.journalEntry.create(data, bridgeWriteOptions());
+	if (!created) {
+		throw new Error(`Foundry didn't make the journal entry for ${externalId}.`);
+	}
 }
 
 async function applyColonySummary(
@@ -202,14 +222,15 @@ async function applyColonySummary(
 	);
 	const pageData = htmlPage(colonyExternalId, "Colony", renderColonySummary(row.payload));
 	if (!entry) {
-		await dependencies.journalEntry.create(
+		await createJournalEntry(
 			{
 				flags: externalIdFlag(colonyExternalId),
 				name: "Colony",
 				ownership: { default: observerOwnership },
 				pages: [pageData],
 			},
-			bridgeWriteOptions(),
+			colonyExternalId,
+			dependencies,
 		);
 		return;
 	}
@@ -256,7 +277,7 @@ async function upsertEntry(
 	);
 	if (!entry) {
 		const folder = await findOrCreateFolder(content.folder, dependencies);
-		await dependencies.journalEntry.create(
+		await createJournalEntry(
 			{
 				flags: externalIdFlag(row.targetKey),
 				folder: folder.id,
@@ -264,7 +285,8 @@ async function upsertEntry(
 				ownership: { default: observerOwnership },
 				pages: [pageData],
 			},
-			bridgeWriteOptions(),
+			row.targetKey,
+			dependencies,
 		);
 		return;
 	}
@@ -304,6 +326,11 @@ function bridgePageOf(entry: FoundryJournalEntry) {
 		: undefined;
 }
 
+function bridgePageShowsText(entry: FoundryJournalEntry): boolean {
+	const content = bridgePageOf(entry)?.text?.content;
+	return typeof content === "string" && content !== "";
+}
+
 /** One write per page that still shows text, so a repeated withdrawal writes only the entries. */
 async function blankBridgePages(entries: FoundryJournalEntry[]): Promise<void> {
 	const pages = entries.flatMap((entry) => {
@@ -311,6 +338,31 @@ async function blankBridgePages(entries: FoundryJournalEntry[]): Promise<void> {
 		return page && page.text?.content !== "" ? [page] : [];
 	});
 	await Promise.all(pages.map((page) => page.update({ "text.content": "" }, bridgeWriteOptions())));
+}
+
+function isWithdrawn(entry: FoundryJournalEntry, gameMasters: Set<string>): boolean {
+	const ownership = entry.ownership ?? {};
+	return (
+		entry.name === withdrawnName &&
+		(ownership.default ?? noneOwnership) <= noneOwnership &&
+		playerGrants(entry, gameMasters).every(
+			(userId) => (ownership[userId] ?? noneOwnership) <= noneOwnership,
+		) &&
+		!bridgePageShowsText(entry)
+	);
+}
+
+/**
+ * A hook can cancel any of a withdrawal's writes and Foundry still resolves, so the entries are read
+ * back: one players could still open or name fails the withdrawal, which is then retried.
+ */
+function requireWithdrawn(entries: FoundryJournalEntry[], gameMasters: Set<string>): void {
+	const shown = entries.filter((entry) => !isWithdrawn(entry, gameMasters)).length;
+	if (shown > 0) {
+		throw new Error(
+			`Foundry didn't hide ${shown} journal ${shown === 1 ? "entry" : "entries"} from players.`,
+		);
+	}
 }
 
 /**
@@ -329,6 +381,7 @@ async function applyWithdraw(row: OutboxRow, dependencies: CoreAdapterDependenci
 		entries.map((entry) => entry.update(withdrawUpdate(entry, gameMasters), bridgeWriteOptions())),
 	);
 	await blankBridgePages(entries);
+	requireWithdrawn(entries, gameMasters);
 }
 
 async function withdrawBridgedEntries(dependencies: CoreAdapterDependencies): Promise<void> {
@@ -342,6 +395,7 @@ async function withdrawBridgedEntries(dependencies: CoreAdapterDependencies): Pr
 		bridgeWriteOptions(),
 	);
 	await blankBridgePages(entries);
+	requireWithdrawn(entries, gameMasters);
 }
 
 async function applyNpcUpsert(
@@ -402,10 +456,13 @@ async function postOnce(
 	if (findPostedMessage(row, dependencies)) {
 		return;
 	}
-	await dependencies.chatMessage.create(
+	const posted = await dependencies.chatMessage.create(
 		{ ...message, flags: externalIdFlag(row.targetKey), speaker: chatSpeaker },
 		bridgeWriteOptions(),
 	);
+	if (!posted) {
+		throw new Error(`Foundry didn't post the ${row.kind} message in chat.`);
+	}
 }
 
 async function applyPollPosted(
@@ -435,9 +492,18 @@ async function applyDelivery(row: OutboxRow, dependencies: CoreAdapterDependenci
 	await postOnce(row, { content: renderDelivery(row.payload) }, dependencies);
 }
 
-async function applyDeliveryUndone(
+/**
+ * Whispers the GMs to remove what an undone payment delivered. Every undone Pay sends this row, so a
+ * world without the delivery's message has nothing to clean up, unless `linesHeldWithoutMessage` (a
+ * system that adds items before posting) finds some of its lines arrived anyway; only those are named.
+ */
+export async function applyDeliveryUndone(
 	row: OutboxRow,
 	dependencies: CoreAdapterDependencies,
+	linesHeldWithoutMessage: (
+		deliveryKey: string,
+		undone: DeliveryUndonePayload,
+	) => DeliveryUndonePayload["items"] = () => [],
 ): Promise<void> {
 	if (!isDeliveryUndonePayload(row.payload)) {
 		throw new Error("The undone delivery's payload wasn't understood.");
@@ -446,8 +512,9 @@ async function applyDeliveryUndone(
 		throw new Error("The undone delivery's target key wasn't understood.");
 	}
 	const deliveryKey = deliveryKeyPrefix + row.targetKey.slice(deliveryUndoneKeyPrefix.length);
-	// Every undone Pay sends this row; a world that never posted the delivery has nothing to clean up.
-	if (!findGameMasterMessage(deliveryKey, dependencies)) {
+	const posted = findGameMasterMessage(deliveryKey, dependencies) !== undefined;
+	const items = posted ? row.payload.items : linesHeldWithoutMessage(deliveryKey, row.payload);
+	if (!posted && items.length === 0) {
 		return;
 	}
 	const gameMasterIds = dependencies.foundryGame.users
@@ -459,7 +526,7 @@ async function applyDeliveryUndone(
 	}
 	await postOnce(
 		row,
-		{ content: renderDeliveryUndone(row.payload), whisper: gameMasterIds },
+		{ content: renderDeliveryUndone({ ...row.payload, items }), whisper: gameMasterIds },
 		dependencies,
 	);
 }

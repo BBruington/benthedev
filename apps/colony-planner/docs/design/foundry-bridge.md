@@ -616,12 +616,14 @@ upsert).
 
 `PairBridge`, after the summary and in the same transaction, writes PLACE_UPSERT for every revealed place,
 then NPC_UPSERT for every revealed NPC, then QUEST_UPSERT for every revealed quest, each in its list's
-order, so an existing campaign shows up whole. NPCs, places and quests have no archive (only patrons and
-market items do), so revealed is the whole filter. The rows are written in three statements whatever
-their number: one `UPDATE ... RETURNING` reserves their consecutive seqs, one `DELETE` takes back the
-waiting rows of their keys, and one `INSERT ... SELECT unnest(...)` writes them in order. Every
-operation's rows are written the same way at the end of its transaction, and its cascades read their
-NPCs and quests with one list query each.
+order, so an existing campaign shows up whole. Before the summary it deletes every unapplied, unfailed
+COLONY_SUMMARY, NPC, place and quest row an earlier link left waiting (one-shot rows stay), since an old
+upsert of a row hidden while unlinked would otherwise show it again after Connect's withdrawal. NPCs,
+places and quests have no archive (only patrons and market items do), so revealed is the whole filter.
+The rows are written in three statements whatever their number: one `UPDATE ... RETURNING` reserves
+their consecutive seqs, one `DELETE` takes back the waiting rows of their keys, and one `INSERT ...
+SELECT unnest(...)` writes them in order. Every operation's rows are written the same way at the end of
+its transaction, and its cascades read their NPCs and quests with one list query each.
 
 - The cap: live state targets are at most 1 + 2,000 NPCs + 1,000 places + 2,000 quests = 5,001
   (`NpcLimit`, `PlaceLimit`, `QuestLimit`), so a backfill always fits under 10,000 and leaves at least
@@ -728,7 +730,9 @@ message last, so chat never names an item that didn't arrive:
    reason. A replay before the message posted (a lost acknowledgement, or a failed post) adds only the
    lines still missing, so no item is added twice; once the message exists nothing more happens.
 
-The module never deletes an item. DELIVERY_UNDONE in PF2e is the core adapter's whisper.
+The module never deletes an item. DELIVERY_UNDONE in PF2e is the core adapter's whisper, which also posts
+when the delivery's message is missing but the party holds items flagged `<targetKey>:<index>` for it
+(step 4's failed post), and then names only those lines.
 
 ### 13.8 Enums and migration
 

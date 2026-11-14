@@ -39,6 +39,7 @@ export interface FakeDocument {
 	data: Record<string, unknown>;
 	getFlag(scope: string, key: string): unknown;
 	id: string;
+	name: string;
 	ownership?: DocumentOwnership;
 	text?: { content?: string | null } | null;
 	update(changes: object, options?: object): Promise<unknown>;
@@ -96,6 +97,8 @@ export interface CompendiumItemOptions {
 export function createFoundryWorld(options: { party?: boolean; users?: FoundryUser[] } = {}) {
 	const writes: RecordedWrite[] = [];
 	const failNext = new Set<WriteKind>();
+	// A hook returning false cancels a write: Foundry resolves with nothing instead of throwing.
+	const cancelNext = new Set<WriteKind>();
 	const entries: FakeEntry[] = [];
 	const folders: FakeDocument[] = [];
 	const messages: FakeDocument[] = [];
@@ -108,9 +111,13 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 	];
 	let nextId = 1;
 
-	function write(kind: WriteKind, target: string, data: unknown, writeOptions?: object): void {
+	/** Records the write, or reports a cancelled one by returning false. */
+	function write(kind: WriteKind, target: string, data: unknown, writeOptions?: object): boolean {
 		if (failNext.delete(kind)) {
 			throw new Error(`Foundry refused the ${kind}.`);
+		}
+		if (cancelNext.delete(kind)) {
+			return false;
 		}
 		writes.push({
 			data: structuredClone(data),
@@ -121,6 +128,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		});
 		// Foundry's Document API writes into the options object it was given.
 		Object.assign(writeOptions ?? {}, { parent: target, render: true });
+		return true;
 	}
 
 	const actingGm = users.find((user) => user.isGM) ?? null;
@@ -150,6 +158,9 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 			data: state,
 			getFlag: (scope, key) => readField(readField(state.flags, scope), key),
 			id,
+			get name() {
+				return typeof state.name === "string" ? state.name : "";
+			},
 			get ownership() {
 				return numbers(state.ownership);
 			},
@@ -161,7 +172,9 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 			},
 			update: (changes, writeOptions) => {
 				try {
-					write(kind, id, changes, writeOptions);
+					if (!write(kind, id, changes, writeOptions)) {
+						return Promise.resolve(undefined);
+					}
 				} catch (error) {
 					return Promise.reject(error);
 				}
@@ -180,12 +193,15 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		const embedded: Pick<FakeEntry, "createEmbeddedDocuments" | "pageList" | "pages"> = {
 			createEmbeddedDocuments: (_name, pageData, writeOptions) => {
 				try {
-					write("page create", document.id, pageData, writeOptions);
+					if (!write("page create", document.id, pageData, writeOptions)) {
+						return Promise.resolve([]);
+					}
 				} catch (error) {
 					return Promise.reject(error);
 				}
-				pageList.push(...pageData.map((page) => fakeDocument("page update", page)));
-				return Promise.resolve([]);
+				const created = pageData.map((page) => fakeDocument("page update", page));
+				pageList.push(...created);
+				return Promise.resolve(created);
 			},
 			pageList,
 			pages: collection<FoundryJournalPage>(pageList),
@@ -200,9 +216,11 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		writeOptions: object | undefined,
 		make: (data: object) => Document,
 		list: Document[],
-	): Promise<Document> {
+	): Promise<Document | undefined> {
 		try {
-			write(kind, "world", data, writeOptions);
+			if (!write(kind, "world", data, writeOptions)) {
+				return Promise.resolve(undefined);
+			}
 		} catch (error) {
 			return Promise.reject(error);
 		}
@@ -214,12 +232,15 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 	const party: FoundryPartyActor = {
 		createEmbeddedDocuments: (_name, itemData, writeOptions) => {
 			try {
-				write("items create", "party", itemData, writeOptions);
+				if (!write("items create", "party", itemData, writeOptions)) {
+					return Promise.resolve([]);
+				}
 			} catch (error) {
 				return Promise.reject(error);
 			}
-			partyItems.push(...itemData.map((item) => fakeDocument("entry update", item)));
-			return Promise.resolve([]);
+			const created = itemData.map((item) => fakeDocument("entry update", item));
+			partyItems.push(...created);
+			return Promise.resolve(created);
 		},
 		items: collection<FakeDocument>(partyItems),
 		name: "The <Wardens>",
@@ -268,17 +289,21 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 				createDocument("entry create", data, writeOptions, fakeEntry, entries),
 			updateDocuments: (updates, writeOptions) => {
 				try {
-					write("entries update", "journal", updates, writeOptions);
+					if (!write("entries update", "journal", updates, writeOptions)) {
+						return Promise.resolve([]);
+					}
 				} catch (error) {
 					return Promise.reject(error);
 				}
-				for (const update of updates) {
+				const updated = updates.flatMap((update) => {
 					const entry = entries.find((candidate) => candidate.id === readField(update, "_id"));
-					if (entry) {
-						mergeInto(entry.data, withoutKey(update, "_id"));
+					if (!entry) {
+						return [];
 					}
-				}
-				return Promise.resolve([]);
+					mergeInto(entry.data, withoutKey(update, "_id"));
+					return [entry];
+				});
+				return Promise.resolve(updated);
 			},
 		},
 		moveClockWithColonyDays: () => false,
@@ -325,6 +350,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 			messages.push(message);
 			return message;
 		},
+		cancelNext,
 		dependencies,
 		entries,
 		entryFor: (externalId: string) =>

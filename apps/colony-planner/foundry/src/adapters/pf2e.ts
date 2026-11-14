@@ -3,12 +3,14 @@ import { escapeHtml } from "../html";
 import {
 	type DeliveryItem,
 	type DeliveryPayload,
+	type DeliveryUndonePayload,
 	isDeliveryPayload,
 	type OutboxRow,
 	readField,
 } from "../wire";
 import type { BridgeAdapter } from "./adapter";
 import {
+	applyDeliveryUndone,
 	bridgeWriteOptions,
 	type CoreAdapterDependencies,
 	chatSpeaker,
@@ -34,7 +36,14 @@ export function createPf2eAdapter(dependencies: Pf2eAdapterDependencies): Bridge
 	const core = createCoreAdapter(dependencies);
 	return {
 		...core,
-		appliers: { ...core.appliers, DELIVERY: (row) => applyDelivery(row, dependencies) },
+		appliers: {
+			...core.appliers,
+			DELIVERY: (row) => applyDelivery(row, dependencies),
+			DELIVERY_UNDONE: (row) =>
+				applyDeliveryUndone(row, dependencies, (deliveryKey, undone) =>
+					partyHeldUndoneLines(deliveryKey, undone, dependencies),
+				),
+		},
 		name: "pf2e",
 	};
 }
@@ -69,8 +78,28 @@ async function resolveItem(
 	}
 }
 
-function lineExternalId(row: OutboxRow, index: number): string {
+function lineExternalId(row: Pick<OutboxRow, "targetKey">, index: number): string {
 	return `${row.targetKey}:${index}`;
+}
+
+/**
+ * The items go first and the message last, so a delivery whose message never posted can still have
+ * put lines in the party's inventory: those are what an undone payment asks the GMs to remove.
+ */
+function partyHeldUndoneLines(
+	deliveryKey: string,
+	undone: DeliveryUndonePayload,
+	dependencies: Pf2eAdapterDependencies,
+): DeliveryUndonePayload["items"] {
+	const party = dependencies.foundryGame.actors.party;
+	if (!party) {
+		return [];
+	}
+	return undone.items.filter((_line, index) =>
+		party.items.find((item) =>
+			hasExternalId(item, lineExternalId({ targetKey: deliveryKey }, index)),
+		),
+	);
 }
 
 function shallowCopy(value: unknown): Record<string, unknown> {

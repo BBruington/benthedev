@@ -6,6 +6,7 @@ import {
 } from "../testing/foundry-world";
 import { type OutboxRow, readField } from "../wire";
 import { selectAdapter } from "./adapter";
+import { createCoreAdapter } from "./core";
 import { createPf2eAdapter } from "./pf2e";
 
 const ropeUuid = "Compendium.pf2e.equipment-srd.Item.abcdefghij123456";
@@ -248,6 +249,41 @@ describe("PF2e DELIVERY", () => {
 		});
 		expect(world.messages).toEqual([]);
 		expect(world.writes).toEqual([]);
+	});
+
+	test("DELIVERY_UNDONE whose DELIVERY added items but never posted whispers the GMs naming only those items", async () => {
+		const world = worldWithCompendium();
+		world.failNext.add("chat create");
+		await expect(applyDelivery(world)).rejects.toThrow("Foundry refused the chat create.");
+		expect(world.messages).toEqual([]);
+		await createPf2eAdapter(world.dependencies).appliers.DELIVERY_UNDONE?.({
+			kind: "DELIVERY_UNDONE",
+			payload: {
+				items: delivery.items.map(({ name, quantity }) => ({ name, quantity })),
+				summary: delivery.summary,
+			},
+			seq: 5,
+			targetKey: "delivery-undone:9",
+		});
+		expect(world.partyItems).toHaveLength(2);
+		expect(world.messages).toHaveLength(1);
+		expect(world.messages[0]?.data.whisper).toEqual(["gm-1", "gm-2"]);
+		expect(world.messages[0]?.data.content).toBe(
+			"<p><strong>A payment was undone on Colony Planner:</strong> 20 food, Rope, Boots &lt;of Striding&gt;</p><p>If any of these reached the party, remove them by hand:</p><ul><li>Rope (3)</li><li>Torch (10)</li></ul>",
+		);
+	});
+
+	test("the core adapter's DELIVERY_UNDONE ignores party items and needs the delivery's message", async () => {
+		const world = worldWithCompendium();
+		world.failNext.add("chat create");
+		await expect(applyDelivery(world)).rejects.toThrow("Foundry refused the chat create.");
+		await createCoreAdapter(world.dependencies).appliers.DELIVERY_UNDONE?.({
+			kind: "DELIVERY_UNDONE",
+			payload: { items: [{ name: "Rope", quantity: 3 }], summary: "Rope" },
+			seq: 5,
+			targetKey: "delivery-undone:9",
+		});
+		expect(world.messages).toEqual([]);
 	});
 
 	test("a payload of the wrong shape fails the row", async () => {

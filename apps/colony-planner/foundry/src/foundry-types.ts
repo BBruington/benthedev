@@ -63,11 +63,13 @@ export interface FoundryJournalPage extends FlaggedDocument {
 
 export interface FoundryJournalEntry extends OwnedDocument {
 	id: string;
+	/** The documents made; a hook that cancels the create leaves them out. */
 	createEmbeddedDocuments(
 		embeddedName: "JournalEntryPage",
 		data: object[],
 		options?: object,
-	): Promise<unknown>;
+	): Promise<unknown[]>;
+	name: string;
 	pages: FoundryCollection<FoundryJournalPage>;
 	update(data: object, options?: object): Promise<unknown>;
 }
@@ -129,6 +131,7 @@ export interface FoundryNotifications {
 }
 
 export interface DocumentClass<Document> {
+	/** Undefined when a hook cancels the create. */
 	create(data: object, options?: object): Promise<Document | undefined>;
 }
 

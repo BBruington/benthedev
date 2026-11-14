@@ -62,9 +62,10 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 			...flagged(externalId),
 			createEmbeddedDocuments: (_name, data, writeOptions) => {
 				writes.push({ data: data[0] ?? {}, options: writeOptions, target: "new page" });
-				return Promise.resolve([]);
+				return Promise.resolve([fakePage(externalId, "Colony")]);
 			},
 			id: `entry-${externalId}`,
+			name: "Colony",
 			pages: {
 				filter: (predicate) => pages.filter(predicate),
 				find: (predicate) => pages.find(predicate),
@@ -113,7 +114,7 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 		journalEntry: {
 			create: (data, writeOptions) => {
 				writes.push({ data, options: writeOptions, target: "new entry" });
-				return Promise.resolve(undefined);
+				return Promise.resolve(fakeEntry("colony", []));
 			},
 			updateDocuments: () => Promise.resolve([]),
 		},

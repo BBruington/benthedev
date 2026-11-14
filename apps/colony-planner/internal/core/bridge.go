@@ -400,6 +400,9 @@ func (service *Service) PairBridge(requestContext context.Context, origin string
 			return campaignGone(err)
 		}
 		campaignName = header.CampaignName
+		if _, err := queries.DeleteUnappliedBridgeOutboxKinds(requestContext, store.DeleteUnappliedBridgeOutboxKindsParams{CampaignID: campaignID, Kinds: bridgeBackfilledKinds}); err != nil {
+			return err
+		}
 		if _, err := service.enqueueColonySummary(requestContext, queries, campaignID); err != nil {
 			return err
 		}

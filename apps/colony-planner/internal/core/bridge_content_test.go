@@ -438,6 +438,36 @@ func TestPairingBackfillsEveryRevealedRow(t *testing.T) {
 	}
 }
 
+// An upsert an earlier link left waiting would show a row hidden while unlinked again, after the
+// connect-time withdrawal; pairing drops it and keeps the one-shot rows.
+func TestPairingDropsAnEarlierLinksWaitingStateRows(t *testing.T) {
+	test := newColonyTest(t)
+	_, caller := test.pairBridge()
+	test.drain(caller)
+	vault := test.place("Vault", true)
+	poll := test.poll(false, 24, "North field", "River bend")
+	if err := test.service.RevokeBridge(test.context, test.dm); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := test.service.SetPlaceRevealed(test.context, test.dm, vault.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	_, caller = test.pairBridge()
+	rows := test.drain(caller)
+	requireRows(t, "pairing again", rows, "POLL_POSTED poll:"+poll.ID.String()+":posted")
+	requireNoText(t, rows, "Vault", vault.ID.String())
+	summaries := 0
+	for _, row := range rows {
+		if row.Kind == core.BridgeOutboxKindColonySummary {
+			summaries++
+		}
+	}
+	if summaries != 1 {
+		t.Fatalf("pairing again left %d colony summaries waiting", summaries)
+	}
+}
+
 // Past the cap only one-shot rows go: a trimmed state row would lose its target until it next changed.
 func TestTheOutboxCapTrimsOnlyOneShotRows(t *testing.T) {
 	test := newColonyTest(t)

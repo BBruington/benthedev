@@ -40,6 +40,18 @@ var bridgeOneShotKinds = []string{
 	string(BridgeOutboxKindPollClosed),
 }
 
+// bridgeBackfilledKinds are the state kinds pairing sends again whole, so an earlier link's waiting
+// rows of them are dropped first: one queued for a row hidden since would show it again.
+var bridgeBackfilledKinds = []string{
+	string(BridgeOutboxKindColonySummary),
+	string(BridgeOutboxKindNpcUpsert),
+	string(BridgeOutboxKindNpcWithdraw),
+	string(BridgeOutboxKindPlaceUpsert),
+	string(BridgeOutboxKindPlaceWithdraw),
+	string(BridgeOutboxKindQuestUpsert),
+	string(BridgeOutboxKindQuestWithdraw),
+}
+
 // bridgeWithdrawal is a withdraw kind's payload: it doesn't say whether the row was hidden or deleted.
 type bridgeWithdrawal struct{}
 

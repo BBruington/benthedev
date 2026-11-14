@@ -307,6 +307,24 @@ func (q *Queries) DecideBridgeEvent(ctx context.Context, arg DecideBridgeEventPa
 	return result.RowsAffected(), nil
 }
 
+const deleteUnappliedBridgeOutboxKinds = `-- name: DeleteUnappliedBridgeOutboxKinds :execrows
+DELETE FROM bridge_outbox
+WHERE campaign_id = $1 AND kind::text = ANY($2::text[]) AND applied_at IS NULL AND failed_at IS NULL
+`
+
+type DeleteUnappliedBridgeOutboxKindsParams struct {
+	CampaignID uuid.UUID
+	Kinds      []string
+}
+
+func (q *Queries) DeleteUnappliedBridgeOutboxKinds(ctx context.Context, arg DeleteUnappliedBridgeOutboxKindsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUnappliedBridgeOutboxKinds, arg.CampaignID, arg.Kinds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteUnappliedBridgeOutboxTarget = `-- name: DeleteUnappliedBridgeOutboxTarget :execrows
 DELETE FROM bridge_outbox
 WHERE campaign_id = $1 AND target_key = $2 AND applied_at IS NULL AND failed_at IS NULL

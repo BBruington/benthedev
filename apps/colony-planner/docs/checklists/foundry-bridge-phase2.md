@@ -51,9 +51,10 @@ Cmd+Option+J in Chrome, and Cmd+Option+I then Console in Foundry's own app.
      the entry is still in your Journal.
    - [ ] An NPC whose current place is that place shows "Now at" with the new name, and after hiding the
      place it no longer names it.
-7. **A quest.** Reveal a quest, then **Complete** it, then reopen it and **Fail** it.
-   - [ ] It appears in "Colony Quests". After Complete the entry shows Status "Completed" and the day
-     under Resolved. After Fail it shows "Failed".
+7. **Two quests.** Reveal two active quests, then **Complete** the first and **Fail** the second. A
+   completed quest can't be failed or reopened, so the failure needs its own quest.
+   - [ ] Both appear in "Colony Quests". The completed one's entry shows Status "Completed" and the day
+     under Resolved. The failed one's shows "Failed".
    - [ ] No failure cost, no failure favor and no DM notes appear in the entry, even after failing.
    - [ ] Hide it: the player cannot open it, and you still can.
 8. **A hidden giver.** Make a quest revealed whose giver is a hidden NPC.
@@ -112,7 +113,8 @@ NPCs, places and quests.
    - [ ] A known-name change updates the entry, the true name is never shown, and hiding keeps the entry
      for you while the player loses it.
 3. **Place, quest, hidden giver.** Part B steps 6 to 8.
-   - [ ] Quest status shows; no failure cost or DM notes; a hidden giver is never named.
+   - [ ] Quest status shows on a completed quest and on a second, failed one; no failure cost or DM
+     notes; a hidden giver is never named.
 4. **Game night and polls.** Part B steps 9 to 11.
    - [ ] The Colony page shows the next game night; a poll opening posts a chat message; closing posts
      counts naming no winner.

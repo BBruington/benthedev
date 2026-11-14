@@ -173,6 +173,23 @@ describe.each([
 		expect(readField(entry?.pageList[1]?.data.text, "content")).toBe("Plans");
 	});
 
+	test.each(["entry update", "page update"] as const)(
+		"a withdraw whose %s a hook cancels fails, and its replay hides the entry",
+		async (cancelled) => {
+			const world = createFoundryWorld();
+			await apply(world, row(upsertKind, targetKey, payload));
+			await world.entryFor(targetKey)?.update({ "ownership.player-1": 2 });
+			world.cancelNext.add(cancelled);
+			await expect(apply(world, row(withdrawKind, targetKey, {}, 2))).rejects.toThrow(
+				"Foundry didn't hide 1 journal entry from players.",
+			);
+			await apply(world, row(withdrawKind, targetKey, {}, 2));
+			expect(world.entryFor(targetKey)?.data.ownership).toEqual({ default: 0, "player-1": 0 });
+			expect(world.entryFor(targetKey)?.data.name).toBe("Hidden on Colony Planner");
+			expect(bridgePageContent(world, targetKey)).toBe("");
+		},
+	);
+
 	test("a withdraw of an entry Foundry never had succeeds and writes nothing", async () => {
 		const world = createFoundryWorld();
 		await apply(world, row(withdrawKind, targetKey, {}));
@@ -267,6 +284,50 @@ describe("partial failures finish on replay", () => {
 	});
 });
 
+describe("creates a hook cancels", () => {
+	test("an upsert whose entry create is cancelled fails, and its replay makes the entry", async () => {
+		const world = createFoundryWorld();
+		world.cancelNext.add("entry create");
+		await expect(apply(world, row("NPC_UPSERT", "npc:1", npc))).rejects.toThrow(
+			"Foundry didn't make the journal entry for npc:1.",
+		);
+		expect(world.entries).toEqual([]);
+		await apply(world, row("NPC_UPSERT", "npc:1", npc));
+		expect(world.entryFor("npc:1")?.data.name).toBe("Brenna <Ironhand>");
+	});
+
+	test("an upsert whose bridge page create is cancelled fails, and its replay adds the page", async () => {
+		const world = createFoundryWorld();
+		world.addEntry({ flags: { "colony-bridge": { externalId: "place:2" } }, name: "Old Tower" });
+		world.cancelNext.add("page create");
+		await expect(apply(world, row("PLACE_UPSERT", "place:2", place))).rejects.toThrow(
+			"Foundry didn't add the Colony Planner page.",
+		);
+		await apply(world, row("PLACE_UPSERT", "place:2", place));
+		expect(bridgePageContent(world, "place:2")).toContain("A ruined tower.");
+	});
+
+	test("the colony summary whose entry create is cancelled fails", async () => {
+		const world = createFoundryWorld();
+		world.cancelNext.add("entry create");
+		await expect(
+			apply(
+				world,
+				row("COLONY_SUMMARY", "colony", {
+					campaignName: "Port Eldari",
+					day: 22,
+					nextGoodsShipDay: null,
+					nextShipmentDay: null,
+					resources: [],
+					siteUrl: "https://colony.benthedev.com/c/port-eldari",
+					workforce: [],
+				}),
+			),
+		).rejects.toThrow("Foundry didn't make the journal entry for colony.");
+		expect(world.entries).toEqual([]);
+	});
+});
+
 describe("withdrawBridgedEntries", () => {
 	test("withdraws every NPC, place and quest entry in one write, and leaves the rest", async () => {
 		const world = createFoundryWorld();
@@ -309,6 +370,26 @@ describe("withdrawBridgedEntries", () => {
 		expect(ownership(world, "npc:1")).toBe(2);
 		expect(world.entryFor("npc:1")?.data.name).toBe("Brenna <Ironhand>");
 	});
+
+	test.each(["entries update", "page update"] as const)(
+		"fails when a hook cancels its %s, and its retry hides every entry",
+		async (cancelled) => {
+			const world = createFoundryWorld();
+			await apply(world, row("NPC_UPSERT", "npc:1", npc));
+			await apply(world, row("PLACE_UPSERT", "place:2", place));
+			world.cancelNext.add(cancelled);
+			await expect(adapterFor(world).withdrawBridgedEntries()).rejects.toThrow(
+				"Foundry didn't hide",
+			);
+			await adapterFor(world).withdrawBridgedEntries();
+			expect(world.entries.map((entry) => entry.data.name)).toEqual([
+				"Hidden on Colony Planner",
+				"Hidden on Colony Planner",
+			]);
+			expect(bridgePageContent(world, "npc:1")).toBe("");
+			expect(bridgePageContent(world, "place:2")).toBe("");
+		},
+	);
 
 	test("writes nothing when the bridge made no entries", async () => {
 		const world = createFoundryWorld();
@@ -558,6 +639,23 @@ describe("chat kinds", () => {
 			"payload wasn't understood",
 		);
 		expect(world.messages).toEqual([]);
+	});
+
+	test.each([
+		["POLL_POSTED", "poll:5:posted", pollPosted],
+		["POLL_CLOSED", "poll:5:closed", pollClosed],
+		["DELIVERY", "delivery:9", delivery],
+		["DELIVERY_UNDONE", "delivery-undone:9", deliveryUndone],
+	])("%s whose post a hook cancels fails, and its retry posts once", async (kind, key, payload) => {
+		const world = kind === "DELIVERY_UNDONE" ? await worldWithDelivery() : createFoundryWorld();
+		const before = world.messages.length;
+		world.cancelNext.add("chat create");
+		await expect(apply(world, row(kind, key, payload, 2))).rejects.toThrow(
+			`Foundry didn't post the ${kind} message in chat.`,
+		);
+		expect(world.messages).toHaveLength(before);
+		await apply(world, row(kind, key, payload, 2));
+		expect(world.messages).toHaveLength(before + 1);
 	});
 });
 

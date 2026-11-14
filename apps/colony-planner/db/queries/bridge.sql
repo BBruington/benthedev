@@ -88,6 +88,10 @@ RETURNING outbox_seq;
 DELETE FROM bridge_outbox
 WHERE campaign_id = @campaign_id AND target_key = ANY(@target_keys::text[]) AND applied_at IS NULL AND failed_at IS NULL;
 
+-- name: DeleteUnappliedBridgeOutboxKinds :execrows
+DELETE FROM bridge_outbox
+WHERE campaign_id = @campaign_id AND kind::text = ANY(@kinds::text[]) AND applied_at IS NULL AND failed_at IS NULL;
+
 -- name: CreateBridgeOutboxRows :exec
 INSERT INTO bridge_outbox (campaign_id, seq, kind, target_key, payload, created_at)
 SELECT @campaign_id, unnest(@seqs::bigint[]), unnest(@kinds::text[])::bridge_outbox_kind,
