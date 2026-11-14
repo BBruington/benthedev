@@ -199,10 +199,12 @@ function FoundryBridge() {
 		onError: (error) => {
 			toast.error(problemMessage(error, "A code couldn't be made. Try again."));
 		},
-		onSuccess: (code) => {
+		// The card shows the code only while the status names it as the open code, so the status is
+		// read again first; the button says "Making a code…" until both are in.
+		onSuccess: async (code) => {
+			await queryClient.invalidateQueries({ queryKey: bridgeStatusQuery(campaignId).queryKey });
 			setNow(Date.now());
 			setPairingCode(code);
-			queryClient.invalidateQueries({ queryKey: bridgeStatusQuery(campaignId).queryKey });
 		},
 	});
 	const disconnect = api.useMutation("delete", "/api/campaigns/{campaignId}/bridge", {

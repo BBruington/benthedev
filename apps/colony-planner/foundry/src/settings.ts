@@ -13,13 +13,25 @@ export interface BridgeSettings {
 	bridgeEnabled(): boolean;
 	campaignName(): string;
 	lastReportedDay(): number | undefined;
+	/** The Foundry world the link was paired in; "" for none, and for a link saved by 0.1.1. */
+	linkedWorldId(): string;
 	moveClockWithColonyDays(): boolean;
 	pendingEvents(): InboundEvent[];
 	saveAcknowledgedThrough(seq: number): Promise<unknown>;
 	saveLastReportedDay(day: number): Promise<unknown>;
-	saveLink(link: { campaignName: string; token: string }): Promise<unknown>;
+	saveLink(link: BridgeLink): Promise<unknown>;
 	savePendingEvents(events: InboundEvent[]): Promise<unknown>;
 	token(): string;
+}
+
+/**
+ * A link as this browser stores it. Client settings are shared by every world this browser opens on
+ * the same Foundry server, so the link names its world and other worlds treat it as absent.
+ */
+export interface BridgeLink {
+	campaignName: string;
+	token: string;
+	worldId: string;
 }
 
 export function registerSettings(
@@ -61,6 +73,12 @@ export function registerSettings(
 		scope: "client",
 		type: String,
 	});
+	settings.register(moduleId, "worldId", {
+		config: false,
+		default: "",
+		scope: "client",
+		type: String,
+	});
 	settings.register(moduleId, "outboxCursor", {
 		config: false,
 		default: 0,
@@ -83,6 +101,7 @@ export function createBridgeSettings(settings: FoundrySettings): BridgeSettings 
 		bridgeEnabled: () => read("enabled") === true,
 		campaignName: () => readString(read("campaignName")),
 		lastReportedDay: () => readNumber(readField(read("timeTracker"), "day")),
+		linkedWorldId: () => readString(read("worldId")),
 		moveClockWithColonyDays: () => read("moveClock") === true,
 		pendingEvents: () => {
 			const events = readField(read("pendingEvents"), "events");
@@ -90,12 +109,15 @@ export function createBridgeSettings(settings: FoundrySettings): BridgeSettings 
 		},
 		saveAcknowledgedThrough: (seq) => write("outboxCursor", seq),
 		saveLastReportedDay: (day) => write("timeTracker", { day }),
-		// The cursor and the queue restart with every link: a new link may belong to another campaign,
-		// whose seq numbers are its own.
+		// The cursor and the queue restart with every link: a new link may belong to another campaign or
+		// world, whose seq numbers and events are its own. The old token goes first and the new one last,
+		// so no token is ever stored beside another link's world.
 		saveLink: async (link) => {
+			await write("token", "");
 			await write("outboxCursor", 0);
 			await write("pendingEvents", { events: [] });
 			await write("campaignName", link.campaignName);
+			await write("worldId", link.worldId);
 			await write("token", link.token);
 		},
 		savePendingEvents: (events) => write("pendingEvents", { events }),

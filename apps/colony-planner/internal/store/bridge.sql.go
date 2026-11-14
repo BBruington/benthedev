@@ -32,23 +32,6 @@ func (q *Queries) ApplyBridgeOutboxThrough(ctx context.Context, arg ApplyBridgeO
 	return result.RowsAffected(), nil
 }
 
-const bridgeOriginLinked = `-- name: BridgeOriginLinked :one
-SELECT EXISTS (
-    SELECT 1 FROM bridge_link
-    JOIN campaign ON campaign.id = bridge_link.campaign_id
-    WHERE bridge_link.origin = $1 AND bridge_link.revoked_at IS NULL AND campaign.status = 'ACTIVE'
-)
-`
-
-// A preflight carries no token, so it is answered for any origin of an active link; it reads no content.
-// unscoped: a browser's preflight names only its origin
-func (q *Queries) BridgeOriginLinked(ctx context.Context, origin string) (bool, error) {
-	row := q.db.QueryRow(ctx, bridgeOriginLinked, origin)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const campaignBridgeOutboxSeq = `-- name: CampaignBridgeOutboxSeq :one
 SELECT coalesce(max(outbox_seq), 0)::bigint FROM bridge_link WHERE campaign_id = $1
 `
@@ -391,8 +374,8 @@ type GetBridgeLinkByTokenHashRow struct {
 }
 
 // The Foundry bridge (docs/design/foundry-bridge.md): links, pairing codes, the outbox and inbound
-// events. Three reads find a campaign without knowing it first: the token, the pairing code and a
-// browser's preflight origin. Every instant comes from core's clock as @now.
+// events. Two reads find a campaign without knowing it first: the token and the pairing code. Every
+// instant comes from core's clock as @now.
 // EnterBridge: a live token of an ACTIVE campaign; a revoked one or a paused campaign's reads as unknown.
 // unscoped: bridge token lookup
 func (q *Queries) GetBridgeLinkByTokenHash(ctx context.Context, tokenHash []byte) (GetBridgeLinkByTokenHashRow, error) {
@@ -612,7 +595,7 @@ func (q *Queries) NextBridgeOutboxSeq(ctx context.Context, campaignID uuid.UUID)
 
 const pruneBridgeEvents = `-- name: PruneBridgeEvents :exec
 DELETE FROM bridge_event
-WHERE campaign_id = $1 AND status <> 'PENDING' AND received_at < $2::timestamptz
+WHERE campaign_id = $1 AND status <> 'PENDING' AND coalesce(decided_at, received_at) < $2::timestamptz
 `
 
 type PruneBridgeEventsParams struct {
@@ -620,7 +603,8 @@ type PruneBridgeEventsParams struct {
 	Before     time.Time
 }
 
-// Pending items wait for the DM however old they are; decided ones are kept only to ignore repeats.
+// Pending items wait for the DM however old they are; decided ones are kept 30 days past the decision
+// only to ignore repeats. A STATUS row is decided on arrival, so it has no decided_at.
 func (q *Queries) PruneBridgeEvents(ctx context.Context, arg PruneBridgeEventsParams) error {
 	_, err := q.db.Exec(ctx, pruneBridgeEvents, arg.CampaignID, arg.Before)
 	return err
@@ -759,7 +743,7 @@ DELETE FROM bridge_event
 WHERE bridge_event.campaign_id = $1 AND bridge_event.id IN (
     SELECT decided.id FROM bridge_event AS decided
     WHERE decided.campaign_id = $1 AND decided.status <> 'PENDING'
-    ORDER BY decided.received_at DESC, decided.id DESC
+    ORDER BY coalesce(decided.decided_at, decided.received_at) DESC, decided.id DESC
     OFFSET $2::integer
 )
 `

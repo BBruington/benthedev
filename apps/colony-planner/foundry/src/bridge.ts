@@ -92,6 +92,14 @@ export function createBridge(options: {
 		notifyListeners();
 	}
 
+	/**
+	 * This world's token, or "" when the stored link belongs to another world on this Foundry server
+	 * (client settings are shared by every world a browser opens there) or names no world (0.1.1).
+	 */
+	function linkToken(): string {
+		return settings.linkedWorldId() === foundryGame.world.id ? settings.token() : "";
+	}
+
 	function condition(): BridgeCondition {
 		if (!settings.bridgeEnabled()) {
 			return "turned-off";
@@ -102,7 +110,7 @@ export function createBridge(options: {
 		if (needsNewCode) {
 			return "needs-new-code";
 		}
-		if (!settings.token()) {
+		if (!linkToken()) {
 			return "not-linked";
 		}
 		if (!isActiveGm(foundryGame)) {
@@ -120,7 +128,7 @@ export function createBridge(options: {
 		notifications.error(
 			"Colony Bridge: Colony Planner ended this world's link. Make a new code on Colony Planner's Settings and connect again.",
 		);
-		settings.saveLink({ campaignName: "", token: "" }).catch(recordProblem);
+		settings.saveLink({ campaignName: "", token: "", worldId: "" }).catch(recordProblem);
 		notifyListeners();
 	}
 
@@ -143,7 +151,7 @@ export function createBridge(options: {
 			onUnauthorized: handleUnauthorized,
 			origin: colonyOrigin,
 			signal,
-			token: settings.token(),
+			token: linkToken(),
 		});
 		const queue = createEventQueue({
 			onDropped: (reason) =>
@@ -241,7 +249,7 @@ export function createBridge(options: {
 		async forgetLink() {
 			stopSession();
 			needsNewCode = false;
-			await settings.saveLink({ campaignName: "", token: "" });
+			await settings.saveLink({ campaignName: "", token: "", worldId: "" });
 			evaluate();
 		},
 		observeWorldTime(worldTime, updateOptions) {
@@ -257,15 +265,15 @@ export function createBridge(options: {
 			pairing = false;
 			needsNewCode = false;
 			lastProblem = undefined;
-			await settings.saveLink(link);
+			await settings.saveLink({ ...link, worldId: foundryGame.world.id });
 			evaluate();
 		},
 		status: () => ({
-			campaignName: settings.campaignName(),
+			campaignName: linkToken() ? settings.campaignName() : "",
 			condition: condition(),
 			connection,
 			lastProblem,
-			linked: settings.token() !== "",
+			linked: linkToken() !== "",
 		}),
 		subscribe(listener) {
 			listeners.add(listener);

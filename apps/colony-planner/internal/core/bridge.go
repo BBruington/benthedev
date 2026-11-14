@@ -241,15 +241,6 @@ func (service *Service) BridgeOriginAllowed(origin string) bool {
 	return bridgeForgeOrigin.MatchString(origin) || (service.allowLocalFoundryOrigin && origin == bridgeLocalOrigin)
 }
 
-// BridgeOriginLinked answers a bridge preflight, which carries no token: does an active link of an
-// ACTIVE campaign have this origin?
-func (service *Service) BridgeOriginLinked(requestContext context.Context, origin string) (bool, error) {
-	if !service.BridgeOriginAllowed(origin) {
-		return false, nil
-	}
-	return service.queries.BridgeOriginLinked(requestContext, origin)
-}
-
 // EnterBridge is the one way to a BridgeCaller: one indexed read of the token's live link in an ACTIVE
 // campaign. The link's last contact day is written at most once a day (Invariant 9).
 func (service *Service) EnterBridge(requestContext context.Context, token string) (BridgeCaller, error) {
@@ -932,6 +923,9 @@ func (service *Service) SubscribeBridge(requestContext context.Context, caller B
 		return nil, err
 	}
 	subscription := service.broker.subscribeBridge(caller.campaignID)
+	if subscription == nil {
+		return nil, ErrBridgeUnauthorized
+	}
 	// A revoke between EnterBridge and the subscription would otherwise miss closing this stream.
 	link, err := service.queries.GetActiveBridgeLink(requestContext, caller.campaignID)
 	if err != nil || link.ID != caller.linkID {

@@ -224,7 +224,7 @@ func TestEveryQueryIsCampaignScoped(t *testing.T) {
 		}
 	}
 	slices.Sort(unscopedNames)
-	expected := []string{"BridgeOriginLinked", "CampaignByIcsToken", "CampaignByInviteCode", "ClaimBridgePairingCode", "GetBridgeLinkByTokenHash", "ListCampaignsForOwner", "ListMembershipsForAccount", "ListPlannerCampaigns", "ViewerForGuild"}
+	expected := []string{"CampaignByIcsToken", "CampaignByInviteCode", "ClaimBridgePairingCode", "GetBridgeLinkByTokenHash", "ListCampaignsForOwner", "ListMembershipsForAccount", "ListPlannerCampaigns", "ViewerForGuild"}
 	if !slices.Equal(unscopedNames, expected) {
 		t.Errorf("unscoped queries = %v, want %v; a new one needs a reviewed reason and a line here", unscopedNames, expected)
 	}

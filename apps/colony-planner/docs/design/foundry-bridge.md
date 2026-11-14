@@ -127,10 +127,10 @@ For `/api/bridge/*`:
 
 ### 3.3 Browser rules the Go side needs
 
-- **CORS** only on `/api/bridge/*`. The preflight (`OPTIONS`) carries no token, so it answers for any
-  origin that belongs to an active link (one indexed read; `Access-Control-Max-Age: 7200`). The real
-  response echoes `Access-Control-Allow-Origin` only when the request's `Origin` equals **that token's**
-  link origin, with `Vary: Origin`, `Allow-Headers: Authorization, Content-Type`, and no
+- **CORS** only on `/api/bridge/*`. The preflight (`OPTIONS`, `Access-Control-Max-Age: 7200`) carries no
+  token and the 401 says nothing, so both answer any origin allowed to pair (§3.1), which lets a revoked
+  or replaced link's module read its 401 and ask the GM to reconnect. Any other real response echoes
+  `Access-Control-Allow-Origin` only when the request's `Origin` equals **that token's** link origin, with `Vary: Origin`, `Allow-Headers: Authorization, Content-Type`, and no
   `Allow-Credentials`. Never `*.forge-vtt.com`: every Forge customer runs their own JavaScript on their own
   subdomain.
 - **CrossOriginProtection** rejects cross-site POSTs, so `/api/bridge/` gets

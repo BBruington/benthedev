@@ -5,11 +5,15 @@ import { jsonResponse } from "./testing/fakes";
 
 const origin = "https://colony.benthedev.com";
 
-function attempt(code: string, fetchFunction: Fetch, colonyOrigin: string | undefined = origin) {
+function attempt(
+	code: string,
+	fetchFunction: Fetch,
+	address: { colonyOrigin: string | undefined } = { colonyOrigin: origin },
+) {
 	const saved: { campaignName: string; token: string }[] = [];
 	const result = connectWithCode({
 		code,
-		colonyOrigin,
+		colonyOrigin: address.colonyOrigin,
 		fetchFunction,
 		saveLink: (link) => {
 			saved.push(link);
@@ -41,13 +45,23 @@ describe("connectWithCode", () => {
 	});
 
 	test("an empty code or a missing address never reaches the server", async () => {
-		const refuse: Fetch = () => Promise.reject(new Error("should not be called"));
-		expect(await attempt("   ", refuse).result).toEqual({
+		let requests = 0;
+		const countRequests: Fetch = () => {
+			requests += 1;
+			return Promise.resolve(jsonResponse(200, { campaignName: "Port Eldari", token: "secret" }));
+		};
+		expect(await attempt("   ", countRequests).result).toEqual({
 			message: "Type the code from Colony Planner's Settings.",
 			ok: false,
 		});
-		const { result } = attempt("K7Q-4XM", refuse, undefined);
-		expect((await result).ok).toBe(false);
+		const missingAddress = attempt("K7Q-4XM", countRequests, { colonyOrigin: undefined });
+		expect(await missingAddress.result).toEqual({
+			message:
+				"Colony Bridge doesn't know Colony Planner's address. Install the module with the manifest link on Colony Planner's Settings.",
+			ok: false,
+		});
+		expect(missingAddress.saved).toEqual([]);
+		expect(requests).toBe(0);
 	});
 
 	test("a bad code shows the server's sentence, or the standard one", async () => {

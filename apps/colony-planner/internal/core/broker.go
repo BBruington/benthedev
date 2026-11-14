@@ -391,10 +391,14 @@ func (broker *Broker) CloseCampaign(campaignID uuid.UUID) {
 }
 
 // subscribeBridge registers a Foundry bridge stream in one campaign. It needs no resume: the stream
-// reads the outbox's newest seq on connect.
+// reads the outbox's newest seq on connect. It returns nil for a campaign this process has suspended,
+// since a token read just before the suspension would otherwise open a stream nothing closes.
 func (broker *Broker) subscribeBridge(campaignID uuid.UUID) *Subscription {
 	broker.mutex.Lock()
 	defer broker.mutex.Unlock()
+	if active, known := broker.campaignActive[campaignID]; known && !active {
+		return nil
+	}
 	subscription := &Subscription{
 		broker:     broker,
 		campaignID: campaignID,

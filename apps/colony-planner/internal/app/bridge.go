@@ -23,7 +23,8 @@ import (
 // The Foundry bridge's HTTP side (docs/design/foundry-bridge.md §3 and §12). Under /api/bridge/ the
 // session cookie is never read (auth.Middleware), so CrossOriginProtection is bypassed there and the
 // bearer token is the only credential; bridgeGuard resolves it, caps bodies, rate-limits and answers
-// CORS for the token's own link origin only.
+// CORS for the token's own link origin only, except that a 401 is readable by any origin a module may
+// pair from, so the module learns its link is gone and asks for a new code.
 
 const (
 	bridgePathPrefix     = auth.BridgePathPrefix
@@ -222,7 +223,7 @@ func (handlers *handlers) bridgeGuard(next http.Handler) http.Handler {
 		default:
 			caller, err := handlers.core.EnterBridge(request.Context(), bearerToken(request))
 			if errors.Is(err, core.ErrBridgeUnauthorized) {
-				auth.WriteProblem(writer, http.StatusUnauthorized, "")
+				handlers.writeBridgeUnauthorized(writer, origin)
 				return
 			}
 			if err != nil {
@@ -239,6 +240,15 @@ func (handlers *handlers) bridgeGuard(next http.Handler) http.Handler {
 			next.ServeHTTP(writer, request.WithContext(context.WithValue(request.Context(), bridgeCallerContextKey{}, caller)))
 		}
 	})
+}
+
+// writeBridgeUnauthorized is the bare 401. No cookie is read under /api/bridge/ and the body says
+// nothing, so letting a pairable origin read it reveals only that its token no longer works.
+func (handlers *handlers) writeBridgeUnauthorized(writer http.ResponseWriter, origin string) {
+	if handlers.core.BridgeOriginAllowed(origin) {
+		writer.Header().Set("Access-Control-Allow-Origin", origin)
+	}
+	auth.WriteProblem(writer, http.StatusUnauthorized, "")
 }
 
 func (handlers *handlers) allowBridgeRequest(writer http.ResponseWriter, limiter *rateLimiter, key string) bool {
@@ -272,24 +282,13 @@ func clientAddress(request *http.Request) string {
 	return host
 }
 
-// bridgePreflight is OPTIONS /api/bridge/ (public). A preflight carries no token, so it is answered for
-// an origin with an active link, and on /pair for any origin a module may pair from.
+// bridgePreflight is OPTIONS /api/bridge/ (public). A preflight carries no token and reads nothing, so it
+// is answered for any origin a module may pair from, a revoked link's included, which must still reach
+// the 401 that tells its module to reconnect. Each real answer decides for itself who may read it.
 func (handlers *handlers) bridgePreflight() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		origin := request.Header.Get("Origin")
-		allowed := false
-		if request.URL.Path == bridgePairPath {
-			allowed = handlers.core.BridgeOriginAllowed(origin)
-		} else {
-			linked, err := handlers.core.BridgeOriginLinked(request.Context(), origin)
-			if err != nil {
-				handlers.logger.ErrorContext(request.Context(), "bridge preflight failed", slog.Any("error", err))
-				auth.WriteProblem(writer, http.StatusServiceUnavailable, "The server can't check the bridge right now. Try again in a moment.")
-				return
-			}
-			allowed = linked
-		}
-		if !allowed {
+		if !handlers.core.BridgeOriginAllowed(origin) {
 			auth.WriteProblem(writer, http.StatusForbidden, "")
 			return
 		}
@@ -311,7 +310,7 @@ func (handlers *handlers) bridgeStream() http.Handler {
 		caller := bridgeCallerFrom(requestContext)
 		subscription, err := handlers.core.SubscribeBridge(requestContext, caller)
 		if errors.Is(err, core.ErrBridgeUnauthorized) {
-			auth.WriteProblem(writer, http.StatusUnauthorized, "")
+			handlers.writeBridgeUnauthorized(writer, request.Header.Get("Origin"))
 			return
 		}
 		if err != nil {

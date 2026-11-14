@@ -69,6 +69,15 @@ const opens = () => Promise.resolve();
 const fails = () => Promise.reject(new TypeError("Failed to fetch"));
 
 describe("startStreamConnection", () => {
+	test("a stop just as the stream opens never reports it live", async () => {
+		const { connection, counts, fakeSchedule, states } = connectionWith([opens]);
+		connection.stop();
+		await settle();
+		expect(states).toEqual(["connecting", "stopped"]);
+		expect(counts()).toEqual({ connects: 0, outboxSignals: 0 });
+		expect(fakeSchedule.waitingDelays()).toEqual([]);
+	});
+
 	test("goes live, signals each outbox event and ignores pings", async () => {
 		const { counts, states, streams } = connectionWith([opens]);
 		await settle();

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { FlaggedDocument, FoundryJournalEntry, FoundryJournalPage } from "../foundry-types";
+import type {
+	FlaggedDocument,
+	FoundryChatMessage,
+	FoundryJournalEntry,
+	FoundryJournalPage,
+} from "../foundry-types";
 import { readField } from "../wire";
 import { createCoreAdapter, renderColonySummary } from "./core";
 
@@ -15,8 +20,28 @@ function flagged(externalId: string | undefined): FlaggedDocument {
 function fakeWorld(options: { moveClock?: boolean } = {}) {
 	const writes: Write[] = [];
 	const journalEntries: FoundryJournalEntry[] = [];
-	const messages: FlaggedDocument[] = [];
+	const messages: FoundryChatMessage[] = [];
 	const advances: { options: object | undefined; seconds: number }[] = [];
+	/** The next write of each kind rejects, as Foundry's would when the server drops it. */
+	const failNext = { advance: false, chat: false };
+
+	/** A chat message keeps its own flags, and an update of `flags.colony-bridge.<key>` changes one. */
+	function fakeMessage(data: object): FoundryChatMessage {
+		const ownFlags = readField(readField(data, "flags"), "colony-bridge");
+		const flags = new Map<string, unknown>(
+			typeof ownFlags === "object" && ownFlags !== null ? Object.entries(ownFlags) : [],
+		);
+		return {
+			getFlag: (scope, key) => (scope === "colony-bridge" ? flags.get(key) : undefined),
+			update: (update, writeOptions) => {
+				writes.push({ data: update, options: writeOptions, target: "chat update" });
+				for (const [path, value] of Object.entries(update)) {
+					flags.set(path.replace("flags.colony-bridge.", ""), value);
+				}
+				return Promise.resolve();
+			},
+		};
+	}
 
 	function fakePage(externalId: string | undefined, name: string): FoundryJournalPage {
 		return {
@@ -46,10 +71,12 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 	const adapter = createCoreAdapter({
 		chatMessage: {
 			create: (data, writeOptions) => {
+				if (failNext.chat) {
+					failNext.chat = false;
+					return Promise.reject(new Error("The chat message wasn't saved."));
+				}
 				writes.push({ data, options: writeOptions, target: "chat" });
-				const message = flagged(
-					String(readField(readField(readField(data, "flags"), "colony-bridge"), "externalId")),
-				);
+				const message = fakeMessage(data);
 				messages.push(message);
 				return Promise.resolve(message);
 			},
@@ -59,6 +86,10 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 			messages: { find: (predicate) => messages.find(predicate) },
 			time: {
 				advance: (seconds, advanceOptions) => {
+					if (failNext.advance) {
+						failNext.advance = false;
+						return Promise.reject(new Error("The clock didn't move."));
+					}
 					advances.push({ options: advanceOptions, seconds });
 					return Promise.resolve();
 				},
@@ -73,7 +104,7 @@ function fakeWorld(options: { moveClock?: boolean } = {}) {
 		},
 		moveClockWithColonyDays: () => options.moveClock === true,
 	});
-	return { adapter, advances, fakeEntry, fakePage, journalEntries, writes };
+	return { adapter, advances, failNext, fakeEntry, fakePage, journalEntries, writes };
 }
 
 const summary = {
@@ -197,18 +228,69 @@ describe("DAYS_ADVANCED", () => {
 		expect(world.advances).toEqual([]);
 	});
 
-	test("moves Foundry's clock by whole days when the setting is on", async () => {
+	test("moves Foundry's clock by whole days when the setting is on, then marks the move made", async () => {
 		const world = fakeWorld({ moveClock: true });
 		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
 		expect(world.advances).toEqual([{ options: { colonyBridge: true }, seconds: 3 * 86_400 }]);
+		expect(world.writes.map((write) => [write.target, write.data])).toEqual([
+			[
+				"chat",
+				{
+					content: "<p>The colony advanced 3 days, from Day 22 to Day 25.</p>",
+					flags: { "colony-bridge": { clockOwed: true, externalId: "advance:2" } },
+					speaker: { alias: "Colony Planner" },
+				},
+			],
+			["chat update", { "flags.colony-bridge.clockOwed": false }],
+		]);
+		const [create, update] = world.writes;
+		expect(update?.options).toEqual({ colonyBridge: true });
+		expect(update?.options).not.toBe(create?.options);
+		expect(update?.options).not.toBe(world.advances[0]?.options);
 	});
 
 	test("a repeat of the same row does nothing", async () => {
 		const world = fakeWorld({ moveClock: true });
 		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
 		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
-		expect(world.writes).toHaveLength(1);
+		expect(world.writes.filter((write) => write.target === "chat")).toHaveLength(1);
 		expect(world.advances).toHaveLength(1);
+	});
+
+	test("a retry after the clock failed to move moves it once, without a second message", async () => {
+		const world = fakeWorld({ moveClock: true });
+		world.failNext.advance = true;
+		await expect(world.adapter.appliers.DAYS_ADVANCED?.(advanceRow)).rejects.toThrow(
+			"The clock didn't move.",
+		);
+		expect(world.writes.map((write) => write.target)).toEqual(["chat"]);
+		expect(world.advances).toEqual([]);
+		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
+		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
+		expect(world.writes.map((write) => write.target)).toEqual(["chat", "chat update"]);
+		expect(world.advances).toEqual([{ options: { colonyBridge: true }, seconds: 3 * 86_400 }]);
+	});
+
+	test("a retry after the message failed to post posts it and moves the clock once", async () => {
+		const world = fakeWorld({ moveClock: true });
+		world.failNext.chat = true;
+		await expect(world.adapter.appliers.DAYS_ADVANCED?.(advanceRow)).rejects.toThrow(
+			"The chat message wasn't saved.",
+		);
+		expect(world.writes).toEqual([]);
+		expect(world.advances).toEqual([]);
+		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
+		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
+		expect(world.writes.map((write) => write.target)).toEqual(["chat", "chat update"]);
+		expect(world.advances).toHaveLength(1);
+	});
+
+	test("a message posted while the setting was off never moves the clock later", async () => {
+		const world = fakeWorld();
+		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
+		await world.adapter.appliers.DAYS_ADVANCED?.(advanceRow);
+		expect(world.advances).toEqual([]);
+		expect(world.writes.map((write) => write.target)).toEqual(["chat"]);
 	});
 
 	test("posts the message on its own after the summary's page update, which Foundry stamps a parent onto", async () => {

@@ -17,6 +17,10 @@ export interface FoundryCollection<Document> {
 	find(predicate: (document: Document) => boolean): Document | undefined;
 }
 
+export interface FoundryChatMessage extends FlaggedDocument {
+	update(data: object, options?: object): Promise<unknown>;
+}
+
 export interface FoundryJournalPage extends FlaggedDocument {
 	update(data: object, options?: object): Promise<unknown>;
 }
@@ -64,7 +68,7 @@ export interface FoundrySettings {
 
 export interface FoundryGame {
 	journal: FoundryCollection<FoundryJournalEntry>;
-	messages: FoundryCollection<FlaggedDocument>;
+	messages: FoundryCollection<FoundryChatMessage>;
 	modules: { get(id: string): FoundryModule | undefined };
 	settings: FoundrySettings;
 	system: { id: string; version: string };
@@ -75,7 +79,7 @@ export interface FoundryGame {
 	user: FoundryUser;
 	users: { activeGM: FoundryUser | null };
 	version: string;
-	world: { title: string };
+	world: { id: string; title: string };
 }
 
 export interface FoundryNotifications {
@@ -122,7 +126,7 @@ declare global {
 	const game: FoundryGame;
 	const Hooks: FoundryHooks;
 	const ui: { notifications: FoundryNotifications };
-	const ChatMessage: DocumentClass<FlaggedDocument>;
+	const ChatMessage: DocumentClass<FoundryChatMessage>;
 	const JournalEntry: DocumentClass<FoundryJournalEntry>;
 	const foundry: { applications: { api: { ApplicationV2: typeof ApplicationV2 } } };
 }

@@ -190,9 +190,9 @@ function PrivacyPage() {
 							disconnect at any time; Foundry's waiting notes also show on their colony board. The
 							address and the world's details stay until the campaign is deleted, even after
 							Disconnect, and so do the copies sent, except that copies Foundry has dealt with are
-							cleared about 30 days later. Foundry's notes are cleared about 30 days after they
-							arrive, once the DM has decided them. Both clean-ups happen the next time a connected
-							Foundry is in touch.
+							cleared about 30 days later. Foundry's notes are cleared about 30 days after the DM
+							decides them, and its status notes about 30 days after they arrive. Both clean-ups
+							happen the next time a connected Foundry is in touch.
 						</p>
 					</PrivacySection>
 

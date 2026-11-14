@@ -74,7 +74,9 @@ func (testHarness *harness) callBridge(method, path, body string, headers map[st
 	return testHarness.do(method, path, options)
 }
 
-func expectBridgeUnauthorized(t *testing.T, label string, response *httptest.ResponseRecorder) {
+// expectBridgeUnauthorized wants the bare 401, readable by readableBy (an origin allowed to pair) or by
+// no origin when readableBy is "".
+func expectBridgeUnauthorized(t *testing.T, label string, response *httptest.ResponseRecorder, readableBy string) {
 	t.Helper()
 	if response.Code != http.StatusUnauthorized {
 		t.Errorf("%s: status %d, want 401; body: %s", label, response.Code, response.Body.String())
@@ -84,8 +86,8 @@ func expectBridgeUnauthorized(t *testing.T, label string, response *httptest.Res
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body["title"] != "Unauthorized" || body["detail"] != nil {
 		t.Errorf("%s: body %s, want a bare Unauthorized", label, response.Body.String())
 	}
-	if response.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Errorf("%s: a 401 allowed an origin", label)
+	if allowed := response.Header().Get("Access-Control-Allow-Origin"); allowed != readableBy || response.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Errorf("%s: the 401 is readable by %q, want %q, without credentials", label, allowed, readableBy)
 	}
 }
 
@@ -103,10 +105,18 @@ func TestEveryBadTokenIsUnauthorized(t *testing.T) {
 		"unknown":          bridgeHeaders(strings.Repeat("A", 43), bridgeOriginA),
 		"replaced by pair": bridgeHeaders(token, bridgeOriginA),
 		"revoked":          bridgeHeaders(revokedB, bridgeOriginB),
+		"unlinked origin":  bridgeHeaders(revokedB, "https://unlinked.forge-vtt.com"),
+		"another site":     bridgeHeaders(revokedB, "https://evil.example"),
+		"no origin":        {"Authorization": "Bearer " + revokedB},
 	}
 	for name, headers := range bad {
+		// Any origin a module may pair from reads the 401, so a revoked link's module learns to reconnect.
+		readableBy := headers["Origin"]
+		if readableBy == "https://evil.example" {
+			readableBy = ""
+		}
 		for _, route := range append(bridgeTokenRoutes, struct{ method, path, body string }{http.MethodGet, "/api/bridge/nowhere", ""}) {
-			expectBridgeUnauthorized(t, name+": "+route.method+" "+route.path, testHarness.callBridge(route.method, route.path, route.body, headers))
+			expectBridgeUnauthorized(t, name+": "+route.method+" "+route.path, testHarness.callBridge(route.method, route.path, route.body, headers), readableBy)
 		}
 	}
 	for _, route := range bridgeTokenRoutes {
@@ -117,7 +127,7 @@ func TestEveryBadTokenIsUnauthorized(t *testing.T) {
 	}
 	testHarness.expectStatus(testHarness.do(http.MethodPost, "/api/admin/campaigns/"+testHarness.campaignA.id.String()+"/suspend", requestOptions{token: testHarness.signIn(testHarness.owner)}), http.StatusOK)
 	for _, route := range bridgeTokenRoutes {
-		expectBridgeUnauthorized(t, "suspended: "+route.method+" "+route.path, testHarness.callBridge(route.method, route.path, route.body, bridgeHeaders(replaced, bridgeOriginA)))
+		expectBridgeUnauthorized(t, "suspended: "+route.method+" "+route.path, testHarness.callBridge(route.method, route.path, route.body, bridgeHeaders(replaced, bridgeOriginA)), bridgeOriginA)
 	}
 }
 
@@ -126,7 +136,7 @@ func TestTheSessionCookieMeansNothingUnderTheBridge(t *testing.T) {
 	token := testHarness.pairOverHTTP(testHarness.campaignA, testHarness.dmA, bridgeOriginA)
 	dmCookie := testHarness.signIn(testHarness.dmA)
 	// A signed-in DM's cookie alone opens nothing.
-	expectBridgeUnauthorized(t, "cookie only", testHarness.do(http.MethodGet, "/api/bridge/outbox", requestOptions{token: dmCookie}))
+	expectBridgeUnauthorized(t, "cookie only", testHarness.do(http.MethodGet, "/api/bridge/outbox", requestOptions{token: dmCookie}), "")
 	// A cookie that names no session is left alone there, while anywhere else it is cleared, which shows
 	// the middleware never read it.
 	stale := testHarness.do(http.MethodGet, "/api/bridge/outbox", requestOptions{token: "stale-cookie", headers: bridgeHeaders(token, bridgeOriginA)})
@@ -191,14 +201,21 @@ func TestBridgeCORS(t *testing.T) {
 		!strings.Contains(header.Get("Vary"), "Origin") {
 		t.Fatalf("preflight headers = %v", header)
 	}
-	for _, origin := range []string{"https://unlinked.forge-vtt.com", "https://evil.example", ""} {
+	for _, origin := range []string{"https://evil.example", "https://forge-vtt.com", ""} {
 		refused := preflight("/api/bridge/outbox", origin)
 		if refused.Code != http.StatusForbidden || refused.Header().Get("Access-Control-Allow-Origin") != "" {
 			t.Errorf("preflight from %q = %d %v", origin, refused.Code, refused.Header())
 		}
 	}
-	// Pairing comes before any link, so its preflight answers any origin a module may pair from.
-	testHarness.expectStatus(preflight(bridgePairPath, "https://unlinked.forge-vtt.com"), http.StatusNoContent)
+	// A preflight reads nothing, so it answers any origin a module may pair from: pairing comes before
+	// any link, and a revoked link's module must still reach the 401 that tells it to reconnect.
+	for _, path := range []string{bridgePairPath, "/api/bridge/outbox"} {
+		unlinked := preflight(path, "https://unlinked.forge-vtt.com")
+		testHarness.expectStatus(unlinked, http.StatusNoContent)
+		if unlinked.Header().Get("Access-Control-Allow-Origin") != "https://unlinked.forge-vtt.com" {
+			t.Errorf("an unlinked Forge page's preflight to %s = %v", path, unlinked.Header())
+		}
+	}
 	if refused := preflight(bridgePairPath, "https://evil.example"); refused.Code != http.StatusForbidden {
 		t.Errorf("a pairing preflight from another site = %d", refused.Code)
 	}

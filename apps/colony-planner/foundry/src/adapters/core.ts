@@ -1,6 +1,7 @@
 import type {
 	DocumentClass,
 	FlaggedDocument,
+	FoundryChatMessage,
 	FoundryGame,
 	FoundryJournalEntry,
 } from "../foundry-types";
@@ -22,11 +23,14 @@ export function bridgeWriteOptions(): { colonyBridge: true } {
 }
 
 const colonyExternalId = "colony";
+// A DAYS_ADVANCED message carries this flag until Foundry's clock has moved, so a retried row finishes
+// a clock move that failed after its message was posted.
+const clockOwedFlag = "clockOwed";
 const observerOwnership = 2;
 const htmlPageFormat = 1;
 
 export interface CoreAdapterDependencies {
-	chatMessage: DocumentClass<FlaggedDocument>;
+	chatMessage: DocumentClass<FoundryChatMessage>;
 	foundryGame: Pick<FoundryGame, "journal" | "messages" | "time">;
 	journalEntry: DocumentClass<FoundryJournalEntry>;
 	moveClockWithColonyDays: () => boolean;
@@ -96,26 +100,32 @@ async function applyDaysAdvanced(
 	if (!isDaysAdvancedPayload(row.payload)) {
 		throw new Error("The colony day change's payload wasn't understood.");
 	}
-	const alreadyPosted = dependencies.foundryGame.messages.find((message) =>
-		hasExternalId(message, row.targetKey),
-	);
-	if (alreadyPosted) {
+	const message =
+		dependencies.foundryGame.messages.find((posted) => hasExternalId(posted, row.targetKey)) ??
+		(await dependencies.chatMessage.create(
+			{
+				content: renderDaysAdvanced(row.payload),
+				flags: {
+					[moduleId]: {
+						externalId: row.targetKey,
+						...(dependencies.moveClockWithColonyDays() && { [clockOwedFlag]: true }),
+					},
+				},
+				speaker: { alias: "Colony Planner" },
+			},
+			bridgeWriteOptions(),
+		));
+	if (!message) {
+		throw new Error("Foundry didn't post the colony's day change in chat.");
+	}
+	if (message.getFlag(moduleId, clockOwedFlag) !== true) {
 		return;
 	}
-	await dependencies.chatMessage.create(
-		{
-			content: renderDaysAdvanced(row.payload),
-			flags: externalIdFlag(row.targetKey),
-			speaker: { alias: "Colony Planner" },
-		},
+	await dependencies.foundryGame.time.advance(
+		row.payload.days * secondsPerDay,
 		bridgeWriteOptions(),
 	);
-	if (dependencies.moveClockWithColonyDays()) {
-		await dependencies.foundryGame.time.advance(
-			row.payload.days * secondsPerDay,
-			bridgeWriteOptions(),
-		);
-	}
+	await message.update({ [`flags.${moduleId}.${clockOwedFlag}`]: false }, bridgeWriteOptions());
 }
 
 function formatNumber(value: number): string {

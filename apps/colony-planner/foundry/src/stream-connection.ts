@@ -45,6 +45,11 @@ export function startStreamConnection(options: {
 		let cancelIdleTimer = options.schedule(() => connection.abort(), idleTimeout);
 		try {
 			const body = await options.open(connection.signal);
+			// A stop or reconnect while the answer was on its way already ended this connection.
+			if (stopped || connection.signal.aborted) {
+				body.cancel().catch(() => undefined);
+				return false;
+			}
 			const openedAt = now();
 			options.onStateChange("live");
 			options.onConnected();

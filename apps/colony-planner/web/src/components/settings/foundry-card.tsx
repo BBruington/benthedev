@@ -58,7 +58,10 @@ export function FoundryCard({
 	children,
 }: {
 	status: BridgeStatus;
-	/** The code this page made; the server returns it only once. */
+	/**
+	 * The code this page made; the server returns it only once. It shows only while it is still the
+	 * campaign's open code, so one another tab replaced or a disconnect closed disappears.
+	 */
 	pairingCode: BridgePairingCode | null;
 	pairingCodeExpired: boolean;
 	isMakingCode: boolean;
@@ -199,10 +202,18 @@ function PairingCodePanel({
 	isMakingCode: boolean;
 	onMakeCode: () => void;
 }) {
-	const showCode = pairingCode !== null && !expired;
+	const isOpenCode =
+		pairingCode !== null &&
+		openCodeExpiresAt !== null &&
+		Date.parse(pairingCode.expiresAt) === Date.parse(openCodeExpiresAt);
+	const showCode = isOpenCode && !expired;
 	let hint = "Make a one-time code, then type it into Colony Bridge's settings in Foundry.";
 	if (expired) {
 		hint = "That code expired. Make a new one.";
+	} else if (pairingCode !== null && !isOpenCode && openCodeExpiresAt) {
+		hint = `A code made elsewhere replaced that one and works until ${clockTime.format(new Date(openCodeExpiresAt))}. Make a new one to see it here; the other one stops working.`;
+	} else if (pairingCode !== null && !isOpenCode) {
+		hint = "That code no longer works. Make a new one.";
 	} else if (openCodeExpiresAt) {
 		hint = `A code made earlier works until ${clockTime.format(new Date(openCodeExpiresAt))}. Make a new one to see it here; the old one stops working.`;
 	} else if (isConnected) {

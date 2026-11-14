@@ -670,6 +670,74 @@ func TestUndoingAnAcceptedAdvancePutsItsInboxItemBack(t *testing.T) {
 	}
 }
 
+func TestADecidedInboxItemIsRememberedForThirtyDaysAfterItsDecision(t *testing.T) {
+	test := newColonyTest(t)
+	_, caller := test.pairBridge()
+	waiting := timeAdvanced(2)
+	if _, err := test.service.RecordBridgeEvents(test.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{waiting}}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	test.clock.advance(31 * 24 * time.Hour)
+	if _, err := test.service.RecordBridgeEvents(test.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{timeAdvanced(1)}}); err != nil {
+		t.Fatalf("record after 31 days: %v", err)
+	}
+	inbox := test.bridgeStatus().Inbox
+	if len(inbox) != 2 {
+		t.Fatalf("a pending item was pruned: inbox = %+v", inbox)
+	}
+	test.must(test.advanceBy(2, &inbox[0].ID))
+
+	replayed, err := test.service.RecordBridgeEvents(test.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{waiting}})
+	if err != nil || replayed.Duplicates != 1 || replayed.Accepted != 0 {
+		t.Fatalf("a replay right after a late decision = %+v, %v; want one duplicate", replayed, err)
+	}
+	test.clock.advance(29 * 24 * time.Hour)
+	again, err := test.service.RecordBridgeEvents(test.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{waiting}})
+	if err != nil || again.Duplicates != 1 {
+		t.Fatalf("a replay 29 days after the decision = %+v, %v; want one duplicate", again, err)
+	}
+	if inbox := test.bridgeStatus().Inbox; len(inbox) != 1 {
+		t.Fatalf("inbox = %+v, want only the undecided item", inbox)
+	}
+	test.clock.advance(2 * 24 * time.Hour)
+	if _, err := test.service.RecordBridgeEvents(test.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{timeAdvanced(1)}}); err != nil {
+		t.Fatalf("record 31 days after the decision: %v", err)
+	}
+	var remembered bool
+	if err := test.database.Pool.QueryRow(test.context, `SELECT EXISTS (SELECT 1 FROM bridge_event WHERE campaign_id = $1 AND module_event_id = $2)`,
+		test.campaignID, waiting.ID).Scan(&remembered); err != nil {
+		t.Fatal(err)
+	}
+	if remembered {
+		t.Fatal("a decided item outlived 30 days past its decision")
+	}
+}
+
+func TestABridgeStreamOpenedJustAfterASuspensionIsRefused(t *testing.T) {
+	test := newColonyTest(t)
+	_, caller := test.pairBridge()
+	if _, err := test.service.SuspendCampaign(test.context, test.owner, test.campaignID); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	if subscription, err := test.service.SubscribeBridge(test.context, caller); !errors.Is(err, core.ErrBridgeUnauthorized) {
+		if subscription != nil {
+			subscription.Close()
+		}
+		t.Fatalf("a stream entered before the suspension subscribed after it: %v", err)
+	}
+	if open := test.service.Broker().OpenStreams(); open != 0 {
+		t.Fatalf("%d streams open after a refused subscription", open)
+	}
+	if _, err := test.service.UnsuspendCampaign(test.context, test.owner, test.campaignID); err != nil {
+		t.Fatalf("unsuspend: %v", err)
+	}
+	subscription, err := test.service.SubscribeBridge(test.context, caller)
+	if err != nil {
+		t.Fatalf("subscribe after unsuspending: %v", err)
+	}
+	subscription.Close()
+}
+
 func TestBridgeStreamsHearOnlyTheBridgeTopic(t *testing.T) {
 	test := newColonyTest(t)
 	_, caller := test.pairBridge()

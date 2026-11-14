@@ -263,10 +263,10 @@ web/src/** -> web/src/api -> the Go API
 21. The Foundry bridge (`docs/design/foundry-bridge.md`). Outbox payloads come only from the player
     projection, so nothing DM-only or hidden reaches Foundry. auth never reads the session cookie under
     `/api/bridge/`, which is what makes that prefix's CrossOriginProtection bypass safe; CORS there echoes
-    only the token's own link origin (pairing: any origin allowed to pair), never with credentials. Only
-    core builds a `BridgeCaller` (`EnterBridge`), and every bridge query takes its campaign; the three
-    `-- unscoped:` bridge queries are the token lookup, the pairing-code claim and the preflight's origin
-    check. Tokens and codes are stored only as SHA-256 hashes. Outbox rows are written in the change's own
+    only the token's own link origin (pairing, the preflight and the bare 401: any origin allowed to
+    pair), never with credentials. Only core builds a `BridgeCaller` (`EnterBridge`), and every bridge
+    query takes its campaign; the two `-- unscoped:` bridge queries are the token lookup and the
+    pairing-code claim. Tokens and codes are stored only as SHA-256 hashes. Outbox rows are written in the change's own
     transaction, one unapplied row per target_key, and the per-campaign seq never goes back. Inbound
     events change nothing by themselves: only Advance with `bridgeEventId` accepts an inbox item, in the
     same transaction.

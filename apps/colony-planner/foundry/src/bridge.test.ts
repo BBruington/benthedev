@@ -11,7 +11,14 @@ const thisGm: FoundryUser = { id: "gm-this", isGM: true };
 const otherGm: FoundryUser = { id: "gm-other", isGM: true };
 const origin = "https://colony.benthedev.com";
 
-function memorySettings(initial: { enabled?: boolean; lastReportedDay?: number; token?: string }) {
+const thisWorld = "world-pf2e";
+
+function memorySettings(initial: {
+	enabled?: boolean;
+	lastReportedDay?: number;
+	token?: string;
+	worldId?: string;
+}) {
 	const values = {
 		campaignName: "Port Eldari",
 		cursor: 0,
@@ -19,12 +26,14 @@ function memorySettings(initial: { enabled?: boolean; lastReportedDay?: number; 
 		events: [] as InboundEvent[],
 		lastReportedDay: initial.lastReportedDay,
 		token: initial.token ?? "secret-token",
+		worldId: initial.worldId ?? thisWorld,
 	};
 	const settings: BridgeSettings = {
 		acknowledgedThrough: () => values.cursor,
 		bridgeEnabled: () => values.enabled,
 		campaignName: () => values.campaignName,
 		lastReportedDay: () => values.lastReportedDay,
+		linkedWorldId: () => values.worldId,
 		moveClockWithColonyDays: () => false,
 		pendingEvents: () => values.events,
 		saveAcknowledgedThrough: (seq) => {
@@ -38,6 +47,7 @@ function memorySettings(initial: { enabled?: boolean; lastReportedDay?: number; 
 		saveLink: (link) => {
 			values.campaignName = link.campaignName;
 			values.token = link.token;
+			values.worldId = link.worldId;
 			values.cursor = 0;
 			values.events = [];
 			return Promise.resolve();
@@ -122,7 +132,7 @@ function bridgeFor(options: {
 		user: thisGm,
 		users: { activeGM: options.activeGm },
 		version: "13.351",
-		world: { title: "Practice world" },
+		world: { id: thisWorld, title: "Practice world" },
 	};
 	const bridge = createBridge({
 		adapter: { appliers: {}, name: "core" },
@@ -253,14 +263,44 @@ describe("createBridge", () => {
 		expect(timeEvents.map((event) => event.payload)).toEqual([{ days: 2 }]);
 	});
 
-	test("a new link from pairing replaces the old one and connects", async () => {
+	test.each([
+		["paired in another world", "world-dnd5e"],
+		["saved by 0.1.1, before links named their world", ""],
+	])("a link %s is absent here, and its events stay unsent", async (_case, worldId) => {
 		const colonyPlanner = fakeColonyPlanner();
-		const { settings, values } = memorySettings({ token: "" });
+		const { settings, values } = memorySettings({ worldId });
+		values.events = [
+			{
+				id: "event-a",
+				kind: "TIME_ADVANCED",
+				occurredAt: "2026-11-12T10:00:00Z",
+				payload: { days: 4 },
+			},
+		];
+		const { bridge } = bridgeFor({ activeGm: thisGm, colonyPlanner, settings });
+		bridge.evaluate();
+		bridge.observeWorldTime(45 * secondsPerDay, {});
+		await settle();
+		expect(colonyPlanner.requests).toEqual([]);
+		expect(bridge.status()).toMatchObject({
+			campaignName: "",
+			condition: "not-linked",
+			connection: undefined,
+			linked: false,
+		});
+		expect(values.token).toBe("secret-token");
+		expect(values.events).toHaveLength(1);
+	});
+
+	test("a new link from pairing replaces the old one, records this world and connects", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { settings, values } = memorySettings({ token: "", worldId: "world-dnd5e" });
 		const { bridge } = bridgeFor({ activeGm: thisGm, colonyPlanner, settings });
 		bridge.evaluate();
 		await bridge.saveLink({ campaignName: "Ridgehold", token: "new-token" });
 		await settle();
 		expect(values.token).toBe("new-token");
+		expect(values.worldId).toBe(thisWorld);
 		expect(colonyPlanner.requests[0]?.authorization).toBe("Bearer new-token");
 		expect(bridge.status()).toMatchObject({ campaignName: "Ridgehold", condition: "running" });
 		await bridge.forgetLink();

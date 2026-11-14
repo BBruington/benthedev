@@ -1,6 +1,6 @@
 -- The Foundry bridge (docs/design/foundry-bridge.md): links, pairing codes, the outbox and inbound
--- events. Three reads find a campaign without knowing it first: the token, the pairing code and a
--- browser's preflight origin. Every instant comes from core's clock as @now.
+-- events. Two reads find a campaign without knowing it first: the token and the pairing code. Every
+-- instant comes from core's clock as @now.
 
 -- EnterBridge: a live token of an ACTIVE campaign; a revoked one or a paused campaign's reads as unknown.
 -- unscoped: bridge token lookup
@@ -17,15 +17,6 @@ UPDATE bridge_pairing_code SET closed_at = @now::timestamptz
 WHERE code_hash = @code_hash AND closed_at IS NULL AND expires_at > @now::timestamptz
   AND EXISTS (SELECT 1 FROM campaign WHERE campaign.id = bridge_pairing_code.campaign_id AND campaign.status = 'ACTIVE')
 RETURNING campaign_id;
-
--- A preflight carries no token, so it is answered for any origin of an active link; it reads no content.
--- unscoped: a browser's preflight names only its origin
--- name: BridgeOriginLinked :one
-SELECT EXISTS (
-    SELECT 1 FROM bridge_link
-    JOIN campaign ON campaign.id = bridge_link.campaign_id
-    WHERE bridge_link.origin = @origin AND bridge_link.revoked_at IS NULL AND campaign.status = 'ACTIVE'
-);
 
 -- name: GetActiveBridgeLink :one
 SELECT * FROM bridge_link WHERE campaign_id = @campaign_id AND revoked_at IS NULL;
@@ -142,17 +133,18 @@ INSERT INTO bridge_event (campaign_id, module_event_id, kind, status, occurred_a
 VALUES (@campaign_id, @module_event_id, @kind, @status, @occurred_at, @now::timestamptz, sqlc.narg(days))
 ON CONFLICT (campaign_id, module_event_id) DO NOTHING;
 
--- Pending items wait for the DM however old they are; decided ones are kept only to ignore repeats.
+-- Pending items wait for the DM however old they are; decided ones are kept 30 days past the decision
+-- only to ignore repeats. A STATUS row is decided on arrival, so it has no decided_at.
 -- name: PruneBridgeEvents :exec
 DELETE FROM bridge_event
-WHERE campaign_id = @campaign_id AND status <> 'PENDING' AND received_at < @before::timestamptz;
+WHERE campaign_id = @campaign_id AND status <> 'PENDING' AND coalesce(decided_at, received_at) < @before::timestamptz;
 
 -- name: TrimBridgeEvents :exec
 DELETE FROM bridge_event
 WHERE bridge_event.campaign_id = @campaign_id AND bridge_event.id IN (
     SELECT decided.id FROM bridge_event AS decided
     WHERE decided.campaign_id = @campaign_id AND decided.status <> 'PENDING'
-    ORDER BY decided.received_at DESC, decided.id DESC
+    ORDER BY coalesce(decided.decided_at, decided.received_at) DESC, decided.id DESC
     OFFSET @keep::integer
 );
 

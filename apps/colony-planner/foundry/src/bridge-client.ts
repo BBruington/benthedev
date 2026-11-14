@@ -39,6 +39,10 @@ export interface BridgeClient {
 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
+// Every request but the stream gets this long, its answer's body included, so one stalled across a
+// laptop's sleep ends and its caller can try again.
+const defaultRequestTimeoutInMilliseconds = 30_000;
+
 export async function pair(
 	origin: string,
 	code: string,
@@ -63,19 +67,23 @@ export function createBridgeClient(options: {
 	fetchFunction?: Fetch;
 	onUnauthorized: () => void;
 	origin: string;
+	requestTimeoutInMilliseconds?: number;
 	/** Aborted when the bridge session ends: requests then stop, and a late 401 changes nothing. */
 	signal: AbortSignal;
 	token: string;
 }): BridgeClient {
 	const fetchFunction = options.fetchFunction ?? fetch;
+	const requestTimeout =
+		options.requestTimeoutInMilliseconds ?? defaultRequestTimeoutInMilliseconds;
 
+	/** The stream passes its own signal, since it lives far longer than any other request. */
 	async function request(path: string, init: RequestInit): Promise<Response> {
 		const headers = new Headers(init.headers);
 		headers.set("Authorization", `Bearer ${options.token}`);
 		const response = await fetchFunction(`${options.origin}${path}`, {
 			...init,
 			headers,
-			signal: init.signal ?? options.signal,
+			signal: init.signal ?? AbortSignal.any([options.signal, AbortSignal.timeout(requestTimeout)]),
 		});
 		if (response.status === 401) {
 			if (!options.signal.aborted) {

@@ -978,6 +978,24 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	validBodies["/polls/{pollId}/vote"] = func() map[string]any {
 		return map[string]any{"optionIds": []string{passFourPoll.Options[0].ID.String()}}
 	}
+	// Pass 3 dismissed A's {eventId} item and disconnected A, so Advance gets a fresh PENDING item of
+	// A's own from a new link; B's item in its place is then refused for the ID alone.
+	bridgeCallerA, err := testHarness.core.EnterBridge(testHarness.context, testHarness.pairBridge(campaignA, testHarness.dmA))
+	if err != nil {
+		t.Fatalf("enter A's pass 4 bridge: %v", err)
+	}
+	passFourEvent := core.BridgeInboundEvent{ID: uuid.New(), Kind: core.BridgeEventKindTimeAdvanced, OccurredAt: time.Now().UTC(), Payload: json.RawMessage(`{"days":1}`)}
+	if _, err := testHarness.core.RecordBridgeEvents(testHarness.context, bridgeCallerA, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{passFourEvent}}); err != nil {
+		t.Fatalf("record A's pass 4 inbox item: %v", err)
+	}
+	bridgeA, err := testHarness.core.GetBridgeStatus(testHarness.context, dmViewerA)
+	if err != nil || len(bridgeA.Inbox) != 1 {
+		t.Fatalf("A's pass 4 inbox = %+v, %v; want one PENDING item", bridgeA.Inbox, err)
+	}
+	inboxItemA := bridgeA.Inbox[0].ID.String()
+	validBodies["/colony/advance"] = func() map[string]any {
+		return map[string]any{"days": 1, "expectedVersion": boardOf(dmViewerA).Version, "bridgeEventId": inboxItemA}
+	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
 		build, found := validBodies[suffix]
@@ -1516,7 +1534,7 @@ func TestBridgeCallersSeeOnlyTheirCampaign(t *testing.T) {
 	revoked := campaignA.bridgeToken
 	testHarness.expectStatus(testHarness.do(http.MethodDelete, campaignPathOf(campaignA, "/bridge"), requestOptions{token: testHarness.signIn(testHarness.dmA)}), http.StatusNoContent)
 	callAll(revoked, campaignA.bridgeOrigin, func(label string, response *httptest.ResponseRecorder) {
-		expectBridgeUnauthorized(t, "A's revoked token: "+label, response)
+		expectBridgeUnauthorized(t, "A's revoked token: "+label, response, campaignA.bridgeOrigin)
 	})
 	callAll(campaignB.bridgeToken, campaignB.bridgeOrigin, func(label string, response *httptest.ResponseRecorder) {
 		if response.Code >= 300 {
