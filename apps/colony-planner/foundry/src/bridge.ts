@@ -3,8 +3,8 @@ import type { BridgeAdapter } from "./adapters/adapter";
 import { createBridgeClient, type Fetch, UnauthorizedError } from "./bridge-client";
 import { createCoalescingTask } from "./coalescing-task";
 import { createEventQueue, type EventQueue } from "./event-queue";
-import type { FoundryGame, FoundryNotifications } from "./foundry-types";
-import { syncOutbox } from "./outbox";
+import type { FoundryGame, FoundryNotifications, FoundryUsers } from "./foundry-types";
+import { syncOutbox, WithdrawFailedError } from "./outbox";
 import type { Schedule } from "./schedule";
 import { type BridgeSettings, moduleId } from "./settings";
 import {
@@ -44,7 +44,10 @@ export interface Bridge {
 	/** Forgets this browser's token; the link on Colony Planner stays until the DM unlinks it there. */
 	forgetLink(): Promise<void>;
 	observeWorldTime(worldTime: number, options: unknown): void;
-	/** Stores a new link from pairing and connects with it. */
+	/**
+	 * Stores a new link from pairing and connects with it. Its first sync first withdraws the journal
+	 * entries earlier links made (design §13.5: the backfill shows the revealed ones again).
+	 */
 	saveLink(link: { campaignName: string; token: string }): Promise<void>;
 	status(): BridgeStatus;
 	subscribe(listener: () => void): () => void;
@@ -61,10 +64,9 @@ export function createBridge(options: {
 	adapter: BridgeAdapter;
 	colonyOrigin: string | undefined;
 	fetchFunction?: Fetch;
-	foundryGame: Pick<
-		FoundryGame,
-		"modules" | "system" | "time" | "user" | "users" | "version" | "world"
-	>;
+	foundryGame: Pick<FoundryGame, "modules" | "system" | "time" | "user" | "version" | "world"> & {
+		users: Pick<FoundryUsers, "activeGM">;
+	};
 	notifications: FoundryNotifications;
 	schedule: Schedule;
 	settings: BridgeSettings;
@@ -76,10 +78,14 @@ export function createBridge(options: {
 	let lastProblem: string | undefined;
 	let needsNewCode = false;
 	let pairing = false;
+	let withdrawFailureShown = false;
+	let withdrawRowFailureShown = false;
 	// Every session's outbox syncs run one after another, so a sync still finishing for a stopped
 	// session never applies the same rows beside the next session's (two "Colony" entries, a clock
 	// moved twice).
 	let outboxSyncs: Promise<void> = Promise.resolve();
+	// The ended link's clean-up; a link saved meanwhile waits for it, so its token isn't forgotten.
+	let forgettingEndedLink: Promise<void> = Promise.resolve();
 
 	function notifyListeners() {
 		for (const listener of listeners) {
@@ -119,6 +125,11 @@ export function createBridge(options: {
 		return "running";
 	}
 
+	/**
+	 * Once the link is gone no later withdraw row can reach this world, so every entry the bridge made
+	 * is hidden now, best effort, after any sync still in flight and before the token is forgotten. It
+	 * makes no request, and needsNewCode ignores every later refusal, so it runs once.
+	 */
 	function handleUnauthorized() {
 		if (needsNewCode) {
 			return;
@@ -128,7 +139,19 @@ export function createBridge(options: {
 		notifications.error(
 			"Colony Bridge: Colony Planner ended this world's link. Make a new code on Colony Planner's Settings and connect again.",
 		);
-		settings.saveLink({ campaignName: "", token: "", worldId: "" }).catch(recordProblem);
+		forgettingEndedLink = outboxSyncs
+			.then(() => options.adapter.withdrawBridgedEntries())
+			.catch((error: unknown) => {
+				const reason = error instanceof Error ? error.message : String(error);
+				notifications.error(
+					`Colony Bridge: Foundry couldn't hide the journal entries this link made. Hide them by hand, or connect again to hide them. ${reason}`,
+				);
+			})
+			.then(async () => {
+				await settings.saveLink({ campaignName: "", token: "", worldId: "" });
+			})
+			.catch(recordProblem);
+		outboxSyncs = forgettingEndedLink;
 		notifyListeners();
 	}
 
@@ -141,6 +164,32 @@ export function createBridge(options: {
 			systemVersion: clip(foundryGame.system.version),
 			worldTitle: clip(foundryGame.world.title),
 		};
+	}
+
+	/**
+	 * Owed until it succeeds, so a failure or a reload holds back the new link's rows: syncing them
+	 * first would leave entries hidden while unlinked in players' view for good.
+	 */
+	async function withdrawOwedEntries(signal: AbortSignal) {
+		if (!settings.withdrawOwed()) {
+			return;
+		}
+		try {
+			await options.adapter.withdrawBridgedEntries();
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			const problem = `Foundry couldn't hide the journal entries an earlier link made, so the bridge waits to sync until it can. ${reason}`;
+			// Once per failing run, so a GM who never opens the menu still learns why nothing arrives.
+			if (!withdrawFailureShown) {
+				withdrawFailureShown = true;
+				notifications.error(`Colony Bridge: ${problem}`);
+			}
+			throw new Error(problem);
+		}
+		withdrawFailureShown = false;
+		// A link saved meanwhile owes its own withdrawal.
+		signal.throwIfAborted();
+		await settings.saveWithdrawOwed(false);
 	}
 
 	function startSession(colonyOrigin: string): Session {
@@ -171,14 +220,16 @@ export function createBridge(options: {
 		});
 		const requestOutboxSync = createCoalescingTask(
 			() => {
-				const sync = outboxSyncs.then(() =>
-					syncOutbox({
+				const sync = outboxSyncs.then(async () => {
+					await withdrawOwedEntries(signal);
+					await syncOutbox({
 						appliers: options.adapter.appliers,
 						client,
 						cursor: { load: settings.acknowledgedThrough, save: settings.saveAcknowledgedThrough },
 						signal,
-					}),
-				);
+					});
+					withdrawRowFailureShown = false;
+				});
 				outboxSyncs = sync.catch(() => undefined);
 				return sync;
 			},
@@ -187,6 +238,11 @@ export function createBridge(options: {
 					return;
 				}
 				recordProblem(error);
+				// Once per failing run, as the connect-time withdrawal does.
+				if (error instanceof WithdrawFailedError && !withdrawRowFailureShown) {
+					withdrawRowFailureShown = true;
+					notifications.error(`Colony Bridge: ${error.message}`);
+				}
 				// A fresh connection syncs again from the cursor, after the reconnect backoff.
 				streamConnection.reconnect();
 			},
@@ -249,6 +305,7 @@ export function createBridge(options: {
 		async forgetLink() {
 			stopSession();
 			needsNewCode = false;
+			await forgettingEndedLink;
 			await settings.saveLink({ campaignName: "", token: "", worldId: "" });
 			evaluate();
 		},
@@ -265,6 +322,7 @@ export function createBridge(options: {
 			pairing = false;
 			needsNewCode = false;
 			lastProblem = undefined;
+			await forgettingEndedLink;
 			await settings.saveLink({ ...link, worldId: foundryGame.world.id });
 			evaluate();
 		},

@@ -66,6 +66,32 @@ WHERE npc.campaign_id = @campaign_id
 -- name: GetNpc :one
 SELECT * FROM npc WHERE campaign_id = @campaign_id AND id = @id;
 
+-- The revealed NPCs whose current or origin place this is, whatever the place's own visibility: the
+-- NPCs Foundry's entries name it on.
+-- name: ListRevealedNpcIdsByPlace :many
+SELECT id FROM npc
+WHERE campaign_id = @campaign_id AND revealed AND (current_place_id = @place_id OR origin_place_id = @place_id)
+ORDER BY lower(display_name), created_at, id;
+
+-- These NPCs as players see them, for Foundry; a hidden one is absent.
+-- name: ListRevealedNpcViews :many
+SELECT sqlc.embed(npc),
+       current_place.name AS current_place_name,
+       origin_place.name AS origin_place_name,
+       role.label AS colony_role_label,
+       role.icon AS colony_role_icon,
+       first_session.title AS first_session_title,
+       first_session.local_date AS first_session_local_date,
+       first_session.starts_at AS first_session_starts_at
+FROM npc
+LEFT JOIN session AS first_session ON first_session.campaign_id = npc.campaign_id AND first_session.id = npc.first_session_id
+LEFT JOIN place AS current_place ON current_place.campaign_id = npc.campaign_id
+    AND current_place.id = npc.current_place_id AND current_place.revealed
+LEFT JOIN place AS origin_place ON origin_place.campaign_id = npc.campaign_id
+    AND origin_place.id = npc.origin_place_id AND origin_place.revealed
+LEFT JOIN role ON role.campaign_id = npc.campaign_id AND role.key = npc.colony_role_key
+WHERE npc.campaign_id = @campaign_id AND npc.id = ANY(@ids::uuid[]) AND npc.revealed;
+
 -- name: CountNpcs :one
 SELECT count(*) FROM npc WHERE campaign_id = @campaign_id;
 

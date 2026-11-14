@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -17,19 +18,27 @@ import (
 )
 
 // MarketItem is one catalog row: a supply offer (resourceKey and amount), a colonist offer (roleKey) or
-// a special item (neither). An offer's name is its resource's or role's. The market has no secrets:
-// archived rows, and offers on an archived resource or role, reach only the DM projection.
+// a special item (neither). An offer's name is its resource's or role's. The market's one secret is a
+// special item's compendium UUID, in Dm; archived rows, and offers on an archived resource or role, reach
+// only the DM projection.
 type MarketItem struct {
-	ID          uuid.UUID `json:"id" format:"uuid"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	PriceGold   int64     `json:"priceGold" doc:"Gold per purchase"`
-	ResourceKey *string   `json:"resourceKey" nullable:"true" doc:"The resource a supply offer sells; null otherwise"`
-	Amount      *int64    `json:"amount" nullable:"true" doc:"How much of the resource one purchase brings; null unless a supply offer"`
-	RoleKey     *string   `json:"roleKey" nullable:"true" doc:"The role a colonist offer's colonist joins; null otherwise"`
-	MaxPerOrder *int64    `json:"maxPerOrder" nullable:"true" doc:"The most one order may carry; null is no limit"`
-	Archived    bool      `json:"archived"`
-	SortOrder   int64     `json:"sortOrder"`
+	ID          uuid.UUID     `json:"id" format:"uuid"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	PriceGold   int64         `json:"priceGold" doc:"Gold per purchase"`
+	ResourceKey *string       `json:"resourceKey" nullable:"true" doc:"The resource a supply offer sells; null otherwise"`
+	Amount      *int64        `json:"amount" nullable:"true" doc:"How much of the resource one purchase brings; null unless a supply offer"`
+	RoleKey     *string       `json:"roleKey" nullable:"true" doc:"The role a colonist offer's colonist joins; null otherwise"`
+	MaxPerOrder *int64        `json:"maxPerOrder" nullable:"true" doc:"The most one order may carry; null is no limit"`
+	Archived    bool          `json:"archived"`
+	SortOrder   int64         `json:"sortOrder"`
+	Dm          *MarketItemDm `json:"dm,omitempty"`
+}
+
+// MarketItemDm is what only the DM sees of an item.
+type MarketItemDm struct {
+	// CompendiumUUID is DM-only because a disguised item's Foundry item would name what it really is.
+	CompendiumUUID *string `json:"compendiumUuid" nullable:"true" doc:"A special item's Foundry compendium item, e.g. Compendium.pf2e.equipment-srd.Item.abcdefghij123456, which a paid shipment hands the party; null when unset and for offers"`
 }
 
 // MarketCartLine is one item in the party's shared cart, at the item's current price. Quantity counts
@@ -125,6 +134,8 @@ type MarketItemInput struct {
 	Description string `json:"description" doc:"At most 4000 characters; may be blank"`
 	PriceGold   int64  `json:"priceGold" doc:"Gold per unit, 0 or more"`
 	MaxPerOrder *int64 `json:"maxPerOrder" required:"false" nullable:"true" doc:"The most one order may carry, 1 to 10000; null is no limit"`
+	// CompendiumUUID is a full-record field like the rest: omitted or blank clears it.
+	CompendiumUUID *string `json:"compendiumUuid" required:"false" nullable:"true" doc:"The Foundry compendium item paid shipments hand the party, at most 200 characters; null or blank for none"`
 }
 
 type SupplyOfferInput struct {
@@ -171,7 +182,11 @@ const (
 	marketMaxShipLimit       = 100
 	// defaultColonistPriceGold prices every role's colonist offer until the DM changes it.
 	defaultColonistPriceGold = 30
+	compendiumUUIDMaxLength  = 200
 )
+
+// compendiumUUIDPattern is the same CHECK as market_item.compendium_uuid's.
+var compendiumUUIDPattern = regexp.MustCompile(`^Compendium\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.Item\.[A-Za-z0-9]{16}$`)
 
 var (
 	errMarketItemNotFound  = NotFound("That item doesn't exist.")
@@ -219,7 +234,7 @@ func readMarket(requestContext context.Context, queries *store.Queries, viewer V
 	page := MarketPage{Items: make([]MarketItem, 0, len(itemRows)), History: []MarketOrderSummary{}}
 	for _, row := range itemRows {
 		if viewer.SeesDmFields() || marketItemOnSale(colony, row) {
-			page.Items = append(page.Items, marketItemFromRow(colony, row))
+			page.Items = append(page.Items, marketItemFromRow(colony, row, viewer.SeesDmFields()))
 		}
 	}
 	if page.Cart, err = readCart(requestContext, queries, colony); err != nil {
@@ -351,8 +366,10 @@ func listOrderLines(requestContext context.Context, queries *store.Queries, camp
 	return lines, nil
 }
 
-func marketItemFromRow(colony colonySnapshot, row store.MarketItem) MarketItem {
-	return MarketItem{
+// marketItemFromRow keeps Dm only for the DM's projection, and the Transformer strips it again for anyone
+// else.
+func marketItemFromRow(colony colonySnapshot, row store.MarketItem, dmProjection bool) MarketItem {
+	item := MarketItem{
 		ID:          row.ID,
 		Name:        marketItemName(colony, row),
 		Description: row.Description,
@@ -364,6 +381,10 @@ func marketItemFromRow(colony colonySnapshot, row store.MarketItem) MarketItem {
 		Archived:    row.Archived,
 		SortOrder:   int64(row.SortOrder),
 	}
+	if dmProjection {
+		item.Dm = &MarketItemDm{CompendiumUUID: row.CompendiumUuid}
+	}
+	return item
 }
 
 // marketItemName is a special item's own name, or the resource's or role's label for an offer
@@ -454,16 +475,17 @@ func (service *Service) CreateMarketItem(requestContext context.Context, viewer 
 			return errMarketItemTotalLimit
 		}
 		row, err := queries.CreateMarketItem(requestContext, store.CreateMarketItemParams{
-			CampaignID:  viewer.campaignID,
-			Name:        cleaned.Name,
-			Description: cleaned.Description,
-			PriceGold:   cleaned.PriceGold,
-			MaxPerOrder: cleaned.MaxPerOrder,
+			CampaignID:     viewer.campaignID,
+			Name:           cleaned.Name,
+			Description:    cleaned.Description,
+			PriceGold:      cleaned.PriceGold,
+			MaxPerOrder:    cleaned.MaxPerOrder,
+			CompendiumUuid: cleaned.CompendiumUuid,
 		})
 		if err != nil {
 			return err
 		}
-		item = marketItemFromRow(colonySnapshot{}, row)
+		item = marketItemFromRow(colonySnapshot{}, row, true)
 		return nil
 	})
 	if err != nil {
@@ -504,7 +526,7 @@ func (service *Service) UpdateMarketItem(requestContext context.Context, viewer 
 				return err
 			}
 		}
-		item = marketItemFromRow(colonySnapshot{}, row)
+		item = marketItemFromRow(colonySnapshot{}, row, true)
 		return nil
 	})
 	if err != nil {
@@ -553,7 +575,7 @@ func (service *Service) SetMarketItemArchived(requestContext context.Context, vi
 				return err
 			}
 		}
-		item = marketItemFromRow(colony, row)
+		item = marketItemFromRow(colony, row, true)
 		return nil
 	})
 	if err != nil {
@@ -583,6 +605,8 @@ func cleanMarketItemInput(input MarketItemInput) (store.UpdateMarketItemParams, 
 	if input.MaxPerOrder != nil && (*input.MaxPerOrder < 1 || *input.MaxPerOrder > marketMaxQuantity) {
 		collect(&FieldError{Field: "maxPerOrder", Message: "Use a limit from 1 to 10,000, or leave it blank."})
 	}
+	parameters.CompendiumUuid, fieldError = cleanCompendiumUUID(input.CompendiumUUID)
+	collect(fieldError)
 	if len(fieldErrors) > 0 {
 		return store.UpdateMarketItemParams{}, Invalid("Check the item's details.", fieldErrors...)
 	}
@@ -591,6 +615,22 @@ func cleanMarketItemInput(input MarketItemInput) (store.UpdateMarketItemParams, 
 		parameters.MaxPerOrder = int32Pointer(*input.MaxPerOrder)
 	}
 	return parameters, nil
+}
+
+// cleanCompendiumUUID trims a Foundry item's UUID; blank is none. Only Foundry v13's full form, as Copy
+// UUID gives it, is accepted (docs/design/foundry-bridge.md §13.6).
+func cleanCompendiumUUID(value *string) (*string, *FieldError) {
+	if value == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if len(trimmed) > compendiumUUIDMaxLength || !compendiumUUIDPattern.MatchString(trimmed) {
+		return nil, &FieldError{Field: "compendiumUuid", Message: "Paste the item's UUID from Foundry, like Compendium.pf2e.equipment-srd.Item.abcdefghij123456."}
+	}
+	return &trimmed, nil
 }
 
 func checkMarketPrice(priceGold int64) *FieldError {

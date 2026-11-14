@@ -38,7 +38,9 @@ Hooks.once("ready", () => {
 	bridge = createBridge({
 		adapter: selectAdapter(game.system.id, {
 			chatMessage: ChatMessage,
+			folder: Folder,
 			foundryGame: game,
+			fromUuid,
 			journalEntry: JournalEntry,
 			moveClockWithColonyDays: settings.moveClockWithColonyDays,
 		}),

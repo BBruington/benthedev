@@ -46,9 +46,19 @@ describe("createBridgeSettings", () => {
 		expect(bridgeSettings.linkedWorldId()).toBe("world-pf2e");
 		expect(bridgeSettings.acknowledgedThrough()).toBe(0);
 		expect(bridgeSettings.pendingEvents()).toEqual([]);
+		expect(bridgeSettings.withdrawOwed()).toBe(true);
+		expect(configs.get("withdrawOwed")?.scope).toBe("client");
 		// The old token goes first and the new one last, so no token sits beside another link's world.
 		expect(writes.at(0)).toEqual(["token", ""]);
 		expect(writes.at(-1)).toEqual(["token", "new-token"]);
+	});
+
+	test("forgetting a link owes no withdrawal", async () => {
+		const { settings } = fakeSettings();
+		const bridgeSettings = createBridgeSettings(settings);
+		await bridgeSettings.saveLink({ campaignName: "Ridgehold", token: "new-token", worldId: "w" });
+		await bridgeSettings.saveLink({ campaignName: "", token: "", worldId: "" });
+		expect(bridgeSettings.withdrawOwed()).toBe(false);
 	});
 
 	test("a link saved by 0.1.1 names no world", () => {

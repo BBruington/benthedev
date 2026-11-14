@@ -230,6 +230,33 @@ func (q *Queries) CreateBridgeOutboxRow(ctx context.Context, arg CreateBridgeOut
 	return err
 }
 
+const createBridgeOutboxRows = `-- name: CreateBridgeOutboxRows :exec
+INSERT INTO bridge_outbox (campaign_id, seq, kind, target_key, payload, created_at)
+SELECT $1, unnest($2::bigint[]), unnest($3::text[])::bridge_outbox_kind,
+       unnest($4::text[]), unnest($5::text[])::jsonb, $6::timestamptz
+`
+
+type CreateBridgeOutboxRowsParams struct {
+	CampaignID uuid.UUID
+	Seqs       []int64
+	Kinds      []string
+	TargetKeys []string
+	Payloads   []string
+	Now        time.Time
+}
+
+func (q *Queries) CreateBridgeOutboxRows(ctx context.Context, arg CreateBridgeOutboxRowsParams) error {
+	_, err := q.db.Exec(ctx, createBridgeOutboxRows,
+		arg.CampaignID,
+		arg.Seqs,
+		arg.Kinds,
+		arg.TargetKeys,
+		arg.Payloads,
+		arg.Now,
+	)
+	return err
+}
+
 const createBridgePairingCode = `-- name: CreateBridgePairingCode :one
 INSERT INTO bridge_pairing_code (campaign_id, code_hash, created_at, expires_at)
 VALUES ($1, $2, $3::timestamptz, $4)
@@ -280,7 +307,25 @@ func (q *Queries) DecideBridgeEvent(ctx context.Context, arg DecideBridgeEventPa
 	return result.RowsAffected(), nil
 }
 
-const deleteUnappliedBridgeOutboxTarget = `-- name: DeleteUnappliedBridgeOutboxTarget :exec
+const deleteUnappliedBridgeOutboxKinds = `-- name: DeleteUnappliedBridgeOutboxKinds :execrows
+DELETE FROM bridge_outbox
+WHERE campaign_id = $1 AND kind::text = ANY($2::text[]) AND applied_at IS NULL AND failed_at IS NULL
+`
+
+type DeleteUnappliedBridgeOutboxKindsParams struct {
+	CampaignID uuid.UUID
+	Kinds      []string
+}
+
+func (q *Queries) DeleteUnappliedBridgeOutboxKinds(ctx context.Context, arg DeleteUnappliedBridgeOutboxKindsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUnappliedBridgeOutboxKinds, arg.CampaignID, arg.Kinds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUnappliedBridgeOutboxTarget = `-- name: DeleteUnappliedBridgeOutboxTarget :execrows
 DELETE FROM bridge_outbox
 WHERE campaign_id = $1 AND target_key = $2 AND applied_at IS NULL AND failed_at IS NULL
 `
@@ -290,9 +335,30 @@ type DeleteUnappliedBridgeOutboxTargetParams struct {
 	TargetKey  string
 }
 
-func (q *Queries) DeleteUnappliedBridgeOutboxTarget(ctx context.Context, arg DeleteUnappliedBridgeOutboxTargetParams) error {
-	_, err := q.db.Exec(ctx, deleteUnappliedBridgeOutboxTarget, arg.CampaignID, arg.TargetKey)
-	return err
+func (q *Queries) DeleteUnappliedBridgeOutboxTarget(ctx context.Context, arg DeleteUnappliedBridgeOutboxTargetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUnappliedBridgeOutboxTarget, arg.CampaignID, arg.TargetKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUnappliedBridgeOutboxTargets = `-- name: DeleteUnappliedBridgeOutboxTargets :execrows
+DELETE FROM bridge_outbox
+WHERE campaign_id = $1 AND target_key = ANY($2::text[]) AND applied_at IS NULL AND failed_at IS NULL
+`
+
+type DeleteUnappliedBridgeOutboxTargetsParams struct {
+	CampaignID uuid.UUID
+	TargetKeys []string
+}
+
+func (q *Queries) DeleteUnappliedBridgeOutboxTargets(ctx context.Context, arg DeleteUnappliedBridgeOutboxTargetsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUnappliedBridgeOutboxTargets, arg.CampaignID, arg.TargetKeys)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const failBridgeOutboxRow = `-- name: FailBridgeOutboxRow :execrows
@@ -414,6 +480,18 @@ func (q *Queries) GetOpenBridgePairingCode(ctx context.Context, arg GetOpenBridg
 	var expires_at time.Time
 	err := row.Scan(&expires_at)
 	return expires_at, err
+}
+
+const hasActiveBridgeLink = `-- name: HasActiveBridgeLink :one
+SELECT EXISTS (SELECT 1 FROM bridge_link WHERE campaign_id = $1 AND revoked_at IS NULL)
+`
+
+// A transaction's one check before it reads anything for Foundry.
+func (q *Queries) HasActiveBridgeLink(ctx context.Context, campaignID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasActiveBridgeLink, campaignID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listBridgeOutbox = `-- name: ListBridgeOutbox :many
@@ -661,6 +739,25 @@ func (q *Queries) ReopenAcceptedBridgeEvent(ctx context.Context, arg ReopenAccep
 	return result.RowsAffected(), nil
 }
 
+const reserveBridgeOutboxSeqs = `-- name: ReserveBridgeOutboxSeqs :one
+UPDATE bridge_link SET outbox_seq = outbox_seq + $1::bigint
+WHERE campaign_id = $2 AND revoked_at IS NULL
+RETURNING outbox_seq
+`
+
+type ReserveBridgeOutboxSeqsParams struct {
+	RowCount   int64
+	CampaignID uuid.UUID
+}
+
+// A transaction's rows take consecutive numbers ending at the one returned.
+func (q *Queries) ReserveBridgeOutboxSeqs(ctx context.Context, arg ReserveBridgeOutboxSeqsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reserveBridgeOutboxSeqs, arg.RowCount, arg.CampaignID)
+	var outbox_seq int64
+	err := row.Scan(&outbox_seq)
+	return outbox_seq, err
+}
+
 const revokeBridgeLinks = `-- name: RevokeBridgeLinks :many
 UPDATE bridge_link SET revoked_at = $1::timestamptz
 WHERE campaign_id = $2 AND revoked_at IS NULL
@@ -761,21 +858,39 @@ func (q *Queries) TrimBridgeEvents(ctx context.Context, arg TrimBridgeEventsPara
 const trimBridgeOutbox = `-- name: TrimBridgeOutbox :execrows
 DELETE FROM bridge_outbox
 WHERE bridge_outbox.campaign_id = $1 AND bridge_outbox.id IN (
-    SELECT unapplied.id FROM bridge_outbox AS unapplied
-    WHERE unapplied.campaign_id = $1 AND unapplied.applied_at IS NULL AND unapplied.failed_at IS NULL
-    ORDER BY unapplied.seq DESC
-    OFFSET $2::integer
+    SELECT oldest.id FROM bridge_outbox AS oldest
+    WHERE oldest.campaign_id = $1 AND oldest.applied_at IS NULL AND oldest.failed_at IS NULL
+      AND oldest.kind::text = ANY($2::text[])
+    ORDER BY oldest.seq
+    LIMIT greatest(0, (
+        SELECT count(*) FROM bridge_outbox AS one_shot
+        WHERE one_shot.campaign_id = $1 AND one_shot.applied_at IS NULL AND one_shot.failed_at IS NULL
+          AND one_shot.kind::text = ANY($2::text[])
+    ) - greatest($3::integer, $4::integer - (
+        SELECT count(*) FROM bridge_outbox AS state
+        WHERE state.campaign_id = $1 AND state.applied_at IS NULL AND state.failed_at IS NULL
+          AND NOT (state.kind::text = ANY($2::text[]))
+    )))
 )
 `
 
 type TrimBridgeOutboxParams struct {
-	CampaignID uuid.UUID
-	Keep       int32
+	CampaignID   uuid.UUID
+	OneShotKinds []string
+	MinOneShots  int32
+	Keep         int32
 }
 
-// Past the cap, the oldest unapplied rows go first.
+// Past the cap, the oldest one-shot rows go first, but the newest min_one_shots always stay, however
+// many state rows wait. A state row is its target's only waiting row, so trimming one would lose that
+// target until it next changes (docs/design/foundry-bridge.md §4.1).
 func (q *Queries) TrimBridgeOutbox(ctx context.Context, arg TrimBridgeOutboxParams) (int64, error) {
-	result, err := q.db.Exec(ctx, trimBridgeOutbox, arg.CampaignID, arg.Keep)
+	result, err := q.db.Exec(ctx, trimBridgeOutbox,
+		arg.CampaignID,
+		arg.OneShotKinds,
+		arg.MinOneShots,
+		arg.Keep,
+	)
 	if err != nil {
 		return 0, err
 	}

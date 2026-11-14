@@ -33,6 +33,27 @@ WHERE quest.campaign_id = @campaign_id
 -- name: GetQuest :one
 SELECT * FROM quest WHERE campaign_id = @campaign_id AND id = @id;
 
+-- The revealed quests an NPC or a patron gives, whose Foundry entries name them.
+-- name: ListRevealedQuestIdsByGiver :many
+SELECT id FROM quest WHERE campaign_id = @campaign_id AND revealed AND giver_npc_id = @npc_id
+ORDER BY created_at DESC, id;
+
+-- name: ListRevealedQuestIdsByPatron :many
+SELECT id FROM quest WHERE campaign_id = @campaign_id AND revealed AND patron_id = @patron_id
+ORDER BY created_at DESC, id;
+
+-- These quests as players see them, for Foundry; a hidden one is absent.
+-- name: ListRevealedQuestViews :many
+SELECT sqlc.embed(quest),
+       giver.display_name AS giver_npc_name,
+       patron.name AS patron_name
+FROM quest
+LEFT JOIN npc AS giver ON giver.campaign_id = quest.campaign_id
+    AND giver.id = quest.giver_npc_id AND giver.revealed
+LEFT JOIN patron ON patron.campaign_id = quest.campaign_id
+    AND patron.id = quest.patron_id AND patron.revealed
+WHERE quest.campaign_id = @campaign_id AND quest.id = ANY(@ids::uuid[]) AND quest.revealed;
+
 -- name: CountQuests :one
 SELECT count(*) FROM quest WHERE campaign_id = @campaign_id;
 

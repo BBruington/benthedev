@@ -207,9 +207,16 @@ func (service *Service) UpdatePatron(requestContext context.Context, viewer View
 	}
 	cleaned.CampaignID = viewer.campaignID
 	cleaned.ID = patronID
-	return service.changePatron(requestContext, viewer, patronID, func(queries *store.Queries) error {
-		_, err := queries.UpdatePatron(requestContext, cleaned)
-		return err
+	return service.changePatron(requestContext, viewer, patronID, func(queries *store.Queries) (bool, error) {
+		before, err := queries.GetPatron(requestContext, store.GetPatronParams{CampaignID: viewer.campaignID, ID: patronID})
+		if err != nil {
+			return false, err
+		}
+		updated, err := queries.UpdatePatron(requestContext, cleaned)
+		if err != nil {
+			return false, err
+		}
+		return updated.Revealed && updated.Name != before.Name, nil
 	})
 }
 
@@ -219,9 +226,15 @@ func (service *Service) SetPatronRevealed(requestContext context.Context, viewer
 	if err := requireDm(viewer); err != nil {
 		return PatronPage{}, err
 	}
-	return service.changePatron(requestContext, viewer, patronID, func(queries *store.Queries) error {
-		_, err := queries.SetPatronRevealed(requestContext, store.SetPatronRevealedParams{CampaignID: viewer.campaignID, ID: patronID, Revealed: revealed})
-		return err
+	return service.changePatron(requestContext, viewer, patronID, func(queries *store.Queries) (bool, error) {
+		before, err := queries.GetPatron(requestContext, store.GetPatronParams{CampaignID: viewer.campaignID, ID: patronID})
+		if err != nil {
+			return false, err
+		}
+		if _, err := queries.SetPatronRevealed(requestContext, store.SetPatronRevealedParams{CampaignID: viewer.campaignID, ID: patronID, Revealed: revealed}); err != nil {
+			return false, err
+		}
+		return before.Revealed != revealed, nil
 	}, TopicQuests, TopicRequests, TopicTimeline)
 }
 
@@ -230,14 +243,14 @@ func (service *Service) SetPatronArchived(requestContext context.Context, viewer
 	if err := requireDm(viewer); err != nil {
 		return PatronPage{}, err
 	}
-	return service.changePatron(requestContext, viewer, patronID, func(queries *store.Queries) error {
+	return service.changePatron(requestContext, viewer, patronID, func(queries *store.Queries) (bool, error) {
 		if !archived {
 			if err := requireRoomToUnarchivePatron(requestContext, queries, viewer.campaignID, patronID); err != nil {
-				return err
+				return false, err
 			}
 		}
 		_, err := queries.SetPatronArchived(requestContext, store.SetPatronArchivedParams{CampaignID: viewer.campaignID, ID: patronID, Archived: archived})
-		return err
+		return false, err
 	}, TopicQuests)
 }
 
@@ -263,20 +276,42 @@ func requireRoomToUnarchivePatron(requestContext context.Context, queries *store
 	return nil
 }
 
-func (service *Service) changePatron(requestContext context.Context, viewer Viewer, patronID uuid.UUID, change func(queries *store.Queries) error, topics ...Topic) (PatronPage, error) {
+// changePatron runs one patron change; change reports whether it altered what the patron's quests
+// show players, which re-sends them to Foundry.
+func (service *Service) changePatron(requestContext context.Context, viewer Viewer, patronID uuid.UUID,
+	change func(queries *store.Queries) (bool, error), topics ...Topic,
+) (PatronPage, error) {
 	var page PatronPage
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
-		if err := change(queries); err != nil {
+		// Locked first, as PairBridge locks it, so a pairing's backfill can't miss this change.
+		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
+			return campaignGone(err)
+		}
+		resendQuests, err := change(queries)
+		if err != nil {
 			return patronGone(err)
 		}
-		var err error
+		if resendQuests {
+			outbox, err := service.openBridgeOutbox(requestContext, queries, viewer.campaignID)
+			if err != nil {
+				return err
+			}
+			if err := outbox.questsOfPatron(patronID); err != nil {
+				return err
+			}
+			bridged, err = outbox.finish()
+			if err != nil {
+				return err
+			}
+		}
 		page, err = service.readPatronPage(requestContext, queries, viewer, patronID)
 		return err
 	})
 	if err != nil {
 		return PatronPage{}, err
 	}
-	service.broker.Publish(viewer.campaignID, append([]Topic{TopicPatrons}, topics...)...)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, append([]Topic{TopicPatrons}, topics...)...)...)
 	return page, nil
 }
 

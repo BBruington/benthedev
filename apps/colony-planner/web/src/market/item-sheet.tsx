@@ -43,6 +43,7 @@ export function ItemSheet({
 	const [description, setDescription] = useState(item?.description ?? "");
 	const [priceText, setPriceText] = useState(item ? String(item.priceGold) : "");
 	const [limitText, setLimitText] = useState(item?.maxPerOrder ? String(item.maxPerOrder) : "");
+	const [compendiumUuid, setCompendiumUuid] = useState(item?.dm?.compendiumUuid ?? "");
 	const settled = {
 		onSettled: () => queryClient.invalidateQueries({ queryKey: marketQuery(campaignId).queryKey }),
 	};
@@ -88,6 +89,7 @@ export function ItemSheet({
 			return;
 		}
 		const body = {
+			compendiumUuid: compendiumUuid.trim() === "" ? null : compendiumUuid.trim(),
 			description,
 			maxPerOrder: typeof limit === "number" ? limit : null,
 			name,
@@ -207,6 +209,26 @@ export function ItemSheet({
 						/>
 					</Field>
 				</div>
+				<Field
+					description="Paste the item's UUID from Foundry's compendium, so paid shipments land in the party's inventory."
+					error={serverErrors.compendiumUuid}
+					id="item-compendium-uuid"
+					label="Foundry item UUID"
+					optional
+				>
+					<Input
+						{...fieldInputProps("item-compendium-uuid", serverErrors.compendiumUuid, true)}
+						autoCapitalize="off"
+						autoComplete="off"
+						onChange={(event) => {
+							setCompendiumUuid(event.target.value);
+							edited();
+						}}
+						placeholder="Compendium.pf2e.equipment-srd.Item.…"
+						spellCheck={false}
+						value={compendiumUuid}
+					/>
+				</Field>
 				{generalError ? (
 					<p className="text-ember-ink text-sm" role="alert">
 						{generalError}

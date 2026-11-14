@@ -18,6 +18,10 @@ WHERE code_hash = @code_hash AND closed_at IS NULL AND expires_at > @now::timest
   AND EXISTS (SELECT 1 FROM campaign WHERE campaign.id = bridge_pairing_code.campaign_id AND campaign.status = 'ACTIVE')
 RETURNING campaign_id;
 
+-- A transaction's one check before it reads anything for Foundry.
+-- name: HasActiveBridgeLink :one
+SELECT EXISTS (SELECT 1 FROM bridge_link WHERE campaign_id = @campaign_id AND revoked_at IS NULL);
+
 -- name: GetActiveBridgeLink :one
 SELECT * FROM bridge_link WHERE campaign_id = @campaign_id AND revoked_at IS NULL;
 
@@ -74,7 +78,26 @@ UPDATE bridge_link SET outbox_seq = outbox_seq + 1
 WHERE campaign_id = @campaign_id AND revoked_at IS NULL
 RETURNING outbox_seq;
 
--- name: DeleteUnappliedBridgeOutboxTarget :exec
+-- A transaction's rows take consecutive numbers ending at the one returned.
+-- name: ReserveBridgeOutboxSeqs :one
+UPDATE bridge_link SET outbox_seq = outbox_seq + @row_count::bigint
+WHERE campaign_id = @campaign_id AND revoked_at IS NULL
+RETURNING outbox_seq;
+
+-- name: DeleteUnappliedBridgeOutboxTargets :execrows
+DELETE FROM bridge_outbox
+WHERE campaign_id = @campaign_id AND target_key = ANY(@target_keys::text[]) AND applied_at IS NULL AND failed_at IS NULL;
+
+-- name: DeleteUnappliedBridgeOutboxKinds :execrows
+DELETE FROM bridge_outbox
+WHERE campaign_id = @campaign_id AND kind::text = ANY(@kinds::text[]) AND applied_at IS NULL AND failed_at IS NULL;
+
+-- name: CreateBridgeOutboxRows :exec
+INSERT INTO bridge_outbox (campaign_id, seq, kind, target_key, payload, created_at)
+SELECT @campaign_id, unnest(@seqs::bigint[]), unnest(@kinds::text[])::bridge_outbox_kind,
+       unnest(@target_keys::text[]), unnest(@payloads::text[])::jsonb, @now::timestamptz;
+
+-- name: DeleteUnappliedBridgeOutboxTarget :execrows
 DELETE FROM bridge_outbox
 WHERE campaign_id = @campaign_id AND target_key = @target_key AND applied_at IS NULL AND failed_at IS NULL;
 
@@ -82,14 +105,25 @@ WHERE campaign_id = @campaign_id AND target_key = @target_key AND applied_at IS 
 INSERT INTO bridge_outbox (campaign_id, seq, kind, target_key, payload, created_at)
 VALUES (@campaign_id, @seq, @kind, @target_key, @payload, @now::timestamptz);
 
--- Past the cap, the oldest unapplied rows go first.
+-- Past the cap, the oldest one-shot rows go first, but the newest min_one_shots always stay, however
+-- many state rows wait. A state row is its target's only waiting row, so trimming one would lose that
+-- target until it next changes (docs/design/foundry-bridge.md §4.1).
 -- name: TrimBridgeOutbox :execrows
 DELETE FROM bridge_outbox
 WHERE bridge_outbox.campaign_id = @campaign_id AND bridge_outbox.id IN (
-    SELECT unapplied.id FROM bridge_outbox AS unapplied
-    WHERE unapplied.campaign_id = @campaign_id AND unapplied.applied_at IS NULL AND unapplied.failed_at IS NULL
-    ORDER BY unapplied.seq DESC
-    OFFSET @keep::integer
+    SELECT oldest.id FROM bridge_outbox AS oldest
+    WHERE oldest.campaign_id = @campaign_id AND oldest.applied_at IS NULL AND oldest.failed_at IS NULL
+      AND oldest.kind::text = ANY(@one_shot_kinds::text[])
+    ORDER BY oldest.seq
+    LIMIT greatest(0, (
+        SELECT count(*) FROM bridge_outbox AS one_shot
+        WHERE one_shot.campaign_id = @campaign_id AND one_shot.applied_at IS NULL AND one_shot.failed_at IS NULL
+          AND one_shot.kind::text = ANY(@one_shot_kinds::text[])
+    ) - greatest(sqlc.arg(min_one_shots)::integer, sqlc.arg(keep)::integer - (
+        SELECT count(*) FROM bridge_outbox AS state
+        WHERE state.campaign_id = @campaign_id AND state.applied_at IS NULL AND state.failed_at IS NULL
+          AND NOT (state.kind::text = ANY(@one_shot_kinds::text[]))
+    )))
 );
 
 -- name: ListBridgeOutbox :many
