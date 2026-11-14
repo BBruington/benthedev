@@ -15,6 +15,7 @@ on:
       - apps/colony-planner/**
       - .github/workflows/colony-planner.yml
       - mise.toml
+  workflow_dispatch:
 
 permissions:
   contents: read
