@@ -173,6 +173,7 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 	}
 	var settings Settings
 	timezoneChanged := false
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		current, err := queries.GetSettings(requestContext, viewer.campaignID)
 		if err != nil {
@@ -213,6 +214,11 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 		if _, err := queries.SetColonyName(requestContext, store.SetColonyNameParams{CampaignID: viewer.campaignID, Name: colonyName}); err != nil {
 			return campaignGone(err)
 		}
+		// Foundry's summary page carries the campaign name.
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return err
+		}
 		settings, err = service.readSettings(requestContext, queries, viewer.campaignID)
 		return err
 	})
@@ -220,7 +226,7 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 		return Settings{}, err
 	}
 	// The board carries both names, so every member's top bar refreshes too.
-	service.broker.Publish(viewer.campaignID, TopicSettings, TopicColony, TopicMe)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicSettings, TopicColony, TopicMe)...)
 	if timezoneChanged {
 		// Every date's instant moved with the zone.
 		service.broker.Publish(viewer.campaignID, TopicSessions)

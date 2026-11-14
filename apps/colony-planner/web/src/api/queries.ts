@@ -90,6 +90,13 @@ export function discordChannelsQuery(campaignId: string) {
 	);
 }
 
+/** Settings' Foundry card: the connected world, an open pairing code and the inbox. */
+export function bridgeStatusQuery(campaignId: string) {
+	return api.queryOptions("get", "/api/campaigns/{campaignId}/bridge", inCampaign(campaignId), {
+		meta: { dmOnly: true },
+	});
+}
+
 // M1: the colony board, the timeline and the DM's resource settings.
 export function colonyBoardQuery(campaignId: string) {
 	return api.queryOptions("get", "/api/campaigns/{campaignId}/colony", inCampaign(campaignId));

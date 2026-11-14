@@ -663,6 +663,7 @@ var mixedIDFields = map[string]string{
 	"seriesId":       "uuid",
 	"sessionId":      "uuid",
 	"optionIds":      "uuids",
+	"bridgeEventId":  "uuid",
 	// Every Effects (rewardEffects, failureEffects, effects, appliedEffects) keys resources here.
 	"resources": "map",
 }
@@ -745,6 +746,7 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"seriesId":       campaignB.pathIDs["seriesId"],
 		"sessionId":      campaignB.pathIDs["sessionId"],
 		"optionIds":      []string{campaignB.pathIDs["pollOptionId"]},
+		"bridgeEventId":  campaignB.pathIDs["eventId"],
 	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
@@ -975,6 +977,24 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	campaignA.pathIDs["pollId"] = passFourPoll.ID.String()
 	validBodies["/polls/{pollId}/vote"] = func() map[string]any {
 		return map[string]any{"optionIds": []string{passFourPoll.Options[0].ID.String()}}
+	}
+	// Pass 3 dismissed A's {eventId} item and disconnected A, so Advance gets a fresh PENDING item of
+	// A's own from a new link; B's item in its place is then refused for the ID alone.
+	bridgeCallerA, err := testHarness.core.EnterBridge(testHarness.context, testHarness.pairBridge(campaignA, testHarness.dmA))
+	if err != nil {
+		t.Fatalf("enter A's pass 4 bridge: %v", err)
+	}
+	passFourEvent := core.BridgeInboundEvent{ID: uuid.New(), Kind: core.BridgeEventKindTimeAdvanced, OccurredAt: time.Now().UTC(), Payload: json.RawMessage(`{"days":1}`)}
+	if _, err := testHarness.core.RecordBridgeEvents(testHarness.context, bridgeCallerA, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{passFourEvent}}); err != nil {
+		t.Fatalf("record A's pass 4 inbox item: %v", err)
+	}
+	bridgeA, err := testHarness.core.GetBridgeStatus(testHarness.context, dmViewerA)
+	if err != nil || len(bridgeA.Inbox) != 1 {
+		t.Fatalf("A's pass 4 inbox = %+v, %v; want one PENDING item", bridgeA.Inbox, err)
+	}
+	inboxItemA := bridgeA.Inbox[0].ID.String()
+	validBodies["/colony/advance"] = func() map[string]any {
+		return map[string]any{"days": 1, "expectedVersion": boardOf(dmViewerA).Version, "bridgeEventId": inboxItemA}
 	}
 	validBodyFor := func(route sweepRoute) (func() map[string]any, bool) {
 		suffix := strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")
@@ -1429,4 +1449,116 @@ func TestPlayersFindOnlyWhatTheyKnow(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestBridgeCallersSeeOnlyTheirCampaign is the sweep's bridge pass: each campaign's token against every
+// /api/bridge/ route, its outbox replayed whole and its stream read, after both DMs changed their
+// colonies. A's token never sees B's values, B's never sees A's, and neither sees a DM-only value of
+// its own campaign, since every payload comes from the player projection. A revoked token is then
+// 401 everywhere, like a removed member.
+func TestBridgeCallersSeeOnlyTheirCampaign(t *testing.T) {
+	testHarness := newHarness(t)
+	plantCanaries(t, testHarness)
+	routes, document := sweepRoutes(t, testHarness.server)
+	campaignA, campaignB := testHarness.campaignA, testHarness.campaignB
+	secretA, secretB := testHarness.dmOnlyValues(campaignA), testHarness.dmOnlyValues(campaignB)
+	for _, side := range testHarness.sides() {
+		dmViewer := testHarness.enter(side.dm, side.campaign.id)
+		board, err := testHarness.core.GetColonyBoard(testHarness.context, dmViewer)
+		if err != nil {
+			t.Fatalf("read %s's board: %v", side.campaign.name, err)
+		}
+		if _, err := testHarness.core.Advance(testHarness.context, dmViewer, core.AdvanceInput{Days: 2, ExpectedVersion: board.Version}); err != nil {
+			t.Fatalf("advance %s: %v", side.campaign.name, err)
+		}
+	}
+	var bridgeRoutes []sweepRoute
+	for _, route := range routes {
+		if strings.HasPrefix(route.path, bridgePathPrefix) && route.access == AccessToken {
+			bridgeRoutes = append(bridgeRoutes, route)
+		}
+	}
+	if len(bridgeRoutes) != 4 {
+		t.Fatalf("found bridge token routes %v, want 4", bridgeRoutes)
+	}
+	callAll := func(token, origin string, check func(label string, response *httptest.ResponseRecorder)) {
+		t.Helper()
+		for _, route := range bridgeRoutes {
+			body := sampleBody(document, route.operation, uuid.New())
+			if route.path == "/api/bridge/events" {
+				// The schema's sample is an empty batch, which core refuses before reading anything.
+				body = `{"events":[{"id":"` + uuid.NewString() + `","kind":"TIME_ADVANCED","occurredAt":"2026-11-12T10:00:00Z","payload":{"days":1}}]}`
+			}
+			path, response := testHarness.callWithHeaders(route, document, body, bridgeHeaders(token, origin))
+			check(route.label+" "+path, response)
+		}
+	}
+	for _, pass := range []struct {
+		name      string
+		campaign  *campaignFixture
+		forbidden []string
+	}{
+		{"A's token", campaignA, joinValues(secretA, secretB, testHarness.visibleValuesOfB())},
+		{"B's token", campaignB, joinValues(secretB, secretA, []string{campaignA.icsToken, campaignA.name})},
+	} {
+		callAll(pass.campaign.bridgeToken, pass.campaign.bridgeOrigin, func(label string, response *httptest.ResponseRecorder) {
+			checkResponse(t, pass.name+": "+label, bridgePathPrefix, pass.forbidden, response)
+			if response.Code >= 300 {
+				t.Errorf("%s: %s answered %d; body: %s", pass.name, label, response.Code, response.Body.String())
+			}
+		})
+		// The sweep's ack names seq 1, the pairing summary, which the advance already replaced.
+		response := testHarness.do(http.MethodGet, "/api/bridge/outbox?after=0", requestOptions{headers: bridgeHeaders(pass.campaign.bridgeToken, pass.campaign.bridgeOrigin)})
+		testHarness.expectStatus(response, http.StatusOK)
+		var page core.BridgeOutboxPage
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+			t.Fatalf("%s: decode the outbox: %v", pass.name, err)
+		}
+		kinds := map[core.BridgeOutboxKind]bool{}
+		for _, row := range page.Rows {
+			kinds[row.Kind] = true
+			for _, secret := range pass.forbidden {
+				if strings.Contains(string(row.Payload), secret) {
+					t.Errorf("%s: outbox row %d (%s) leaks %q: %s", pass.name, row.Seq, row.Kind, secret, row.Payload)
+				}
+			}
+		}
+		if !kinds[core.BridgeOutboxKindColonySummary] || !kinds[core.BridgeOutboxKindDaysAdvanced] {
+			t.Errorf("%s: the outbox holds %v, so the replay proves little", pass.name, kinds)
+		}
+		if pass.campaign == campaignB && !strings.Contains(response.Body.String(), "Brine") {
+			t.Errorf("B's summary lacks B's own resource: %s", response.Body.String())
+		}
+	}
+
+	revoked := campaignA.bridgeToken
+	testHarness.expectStatus(testHarness.do(http.MethodDelete, campaignPathOf(campaignA, "/bridge"), requestOptions{token: testHarness.signIn(testHarness.dmA)}), http.StatusNoContent)
+	callAll(revoked, campaignA.bridgeOrigin, func(label string, response *httptest.ResponseRecorder) {
+		expectBridgeUnauthorized(t, "A's revoked token: "+label, response, campaignA.bridgeOrigin)
+	})
+	callAll(campaignB.bridgeToken, campaignB.bridgeOrigin, func(label string, response *httptest.ResponseRecorder) {
+		if response.Code >= 300 {
+			t.Errorf("revoking A's link closed B's: %s answered %d", label, response.Code)
+		}
+	})
+
+	logOutput := testHarness.logs.String()
+	for _, forbidden := range joinValues([]string{canaryA, canaryB}, campaignA.linkCodes, campaignB.linkCodes) {
+		if strings.Contains(logOutput, forbidden) {
+			t.Errorf("the server log carries %q", forbidden)
+		}
+	}
+}
+
+// callWithHeaders performs a route with the body and headers given, and no session cookie.
+func (testHarness *harness) callWithHeaders(route sweepRoute, document map[string]any, body string, headers map[string]string) (string, *httptest.ResponseRecorder) {
+	testHarness.t.Helper()
+	path := fillPath(testHarness.t, route.path, map[string]string{})
+	options := requestOptions{body: body, headers: headers}
+	if route.isStream() {
+		streamContext, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		options.context = streamContext
+	}
+	return path, testHarness.do(route.method, path+fillQuery(document, route.operation, uuid.New()), options)
 }

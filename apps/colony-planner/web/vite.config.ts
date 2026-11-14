@@ -8,7 +8,7 @@ import { defineConfig } from "vite";
 // so cookies, CrossOriginProtection and SSE all see one origin. COLONY_DEV_GO_URL points a second
 // dev server (`bunx vite --port 5199`) at another Go server without touching the usual pair.
 const goServer = process.env.COLONY_DEV_GO_URL ?? "http://127.0.0.1:8080";
-const goPrefixes = ["/api", "/auth", "/img", "/calendar", "/healthz"];
+const goPrefixes = ["/api", "/auth", "/img", "/calendar", "/healthz", "/foundry"];
 
 export default defineConfig({
 	build: {

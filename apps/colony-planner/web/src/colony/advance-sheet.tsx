@@ -35,12 +35,19 @@ export function AdvanceSheet({
 	onOpenChange,
 	initialDays,
 	changes,
+	bridgeEventId,
+	onAdvanced,
+	onAdvanceError,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	/** A quick chip's day count, or null for Custom. */
+	/** A quick chip's day count, a Foundry inbox item's, or null for Custom. */
 	initialDays: number | null;
 	changes: ColonyChanges;
+	/** The Foundry inbox item this advance answers; the server accepts it with the advance. */
+	bridgeEventId?: string;
+	onAdvanced?: () => void;
+	onAdvanceError?: (error: unknown) => void;
 }) {
 	const [daysText, setDaysText] = useState(initialDays === null ? "" : String(initialDays));
 	const [retypeText, setRetypeText] = useState("");
@@ -70,10 +77,15 @@ export function AdvanceSheet({
 			return;
 		}
 		mutation.mutate(
-			{ body: { days, expectedVersion: preview.data.version }, ...changes.inCampaign },
 			{
+				body: { bridgeEventId, days, expectedVersion: preview.data.version },
+				...changes.inCampaign,
+			},
+			{
+				onError: onAdvanceError,
 				onSuccess: () => {
 					onOpenChange(false);
+					onAdvanced?.();
 				},
 			},
 		);

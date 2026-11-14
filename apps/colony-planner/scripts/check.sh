@@ -21,7 +21,14 @@ in_web() {
   (cd web && "$@")
 }
 
+in_foundry() {
+  (cd foundry && "$@")
+}
+
 run_step "Install web dependencies (frozen lockfile)" in_web bun install --frozen-lockfile
+run_step "Install Foundry module dependencies (frozen lockfile)" in_foundry bun install --frozen-lockfile
+# Before Go builds anything, since the binary embeds foundry/dist.
+run_step "Foundry module build" in_foundry bun run build
 run_step "Generate code (sqlc, OpenAPI, TypeScript types)" scripts/gen.sh
 run_step "Only the devauth build tag" scripts/check-build-tags.sh
 run_step "go vet" go vet ./...
@@ -36,6 +43,9 @@ run_step "Web typecheck" in_web bun run typecheck
 run_step "Biome" in_web bun x biome ci .
 run_step "Web unit tests" in_web bun run test
 run_step "Web build" in_web bun run build --logLevel warn
+run_step "Foundry module typecheck" in_foundry bun run typecheck
+run_step "Foundry module Biome" in_foundry bun x biome ci .
+run_step "Foundry module unit tests" in_foundry bun run test
 run_step "CLAUDE.md paths exist" scripts/check-docs.sh
 
 echo ""

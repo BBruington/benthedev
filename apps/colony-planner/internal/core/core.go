@@ -45,6 +45,9 @@ type Options struct {
 	SessionPlanner SessionPlanner
 	// PollNotifier is Beny Bot's poll messages and deadline timers; nil while Beny Bot is off.
 	PollNotifier PollNotifier
+	// AllowLocalFoundryOrigin lets the Foundry bridge pair from http://localhost:30000; cmd/colony sets
+	// it in devauth builds only (auth.DevAuthEnabled).
+	AllowLocalFoundryOrigin bool
 }
 
 // SessionEvictor drops cached session lookups so the next request reads the database again.
@@ -76,6 +79,9 @@ type Service struct {
 	sessionPlanner     SessionPlanner
 	pollNotifier       PollNotifier
 	clock              func() time.Time
+	// publicURL is PUBLIC_URL without a trailing slash: the bridge's links back to the site.
+	publicURL               string
+	allowLocalFoundryOrigin bool
 }
 
 func New(options Options) *Service {
@@ -94,6 +100,9 @@ func New(options Options) *Service {
 		sessionPlanner:     options.SessionPlanner,
 		pollNotifier:       options.PollNotifier,
 		clock:              options.Now,
+		publicURL:          strings.TrimSuffix(options.PublicURL, "/"),
+
+		allowLocalFoundryOrigin: options.AllowLocalFoundryOrigin,
 	}
 	if service.clock == nil {
 		service.clock = time.Now

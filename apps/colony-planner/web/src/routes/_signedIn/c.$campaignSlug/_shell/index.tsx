@@ -29,6 +29,7 @@ import { AdjustSheet } from "@/colony/adjust-sheet";
 import { AdvanceSheet } from "@/colony/advance-sheet";
 import { ColonistsStrip, DmTools, RecentEntries, ResourceTiles } from "@/colony/board-sections";
 import { CorrectDaySheet } from "@/colony/correct-day-sheet";
+import { BoardFoundryInbox } from "@/colony/foundry-inbox";
 import { ShipmentsSheet } from "@/colony/shipments-sheet";
 import { UndoDialog } from "@/colony/undo-dialog";
 import { type ColonyChanges, useColonyChanges } from "@/colony/use-colony-changes";
@@ -128,6 +129,9 @@ function ColonyPage() {
 				me={me}
 				order={order}
 			/>
+			{data.dm ? (
+				<BoardFoundryInbox fallbackFocusId={boardHeadingId} items={data.dm.bridgeInbox} />
+			) : null}
 			<section aria-labelledby="stockpile-heading" className="flex flex-col gap-3">
 				<h2 className="sr-only" id="stockpile-heading">
 					Stockpile

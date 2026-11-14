@@ -22,7 +22,7 @@ WHERE campaign_id = @campaign_id;
 -- The board's header: every member reads the campaign's name and the table's time zone, which has no
 -- secret, so players see "8:00 PM New York time" rather than a UTC offset.
 -- name: GetBoardHeader :one
-SELECT campaign.name AS campaign_name, settings.timezone
+SELECT campaign.name AS campaign_name, campaign.slug AS campaign_slug, settings.timezone
 FROM campaign
 JOIN settings ON settings.campaign_id = campaign.id
 WHERE campaign.id = @campaign_id AND settings.campaign_id = @campaign_id;

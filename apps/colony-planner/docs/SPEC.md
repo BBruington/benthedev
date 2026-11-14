@@ -115,7 +115,7 @@ Colony Planner is a private website for colony campaigns; the author's **Colony 
 
 1. **Auth middleware.** On every request it resolves the `__Host-colony_session` cookie to an account, using the in-memory session cache (§8.5), and builds a `Caller{AccountID, DiscordUserID, IsSiteOwner, ViewAsPlayer}`. For a campaign route the access layer then reads the `{campaignId}` path parameter before huma validates input and calls `core.EnterCampaign`, one membership read, which builds the `Viewer` (proof of membership; no owner flag). No membership, an unknown or an unparsable ID all answer **404 "No such campaign."**, the site owner included. The role is never cached in a cookie.
 2. **Fail-closed access.** There are seven access levels (multi-campaign design §4.1):
-   - `public`, and `token` (a secret in the URL, M5);
+   - `public`, and `token`: a secret in the URL (M5), or, for `/api/bridge/`, a secret in the `Authorization` header (the Foundry bridge's token, §3.6);
    - `account`: any signed-in account (the picker, invites, campaign requests, sign out);
    - `owner`: the site owner, only under `/api/admin/` and on the docs routes;
    - `pending`: any membership in this campaign, whatever its status;
@@ -130,6 +130,7 @@ Colony Planner is a private website for colony campaigns; the author's **Colony 
      - `/img/*` needs `member`;
      - `/auth/logout` needs `pending`;
      - `/calendar/{token}.ics` is authorized by its token and serves only data players can already see;
+     - `/api/bridge/*` is authorized by the bridge token in the `Authorization` header and **never reads the session cookie**, so a cookie on those routes counts for nothing (§3.6);
      - `/auth/discord/*`, `/healthz` (which returns no data), the SPA shell and its assets, and `/auth/dev` in devauth builds (§8.5) are public.
    - **huma's built-in routes** (`/openapi.json`, `/schemas`, `/docs`) are turned off by leaving `OpenAPIPath`, `SchemasPath` and `DocsPath` empty. The OpenAPI document and the docs page are registered again as `dm` routes.
 
@@ -340,6 +341,10 @@ The **site owner** (F8) has a third column: nothing inside a campaign they aren'
 - **Screens.** The Polls page lists open polls (newest first) with their options, counts, voters ("and N others" after the named ones for unnamed Discord votes) and the viewer's own vote (players change or withdraw a `SITE` vote there; a `DISCORD` poll shows **Vote in Discord**, or "Waiting for Beny Bot to post this in Discord." until it is posted), then the 50 most recently closed. The DM has **New poll** (a sheet), **Close** and **Delete** (with a confirm). The colony board shows each open poll: a player who hasn't voted on a `SITE` poll gets a vote card (radio buttons or checkboxes and Vote), and on a posted `DISCORD` poll the Vote in Discord link; once they have voted, and for the DM, it shrinks to one compact results line linking to the Polls page. Closed polls leave the board.
 - **Live updates.** Every poll change publishes the `polls` topic; closing also publishes `timeline`.
 - **As built (2026-11-04).** Migration `0007_polls.sql` with the `poll_voting` enum (SITE, DISCORD); a player's vote is keyed by (poll, campaign member), and other Discord votes are stored only as counts (`poll_option.discord_other_votes`, `poll.discord_other_voters`). Operations `listPolls`, `createPoll` (`{question, options, allowMultiple, durationHours}`), `votePoll` (PUT `.../polls/{pollId}/vote` with `{optionIds}`, `SITE` polls only), `closePoll` and `deletePoll`. Other refusals: 404 "That poll doesn't exist.", "A single-answer poll takes one option.", "Write the question.", "Fill in every option.", "Give 2 to 10 options.", "Each option must be different." and "Pick a duration of 1 hour to 32 days." Beny Bot needs the Send Polls permission and the Guild Message Polls intent. The board's line reads "No votes yet", "3 votes, Beside the harbor leads" or "4 votes, tied"; the Polls page re-checks close times every 30 seconds.
+
+### 3.6 Foundry bridge (designed 2026-11-12)
+
+The **Foundry bridge** connects a campaign to its Foundry VTT world on The Forge. A small Foundry module, running in the GM's browser, mirrors the colony's player-visible state into the world as journal pages and chat messages, and reports changes from Foundry (for example "the world moved 3 days") as items in a DM inbox that the DM confirms on the site, so the app still invents no game consequences. It works only while a GM has the world open. It is built in three phases (§10), and the design in `docs/design/foundry-bridge.md` is authoritative for everything about it, including the wire format; where it and this spec differ, the design wins.
 
 ---
 
@@ -1409,6 +1414,7 @@ The old stack needed about 10 edits in 4 languages. A new resource or role touch
 - **Client.**
   - Maps topics to query-key prefixes and invalidates them. A live invalidation never aborts a read in flight: it marks the read stale and that read runs once more when it lands (`web/src/api/live-invalidation.ts`), so updates that come faster than a read finishes (strokes on a slow connection) can't starve it.
   - After a `timeline` invalidation, it fetches the newest PUBLIC entries and toasts them.
+- **The bridge stream** (`GET /api/bridge/stream`, `token` level, §3.6) is a second kind of stream for the Foundry module: it is invalidate-only too (`event: outbox` with the newest sequence number, no row data), authenticated by the bridge token in the `Authorization` header instead of the session cookie, and fed by the campaign's `bridge` topic. It reads the database only on connect and when the broker publishes, with the same 20-second heartbeat and 10-minute close, and the module reads it with `fetch` because `EventSource` can't send a header. The design (§4.2) has the details.
 - **Hexes** refetch the whole map on a `hexes` invalidation, at most once a second while strokes stream in (§5.10).
 - **Fallback.** If the M6 host's proxy misbehaves, `refetchInterval` can be switched on per query; the keys are the same. Polling is never the default, because polling keeps a hosted database awake.
 
@@ -1722,6 +1728,11 @@ Nothing here happens unless, after approving M5, the author says the app meets t
   - **Membership cache: none** (design §3.2 confirmed), from counting membership reads per request path. A campaign API request makes exactly one (`EnterCampaign` in the access gate, `internal/app/access.go`), always beside the operation's own reads, so a cache would save one indexed round trip but never a Neon wake-up. Account and owner routes make none (sign-ins come from the in-memory cache). Beny Bot makes one `ViewerForGuild` read per interaction, beside the command's own reads. Planner timers and stream heartbeats make none. The one path where the membership read is the only query is a live-stream connect: an up-to-date reconnect runs exactly that read (`internal/app/colony_test.go`). The browser closes the stream while its tab is hidden (`web/src/api/stream.ts`), and the server ends each stream after 10 minutes (`defaultStreamLifetime` in `internal/app/stream.go`, under Railway's 15-minute cap), so only a tab **visible on a screen that stays on** wakes Neon: once every 10 minutes, for Neon's 5-minute suspend delay at 0.25 CU, about 1 CU-hour per 8-hour night per such tab, or about 3 a day for a tab never hidden (the free plan has 100 a month). Locked phones and background tabs cost nothing. Against that, a cache brings back the stale grant every approve, remove, leave, suspend and delete would have to evict, where one missed eviction lets a removed player keep reading a campaign. So no cache; the trigger to add one (scoped to stream reconnects, or a rotation closer to Railway's cap) is Neon's usage page showing more than about 3 CU-hours on quiet days, or the compute not suspending overnight (checklist M6 step 16).
   - **Privacy page:** a public `/privacy` (`web/src/routes/privacy.tsx`), linked from the sign-in page and the profile menu, in plain language: a hobby project run by the site owner; what is stored (from the migrations: the Discord ID, username, display name and avatar address; memberships and character names; everything entered in campaigns; uploaded images; campaign requests; the hashed sign-in cookie and the last-seen day); no tracking, ads or analytics; Railway and Neon; who sees what per the secrecy rules, and that the owner manages campaigns but the site never shows them a campaign's contents; Beny Bot's Discord data; leaving, Sign out everywhere, a DM's campaign delete, and account deletion on request. There is no account-delete operation yet: the runbook's appendix gives the site owner a tested SQL statement that ends the person's sign-ins and requests, removes them from every campaign as if they had left, and replaces their Discord details on the account with "Former member". Their display name can remain in timeline titles already written with it (a patron action called in without a character name), their Discord ID on a server link they made, and Beny Bot's past Discord messages; the privacy page says so. Railway's HTTP logs (7 days on Hobby) record each visitor's IP address, browser and requested path, and the privacy page says that too.
 
+**Foundry bridge (designed and approved 2026-11-12; `docs/design/foundry-bridge.md`).** Not part of the original M0 to M6 slices. Each phase ends with a checklist in `docs/checklists/` for the author to run, with a stop for the author's check-in after it (design §8).
+- **Phase 1, plumbing (in progress):** the bridge tables, token, pairing and the cookie-free `/api/bridge/` routes; the Settings card and the board's inbox card; the module with the core adapter, the colony summary page and the days-advanced message; and the time-advance inbox item. Done means the author connects the live site to their Forge world, advances a day on each side and sees both show up, including after closing Foundry and reopening it. Its Forge check needs the M6 cutover, since a Forge game can't reach the author's Mac.
+- **Phase 2, Colony to Foundry content:** NPCs, places and pins, quests, deliveries (with the PF2e adapter), polls and sessions.
+- **Phase 3, Foundry to Colony content:** coin deposits and their refunds, NPC import and catalog import.
+
 ---
 
 ## 11. Open questions for the author
@@ -1811,6 +1822,19 @@ These are in priority order. Each has a default, so building isn't blocked. Answ
 **Before M6 (only if you go ahead)**
 
 19. **Production Discord application.** F3 keeps the production Beny Bot token out of this project. So by default M6 creates a new production application (it can still be called Beny Bot), invites it to the real guild, and removes the old Beny Bot application once the old bot is stopped. Players then see a new bot account; the old bot's past messages stay. Would you rather the deployed site take over the existing Beny Bot application, with you entering its credentials in Railway yourself? *Default: a new production application.* **Resolved (2026-10-14):** neither, for now. The live site runs as the existing development application, **Beny Bot Dev**, which the author invites to the real server after the old bot is stopped; a separate production application may come later. The cost is the same-token rule: while Railway has Beny Bot Dev's token, the author's local `mise run dev` runs with `DISCORD_BOT_TOKEN` blank in `.env` (or Railway's is removed during local Discord testing), because two processes on one token both answer every command and both run planners against different databases. Beny Bot Dev's OAuth2 redirects list `${PUBLIC_URL}/auth/discord/callback` beside the local one (`docs/cutover.md` Part 4).
+
+**Foundry bridge (design §9), all nine resolved on 2026-11-12 (the author took the defaults, plus a deposit action for question 31)**
+
+26. **Which direction matters most?** **Resolved:** both, phased as in §10.
+27. **Who owns time?** **Resolved:** the colony owns its days. Foundry's moves arrive as inbox items the DM confirms; pushing colony days into Foundry's clock is a per-link switch, off by default.
+28. **DM-only content in Foundry.** **Resolved:** never, until the check in question 35 says otherwise.
+29. **PF2e's kingdom model.** **Resolved:** not used; the stockpile appears only on the colony summary journal page.
+30. **Where deliveries land.** **Resolved:** the party actor's inventory in PF2e, from compendium items linked on the catalog; a chat message in other systems.
+31. **Party coins and colony gold.** **Resolved:** separate pools, joined by a **Deposit to colony** action that the DM accepts or dismisses on the site.
+32. **Undoing a paid shipment** after its items reached Foundry. **Resolved:** a GM-only chat note naming what to remove; the module never deletes items.
+33. **Module hosting.** **Resolved:** Colony Planner serves the module's manifest and zip itself.
+34. **Other DMs.** **Resolved:** every campaign's DM can connect their own world; each link is per campaign and DM-only.
+35. **Still open (a check, not a decision):** does a player's browser receive journal entries whose ownership is None for that player? It decides whether question 28 can ever change; the author runs it on their own world (design §9.1).
 
 ---
 

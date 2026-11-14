@@ -85,6 +85,7 @@ func (service *Service) CreateResource(requestContext context.Context, viewer Vi
 		return ResourceSettings{}, Invalid("The resource needs fixing.", fieldErrors...)
 	}
 	var row store.Resource
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Not a colony mutation, but the colony row is still locked first: one lock order (spec §5.1),
 		// and two adds of the same label can't race for one key.
@@ -112,12 +113,16 @@ func (service *Service) CreateResource(requestContext context.Context, viewer Vi
 			MaxAmount:  int32PointerOf(input.MaxAmount),
 			SortOrder:  sortOrder,
 		})
+		if err != nil {
+			return err
+		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
 		return err
 	})
 	if err != nil {
 		return ResourceSettings{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicResources, TopicColony)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicResources, TopicColony)...)
 	return toResourceSettings(row), nil
 }
 
@@ -134,6 +139,7 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 		return ResourceSettings{}, Invalid("The resource needs fixing.", fieldErrors...)
 	}
 	var row store.Resource
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first so no colony mutation changes the amount between the bounds check and the save.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -178,12 +184,16 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 			SortOrder:  int32(input.SortOrder),
 			Archived:   input.Archived,
 		})
+		if err != nil {
+			return err
+		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
 		return err
 	})
 	if err != nil {
 		return ResourceSettings{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicResources, TopicColony)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicResources, TopicColony)...)
 	return toResourceSettings(row), nil
 }
 

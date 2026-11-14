@@ -1,6 +1,7 @@
-# The production image (spec §10, M6): one static binary, built without the devauth tag, with the SPA
-# and the migrations embedded, running as non-root on distroless. Base images are pinned to the
-# versions mise.toml pins, by tag and multi-platform digest; move the tag and digest together.
+# The production image (spec §10, M6): one static binary, built without the devauth tag, with the SPA,
+# the Foundry module and the migrations embedded, running as non-root on distroless. Base images are
+# pinned to the versions mise.toml pins, by tag and multi-platform digest; move the tag and digest
+# together.
 #
 # No BuildKit cache mounts: Railway accepts one only with the service's own ID written into it
 # (id=s/<service id>-...), so the dependency layers below are the cache instead.
@@ -12,7 +13,14 @@ RUN bun install --frozen-lockfile
 COPY web/ ./
 RUN bun run build
 
-FROM golang:1.27.3-trixie@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS server
+FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS foundry
+WORKDIR /src/foundry
+COPY foundry/package.json foundry/bun.lock foundry/bunfig.toml ./
+RUN bun install --frozen-lockfile
+COPY foundry/ ./
+RUN bun run build
+
+FROM golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS server
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -21,6 +29,8 @@ COPY db/ db/
 COPY internal/ internal/
 COPY web/embed.go web/
 COPY --from=web /src/web/dist/spa web/dist/spa
+COPY foundry/embed.go foundry/
+COPY --from=foundry /src/foundry/dist foundry/dist
 RUN CGO_ENABLED=0 go build -trimpath -o /colony ./cmd/colony
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab

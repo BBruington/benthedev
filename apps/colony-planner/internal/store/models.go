@@ -13,6 +13,183 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BridgeEventKind string
+
+const (
+	BridgeEventKindSTATUS       BridgeEventKind = "STATUS"
+	BridgeEventKindTIMEADVANCED BridgeEventKind = "TIME_ADVANCED"
+)
+
+func (e *BridgeEventKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BridgeEventKind(s)
+	case string:
+		*e = BridgeEventKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BridgeEventKind: %T", src)
+	}
+	return nil
+}
+
+type NullBridgeEventKind struct {
+	BridgeEventKind BridgeEventKind
+	Valid           bool // Valid is true if BridgeEventKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBridgeEventKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.BridgeEventKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BridgeEventKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBridgeEventKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BridgeEventKind), nil
+}
+
+func (e BridgeEventKind) Valid() bool {
+	switch e {
+	case BridgeEventKindSTATUS,
+		BridgeEventKindTIMEADVANCED:
+		return true
+	}
+	return false
+}
+
+func AllBridgeEventKindValues() []BridgeEventKind {
+	return []BridgeEventKind{
+		BridgeEventKindSTATUS,
+		BridgeEventKindTIMEADVANCED,
+	}
+}
+
+type BridgeEventStatus string
+
+const (
+	BridgeEventStatusPENDING   BridgeEventStatus = "PENDING"
+	BridgeEventStatusACCEPTED  BridgeEventStatus = "ACCEPTED"
+	BridgeEventStatusDISMISSED BridgeEventStatus = "DISMISSED"
+)
+
+func (e *BridgeEventStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BridgeEventStatus(s)
+	case string:
+		*e = BridgeEventStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BridgeEventStatus: %T", src)
+	}
+	return nil
+}
+
+type NullBridgeEventStatus struct {
+	BridgeEventStatus BridgeEventStatus
+	Valid             bool // Valid is true if BridgeEventStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBridgeEventStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.BridgeEventStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BridgeEventStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBridgeEventStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BridgeEventStatus), nil
+}
+
+func (e BridgeEventStatus) Valid() bool {
+	switch e {
+	case BridgeEventStatusPENDING,
+		BridgeEventStatusACCEPTED,
+		BridgeEventStatusDISMISSED:
+		return true
+	}
+	return false
+}
+
+func AllBridgeEventStatusValues() []BridgeEventStatus {
+	return []BridgeEventStatus{
+		BridgeEventStatusPENDING,
+		BridgeEventStatusACCEPTED,
+		BridgeEventStatusDISMISSED,
+	}
+}
+
+type BridgeOutboxKind string
+
+const (
+	BridgeOutboxKindCOLONYSUMMARY BridgeOutboxKind = "COLONY_SUMMARY"
+	BridgeOutboxKindDAYSADVANCED  BridgeOutboxKind = "DAYS_ADVANCED"
+)
+
+func (e *BridgeOutboxKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BridgeOutboxKind(s)
+	case string:
+		*e = BridgeOutboxKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BridgeOutboxKind: %T", src)
+	}
+	return nil
+}
+
+type NullBridgeOutboxKind struct {
+	BridgeOutboxKind BridgeOutboxKind
+	Valid            bool // Valid is true if BridgeOutboxKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBridgeOutboxKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.BridgeOutboxKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BridgeOutboxKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBridgeOutboxKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BridgeOutboxKind), nil
+}
+
+func (e BridgeOutboxKind) Valid() bool {
+	switch e {
+	case BridgeOutboxKindCOLONYSUMMARY,
+		BridgeOutboxKindDAYSADVANCED:
+		return true
+	}
+	return false
+}
+
+func AllBridgeOutboxKindValues() []BridgeOutboxKind {
+	return []BridgeOutboxKind{
+		BridgeOutboxKindCOLONYSUMMARY,
+		BridgeOutboxKindDAYSADVANCED,
+	}
+}
+
 type CampaignRequestStatus string
 
 const (
@@ -1123,6 +1300,56 @@ type Account struct {
 	AvatarUrl       *string
 	CreatedAt       time.Time
 	LastSeenAt      *time.Time
+}
+
+type BridgeEvent struct {
+	ID            uuid.UUID
+	ModuleEventID uuid.UUID
+	Kind          BridgeEventKind
+	Status        BridgeEventStatus
+	OccurredAt    time.Time
+	ReceivedAt    time.Time
+	DecidedAt     *time.Time
+	Days          *int32
+	CampaignID    uuid.UUID
+}
+
+type BridgeLink struct {
+	ID             uuid.UUID
+	TokenHash      []byte
+	Origin         string
+	LinkedAt       time.Time
+	LastContactOn  pgtype.Date
+	RevokedAt      *time.Time
+	OutboxSeq      int64
+	FoundryVersion string
+	SystemID       string
+	SystemVersion  string
+	ModuleVersion  string
+	WorldTitle     string
+	CampaignID     uuid.UUID
+}
+
+type BridgeOutbox struct {
+	ID            uuid.UUID
+	Seq           int64
+	Kind          BridgeOutboxKind
+	TargetKey     string
+	Payload       []byte
+	CreatedAt     time.Time
+	AppliedAt     *time.Time
+	FailedAt      *time.Time
+	FailureReason string
+	CampaignID    uuid.UUID
+}
+
+type BridgePairingCode struct {
+	ID         uuid.UUID
+	CodeHash   []byte
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	ClosedAt   *time.Time
+	CampaignID uuid.UUID
 }
 
 type Campaign struct {

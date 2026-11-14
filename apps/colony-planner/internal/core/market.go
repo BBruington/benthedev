@@ -817,6 +817,7 @@ func (service *Service) PlaceMarketOrder(requestContext context.Context, viewer 
 	if err := requireActive(viewer); err != nil {
 		return MarketPage{}, err
 	}
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := readColony(requestContext, queries, viewer.campaignID, true)
 		if err != nil {
@@ -914,17 +915,22 @@ func (service *Service) PlaceMarketOrder(requestContext context.Context, viewer 
 		if err := queries.ClearCart(requestContext, viewer.campaignID); err != nil {
 			return err
 		}
-		return writeLooseEntry(requestContext, queries, viewer, plannedEntry{
+		if err := writeLooseEntry(requestContext, queries, viewer, plannedEntry{
 			day:        colony.state.Day,
 			kind:       TimelineKindMarketOrderPlaced,
 			title:      "Order placed: " + orderSummaryText(colony, lines) + " · docks " + dayText(arrivesDay),
 			visibility: TimelineVisibilityPublic,
-		})
+		}); err != nil {
+			return err
+		}
+		// The summary names the next goods ship's day.
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return MarketPage{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicMarket, TopicTimeline, TopicColony)
+	service.broker.Publish(viewer.campaignID, marketOrderTopics(bridged)...)
 	return readMarket(requestContext, service.queries, viewer)
 }
 
@@ -1127,6 +1133,7 @@ func (service *Service) CancelMarketOrder(requestContext context.Context, viewer
 	if err := requireDm(viewer); err != nil {
 		return MarketPage{}, err
 	}
+	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		colony, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID)
 		if err != nil {
@@ -1142,18 +1149,32 @@ func (service *Service) CancelMarketOrder(requestContext context.Context, viewer
 		if err := queries.CancelMarketOrder(requestContext, store.CancelMarketOrderParams{CampaignID: viewer.campaignID, ID: orderID, CancelledDay: &colony.Day}); err != nil {
 			return err
 		}
-		return writeLooseEntry(requestContext, queries, viewer, plannedEntry{
+		if err := writeLooseEntry(requestContext, queries, viewer, plannedEntry{
 			day:        int64(colony.Day),
 			kind:       TimelineKindMarketOrderCancelled,
 			title:      "Order cancelled",
 			visibility: TimelineVisibilityPublic,
-		})
+		}); err != nil {
+			return err
+		}
+		bridged, err = service.enqueueColonySummary(requestContext, queries, viewer.campaignID)
+		return err
 	})
 	if err != nil {
 		return MarketPage{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicMarket, TopicTimeline, TopicColony)
+	service.broker.Publish(viewer.campaignID, marketOrderTopics(bridged)...)
 	return readMarket(requestContext, service.queries, viewer)
+}
+
+// marketOrderTopics are what placing or cancelling an order publishes, the bridge too when it queued
+// a summary.
+func marketOrderTopics(bridged bool) []Topic {
+	topics := []Topic{TopicMarket, TopicTimeline, TopicColony}
+	if bridged {
+		topics = append(topics, TopicBridge)
+	}
+	return topics
 }
 
 // ordersDockingDuring is the open orders that reach the docks on a day after fromDay, up to toDay.

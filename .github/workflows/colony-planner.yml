@@ -37,6 +37,8 @@ jobs:
           working_directory: apps/colony-planner
       - name: Install web dependencies
         run: cd web && bun install --frozen-lockfile
+      - name: Install Foundry module dependencies
+        run: cd foundry && bun install --frozen-lockfile
       - name: mise run lint
         run: mise run lint
 
@@ -53,6 +55,8 @@ jobs:
           working_directory: apps/colony-planner
       - name: Install web dependencies
         run: cd web && bun install --frozen-lockfile
+      - name: Install Foundry module dependencies
+        run: cd foundry && bun install --frozen-lockfile
       - name: mise run typecheck
         run: mise run typecheck
 

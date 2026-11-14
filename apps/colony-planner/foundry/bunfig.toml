@@ -1,0 +1,7 @@
+# Run package binaries (tsc, biome's wrapper) on Bun instead of Node, so the project needs no Node
+# install.
+[run]
+bun = true
+
+[install]
+exact = true

@@ -23,8 +23,9 @@ type AccessLevel string
 const (
 	// AccessPublic routes return nothing a visitor may not see: sign-in, /healthz, the SPA shell.
 	AccessPublic AccessLevel = "public"
-	// AccessToken routes authorize themselves with a secret in the URL (the ICS feed) and serve only
-	// data players can already see.
+	// AccessToken routes authorize themselves with a secret: in the URL (the ICS feed), serving only data
+	// players can already see, or in the Authorization header (the Foundry bridge under /api/bridge/,
+	// whose token bridgeGuard resolves to a core.BridgeCaller).
 	AccessToken AccessLevel = "token"
 	// AccessAccount admits any signed-in account: routes outside every campaign (my campaigns, invites,
 	// campaign requests, sign out).
@@ -224,27 +225,32 @@ func guardRoute(route Route, gate accessGate) http.Handler {
 // the two docs routes); everything under /api/admin/ at owner.
 func checkAccessDeclarations(api huma.API, routes []Route) error {
 	var undeclared, misplaced []string
-	check := func(label string, path string, level AccessLevel) {
+	check := func(method string, path string, level AccessLevel) {
+		label := method + " " + path
 		if !level.valid() {
 			undeclared = append(undeclared, label)
 			return
 		}
-		if problem := levelPathProblem(path, level); problem != "" {
+		problem := levelPathProblem(path, level)
+		if problem == "" {
+			problem = bridgeLevelProblem(label, path, level)
+		}
+		if problem != "" {
 			misplaced = append(misplaced, label+" ("+problem+")")
 		}
 	}
 	for path, pathItem := range api.OpenAPI().Paths {
 		for method, operation := range pathOperations(pathItem) {
-			check(method+" "+path, path, operationAccess(operation))
+			check(method, path, operationAccess(operation))
 		}
 	}
 	for _, route := range routes {
-		_, path, _ := strings.Cut(route.Pattern, " ")
+		method, path, _ := strings.Cut(route.Pattern, " ")
 		if route.Handler == nil {
 			undeclared = append(undeclared, route.Pattern)
 			continue
 		}
-		check(route.Pattern, path, route.Access)
+		check(method, path, route.Access)
 	}
 	var problems []string
 	if len(undeclared) > 0 {
@@ -277,6 +283,27 @@ func levelPathProblem(path string, level AccessLevel) string {
 		return "a campaign level needs a {campaignId} path parameter"
 	case !underAdmin && hasCampaign && !level.inCampaign():
 		return "a {campaignId} route outside /api/admin/ must be pending, member or dm"
+	}
+	return ""
+}
+
+// bridgePublicRoutes are the two bridge routes no token can guard: trading a pairing code for the
+// token, and the browser's preflight, which carries no credentials.
+var bridgePublicRoutes = []string{"POST " + bridgePairPath, "OPTIONS " + bridgePathPrefix}
+
+// bridgeLevelProblem keeps /api/bridge/ to the token level except bridgePublicRoutes, which are public.
+func bridgeLevelProblem(label string, path string, level AccessLevel) string {
+	if !strings.HasPrefix(path, bridgePathPrefix) {
+		return ""
+	}
+	if slices.Contains(bridgePublicRoutes, label) {
+		if level != AccessPublic {
+			return "this bridge route is public"
+		}
+		return ""
+	}
+	if level != AccessToken {
+		return "every other /api/bridge/ route is token"
 	}
 	return ""
 }

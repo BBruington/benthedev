@@ -26,7 +26,7 @@ func (q *Queries) ClearSettingsChannels(ctx context.Context, campaignID uuid.UUI
 }
 
 const getBoardHeader = `-- name: GetBoardHeader :one
-SELECT campaign.name AS campaign_name, settings.timezone
+SELECT campaign.name AS campaign_name, campaign.slug AS campaign_slug, settings.timezone
 FROM campaign
 JOIN settings ON settings.campaign_id = campaign.id
 WHERE campaign.id = $1 AND settings.campaign_id = $1
@@ -34,6 +34,7 @@ WHERE campaign.id = $1 AND settings.campaign_id = $1
 
 type GetBoardHeaderRow struct {
 	CampaignName string
+	CampaignSlug string
 	Timezone     string
 }
 
@@ -42,7 +43,7 @@ type GetBoardHeaderRow struct {
 func (q *Queries) GetBoardHeader(ctx context.Context, campaignID uuid.UUID) (GetBoardHeaderRow, error) {
 	row := q.db.QueryRow(ctx, getBoardHeader, campaignID)
 	var i GetBoardHeaderRow
-	err := row.Scan(&i.CampaignName, &i.Timezone)
+	err := row.Scan(&i.CampaignName, &i.CampaignSlug, &i.Timezone)
 	return i, err
 }
 
