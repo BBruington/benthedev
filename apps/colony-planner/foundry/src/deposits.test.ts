@@ -10,6 +10,7 @@ import {
 	type Pf2eDepositor,
 } from "./deposits";
 import type { Pf2eCoins } from "./foundry-types";
+import { createFakeLocks, settle } from "./testing/fakes";
 import {
 	createFoundryWorld,
 	eachWriteHadFreshOptions,
@@ -173,6 +174,7 @@ describe("createDepositLedger", () => {
 				},
 			},
 			{ error: () => undefined },
+			createFakeLocks(),
 			() => new Date("2026-11-14T11:00:00.000Z"),
 		);
 		return { ledger, stored };
@@ -203,6 +205,56 @@ describe("createDepositLedger", () => {
 		expect([toReturning, toSent]).toEqual([true, false]);
 		expect(ledger.get("deposit-1")?.state).toBe("RETURNING");
 		expect(await ledger.move("missing", ["HELD"], "SENT")).toBe(false);
+	});
+
+	test("two tabs' ledgers writing at once keep both entries, since each write holds the browser's lock", async () => {
+		const stored: { value: unknown } = { value: { entries: {} } };
+		const locks = createFakeLocks();
+		const tabLedger = () =>
+			createDepositLedger(
+				{
+					lastWriterIsGm: () => true,
+					load: () => stored.value,
+					save: async (value) => {
+						await settle();
+						stored.value = structuredClone(value);
+					},
+				},
+				{ error: () => undefined },
+				locks,
+			);
+		const [firstTab, secondTab] = [tabLedger(), tabLedger()];
+		await Promise.all([
+			firstTab.create(entry("HELD")),
+			secondTab.create(entry("HELD", { event: depositEvent("deposit-2") })),
+		]);
+		expect(firstTab.entries().map((kept) => kept.event.id)).toEqual(["deposit-1", "deposit-2"]);
+		expect(locks.names).toEqual(["colony-bridge-deposits", "colony-bridge-deposits"]);
+	});
+
+	test("a browser without Web Locks still writes, one write at a time within the tab", async () => {
+		const stored: { value: unknown } = { value: { entries: {} } };
+		const ledger = createDepositLedger(
+			{
+				lastWriterIsGm: () => true,
+				load: () => stored.value,
+				save: async (value) => {
+					await settle();
+					stored.value = structuredClone(value);
+				},
+			},
+			{ error: () => undefined },
+			undefined,
+		);
+		await Promise.all([
+			ledger.create(entry("HELD")),
+			ledger.create(entry("HELD", { event: depositEvent("deposit-2") })),
+		]);
+		expect(await ledger.move("deposit-1", ["HELD"], "SENT")).toBe(true);
+		expect(ledger.entries().map((kept) => [kept.event.id, kept.state])).toEqual([
+			["deposit-2", "HELD"],
+			["deposit-1", "SENT"],
+		]);
 	});
 
 	test("an entry under another deposit's key, or naming another amount, isn't one", () => {

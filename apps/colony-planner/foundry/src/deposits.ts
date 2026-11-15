@@ -1,7 +1,7 @@
 import { type CoreAdapterDependencies, postOnce } from "./adapters/core";
 import { formatNumber } from "./adapters/render";
 import type { EventQueue } from "./event-queue";
-import type { FoundryNotifications, Pf2eInventory } from "./foundry-types";
+import type { FoundryNotifications, Pf2eInventory, WebLocks } from "./foundry-types";
 import { cleanLine, escapeHtml } from "./html";
 import type { RowApplier } from "./outbox";
 import {
@@ -110,6 +110,7 @@ function storedEntries(storage: DepositLedgerStorage): Record<string, unknown> {
 		: {};
 }
 
+const depositLockName = "colony-bridge-deposits";
 const quarantinedStates: readonly DepositState[] = ["HELD", "SENT", "REMOVING", "RETURNING"];
 const quarantinedLedger =
 	"A user who isn't a GM changed this world's deposit records, so every deposit in them that waited, was sent or was moving coins is now marked as stopped part way, and none will be sent again or refunded. Check those actors' coins by hand, then press Forget in Colony Bridge's settings. Check who may change world settings too.";
@@ -117,9 +118,10 @@ const quarantinedLedger =
 export function createDepositLedger(
 	storage: DepositLedgerStorage,
 	notifications: Pick<FoundryNotifications, "error">,
+	locks: WebLocks | undefined,
 	now: () => Date = () => new Date(),
 ): DepositLedger {
-	// Each write rereads its entry after earlier writes land, so a stale read can't undo a later state.
+	// This tab's writes run one after another even without Web Locks.
 	let writes: Promise<unknown> = Promise.resolve();
 
 	/**
@@ -142,7 +144,10 @@ export function createDepositLedger(
 		depositId: string,
 		decide: (current: DepositEntry | undefined) => DepositEntry | null | undefined,
 	): Promise<boolean> {
-		const result = writes.then(async () => {
+		// Every tab has its own ledger over the one world setting, so each whole read-modify-write holds
+		// the browser's lock: a stale read can't drop another tab's entry or undo a later state. Without
+		// Web Locks (plain http) it runs unlocked, and the bridge's session warns the GM.
+		const task = async () => {
 			if (!storage.lastWriterIsGm()) {
 				await quarantine();
 			}
@@ -157,7 +162,8 @@ export function createDepositLedger(
 				entries: Object.fromEntries(next ? [...others, [depositId, next]] : others),
 			});
 			return true;
-		});
+		};
+		const result = writes.then(() => (locks ? locks.request(depositLockName, task) : task()));
 		writes = result.catch(() => undefined);
 		return result;
 	}

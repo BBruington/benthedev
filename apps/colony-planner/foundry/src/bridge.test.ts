@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createBridge, type OutboxLocks } from "./bridge";
+import { createBridge } from "./bridge";
 import type { Fetch } from "./bridge-client";
 import type { DepositEvents } from "./deposits";
-import type { FoundryUser } from "./foundry-types";
+import type { FoundryUser, WebLocks } from "./foundry-types";
 import type { RowApplier } from "./outbox";
 import type { BridgeSettings } from "./settings";
-import { createFakeSchedule, jsonResponse, settle } from "./testing/fakes";
+import { createFakeLocks, createFakeSchedule, jsonResponse, settle } from "./testing/fakes";
 import { secondsPerDay } from "./time-tracker";
 import type { InboundEvent, OutboxRow } from "./wire";
 
@@ -141,27 +141,12 @@ function fakeColonyPlanner(
 	};
 }
 
-/** One browser's Web Locks: a task waits for the one holding the same name to finish. */
-function fakeLocks(): OutboxLocks & { names: string[] } {
-	const names: string[] = [];
-	let held: Promise<unknown> = Promise.resolve();
-	return {
-		names,
-		request: (name, task) => {
-			names.push(name);
-			const run = held.then(task);
-			held = run.catch(() => undefined);
-			return run;
-		},
-	};
-}
-
 function bridgeFor(options: {
 	activeGm: FoundryUser | null;
 	colonyPlanner: ReturnType<typeof fakeColonyPlanner>;
 	appliers?: Partial<Record<string, RowApplier>>;
 	deposits?: DepositEvents;
-	outboxLocks?: OutboxLocks | null;
+	outboxLocks?: WebLocks | null;
 	settings: BridgeSettings;
 	withdrawBridgedEntries?: () => Promise<void>;
 }) {
@@ -191,7 +176,8 @@ function bridgeFor(options: {
 			info: () => undefined,
 			warn: (message) => errors.push(message),
 		},
-		outboxLocks: options.outboxLocks === null ? undefined : (options.outboxLocks ?? fakeLocks()),
+		outboxLocks:
+			options.outboxLocks === null ? undefined : (options.outboxLocks ?? createFakeLocks()),
 		schedule: schedule.schedule,
 		settings: options.settings,
 	});
@@ -642,7 +628,7 @@ describe("createBridge with Phase 3 events", () => {
 		};
 		const colonyPlanner = fakeColonyPlanner({ outboxRows: [refund] });
 		const { settings, values } = memorySettings({});
-		const locks = fakeLocks();
+		const locks = createFakeLocks();
 		let refunds = 0;
 		const appliers = {
 			DEPOSIT_REFUND: async () => {
@@ -667,23 +653,37 @@ describe("createBridge with Phase 3 events", () => {
 		expect(locks.names).toEqual(["colony-bridge-outbox", "colony-bridge-outbox"]);
 	});
 
-	test("a browser without Web Locks syncs nothing and tells the GM once", async () => {
-		const colonyPlanner = fakeColonyPlanner();
-		const { bridge, errors } = bridgeFor({
+	test("a browser without Web Locks still syncs, unlocked, and warns the GM once per session", async () => {
+		const colonyPlanner = fakeColonyPlanner({
+			outboxRows: [{ kind: "NPC_UPSERT", payload: {}, seq: 4, targetKey: "npc:aldo" }],
+		});
+		const { settings, values } = memorySettings({});
+		let applied = 0;
+		const { bridge, errors, foundryGame } = bridgeFor({
 			activeGm: thisGm,
+			appliers: {
+				NPC_UPSERT: () => {
+					applied += 1;
+					return Promise.resolve();
+				},
+			},
 			colonyPlanner,
 			outboxLocks: null,
-			settings: memorySettings({}).settings,
+			settings,
 		});
 		bridge.evaluate();
 		await settle();
-		expect(
-			colonyPlanner.requests.filter((request) => request.path.startsWith("/api/bridge/outbox")),
-		).toEqual([]);
-		expect(errors).toEqual([
-			"Colony Bridge: This browser has no Web Locks, so Colony Bridge can't keep two of its tabs from applying the same Colony Planner change twice, and it reads nothing from Colony Planner. Use a current browser or Foundry's desktop app.",
-		]);
-		expect(bridge.status().lastProblem).toStartWith("This browser has no Web Locks");
+		expect(applied).toBe(1);
+		expect(values.cursor).toBe(4);
+		const warning =
+			"Colony Bridge: Your browser can't coordinate Foundry tabs here (open Foundry over https or localhost). Keep only one Foundry tab open, or a coin refund could be applied twice.";
+		expect(errors).toEqual([warning]);
+		foundryGame.users.activeGM = otherGm;
+		bridge.evaluate();
+		foundryGame.users.activeGM = thisGm;
+		bridge.evaluate();
+		await settle();
+		expect(errors).toEqual([warning, warning]);
 	});
 
 	test("queueEvent sends only while the bridge runs here", async () => {

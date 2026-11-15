@@ -183,6 +183,9 @@ dismiss or delete what you made afterwards.
   changes before Colony Planner confirms a deposit, the module never guesses: the deposit is listed under "Deposits that stopped part way" in Colony Bridge's
   settings, and you fix the paying actor's coins by hand, then press **Forget**.
 - Clearing Foundry's chat log can let a whisper about a deposit post again; the coins never move twice.
+- Over plain http (not https and not localhost) the browser can't coordinate Foundry tabs, so the bridge
+  warns once each time it starts: keep only one Foundry tab open there, or a coin refund could be applied
+  twice and two tabs' deposit records could overwrite each other.
 - A GM secret block, PF2e's GM-only text, an enricher with no label (such as `@Check[fortitude|dc:25]`)
   and an unlabelled inline roll (such as `[[/gmr 1d20]]`) never reach an item's description or an NPC's Appearance; an NPC's go to its DM notes instead.
 

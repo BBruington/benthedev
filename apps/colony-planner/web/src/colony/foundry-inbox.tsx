@@ -10,7 +10,7 @@ import {
 	UserPlusIcon,
 	XIcon,
 } from "lucide-react";
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
 import { problemMessage } from "@/api/problem";
@@ -103,7 +103,9 @@ export function FoundryInbox({
 	const changes = useColonyChanges();
 	const sheet = useSheetState<BridgeInboxItem>();
 	const openSessionRef = useRef<number | null>(null);
-	openSessionRef.current = sheet.open ? sheet.session : null;
+	useLayoutEffect(() => {
+		openSessionRef.current = sheet.open ? sheet.session : null;
+	}, [sheet.open, sheet.session]);
 
 	function refresh() {
 		queryClient.invalidateQueries({ queryKey: colonyBoardQuery(campaignId).queryKey });

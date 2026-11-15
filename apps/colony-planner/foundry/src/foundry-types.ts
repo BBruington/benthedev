@@ -156,6 +156,14 @@ export interface FoundryGame {
 	world: { id: string; title: string };
 }
 
+/**
+ * Web Locks (`navigator.locks`), shared by every tab of one browser; absent outside a secure context
+ * (https or localhost).
+ */
+export interface WebLocks {
+	request<Result>(name: string, task: () => Promise<Result>): Promise<Result>;
+}
+
 export interface FoundryNotifications {
 	error(message: string): unknown;
 	info(message: string): unknown;

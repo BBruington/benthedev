@@ -1,3 +1,4 @@
+import type { WebLocks } from "../foundry-types";
 import type { Schedule } from "../schedule";
 
 export interface FakeSchedule {
@@ -43,4 +44,22 @@ export function jsonResponse(status: number, body: unknown): Response {
 		headers: { "Content-Type": "application/json" },
 		status,
 	});
+}
+
+/** One browser's Web Locks: a task waits for the one holding the same name to finish. */
+export function createFakeLocks(): WebLocks & { names: string[] } {
+	const names: string[] = [];
+	const held = new Map<string, Promise<unknown>>();
+	return {
+		names,
+		request: (name, task) => {
+			names.push(name);
+			const run = (held.get(name) ?? Promise.resolve()).then(task);
+			held.set(
+				name,
+				run.catch(() => undefined),
+			);
+			return run;
+		},
+	};
 }

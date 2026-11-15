@@ -4,7 +4,7 @@ import { createBridgeClient, type Fetch, UnauthorizedError } from "./bridge-clie
 import { createCoalescingTask } from "./coalescing-task";
 import type { DepositEvents } from "./deposits";
 import { createEventQueue, type EventQueue } from "./event-queue";
-import type { FoundryGame, FoundryNotifications, FoundryUsers } from "./foundry-types";
+import type { FoundryGame, FoundryNotifications, FoundryUsers, WebLocks } from "./foundry-types";
 import { syncOutbox, WithdrawFailedError } from "./outbox";
 import type { Schedule } from "./schedule";
 import { type BridgeSettings, moduleId } from "./settings";
@@ -58,14 +58,9 @@ export interface Bridge {
 	subscribe(listener: () => void): () => void;
 }
 
-/** Web Locks (`navigator.locks`), shared by every tab of one browser. */
-export interface OutboxLocks {
-	request(name: string, task: () => Promise<void>): Promise<void>;
-}
-
 const outboxLockName = "colony-bridge-outbox";
-const noOutboxLocks =
-	"This browser has no Web Locks, so Colony Bridge can't keep two of its tabs from applying the same Colony Planner change twice, and it reads nothing from Colony Planner. Use a current browser or Foundry's desktop app.";
+const noWebLocks =
+	"Your browser can't coordinate Foundry tabs here (open Foundry over https or localhost). Keep only one Foundry tab open, or a coin refund could be applied twice.";
 
 interface Session {
 	abortController: AbortController;
@@ -88,7 +83,7 @@ export function createBridge(options: {
 	 * Only this browser holds the link's token (a new pairing revokes the old link), so its tabs are the
 	 * only sessions that can sync at once, and they share the token and the cursor (design §14.8).
 	 */
-	outboxLocks: OutboxLocks | undefined;
+	outboxLocks: WebLocks | undefined;
 	schedule: Schedule;
 	settings: BridgeSettings;
 }): Bridge {
@@ -101,7 +96,6 @@ export function createBridge(options: {
 	let pairing = false;
 	let withdrawFailureShown = false;
 	let withdrawRowFailureShown = false;
-	let noOutboxLocksShown = false;
 	// Every session's outbox syncs run one after another, so a sync still finishing for a stopped
 	// session never applies the same rows beside the next session's (two "Colony" entries, a clock
 	// moved twice).
@@ -225,6 +219,10 @@ export function createBridge(options: {
 			token: linkToken(),
 		});
 		const linkId = settings.linkId();
+		// Phase 1 and 2 synced over plain http, where browsers offer no Web Locks, so the bridge still runs.
+		if (!options.outboxLocks) {
+			notifications.warn(`Colony Bridge: ${noWebLocks}`);
+		}
 		const queue = createEventQueue({
 			maySend: (event) => options.deposits?.maySend(event, linkId) ?? true,
 			onDropped: (reason, events, status) => {
@@ -252,32 +250,20 @@ export function createBridge(options: {
 		});
 		const requestOutboxSync = createCoalescingTask(
 			() => {
-				const locks = options.outboxLocks;
-				if (!locks) {
-					if (!noOutboxLocksShown) {
-						noOutboxLocksShown = true;
-						notifications.error(`Colony Bridge: ${noOutboxLocks}`);
-					}
-					recordProblem(noOutboxLocks);
-					return Promise.resolve();
-				}
+				const run = async () => {
+					await withdrawOwedEntries(signal);
+					await syncOutbox({
+						appliers: options.adapter.appliers,
+						client,
+						cursor: { load: settings.acknowledgedThrough, save: settings.saveAcknowledgedThrough },
+						signal,
+					});
+					withdrawRowFailureShown = false;
+				};
 				// Another tab's sync may hold the lock; the cursor is read only once it ends, so this tab
 				// never fetches a row that tab applied.
-				const sync = outboxSyncs.then(() =>
-					locks.request(outboxLockName, async () => {
-						await withdrawOwedEntries(signal);
-						await syncOutbox({
-							appliers: options.adapter.appliers,
-							client,
-							cursor: {
-								load: settings.acknowledgedThrough,
-								save: settings.saveAcknowledgedThrough,
-							},
-							signal,
-						});
-						withdrawRowFailureShown = false;
-					}),
-				);
+				const locks = options.outboxLocks;
+				const sync = outboxSyncs.then(() => (locks ? locks.request(outboxLockName, run) : run()));
 				outboxSyncs = sync.catch(() => undefined);
 				return sync;
 			},

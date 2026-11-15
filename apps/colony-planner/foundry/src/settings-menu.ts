@@ -15,6 +15,19 @@ export interface SettingsMenuDependencies {
 type InterruptedDeposit = ReturnType<Deposits["interrupted"]>[number];
 
 /**
+ * Forget writes the ledger, so like every other ledger writer it is offered only where the bridge runs,
+ * holding the link's token: only one browser holds it, so no other browser writes beside it.
+ */
+export function forgettableDeposits(dependencies: {
+	bridge: () => Pick<Bridge, "status"> | undefined;
+	deposits: SettingsMenuDependencies["deposits"];
+}): Pick<Deposits, "forget" | "interrupted"> | undefined {
+	return dependencies.bridge()?.status().condition === "running"
+		? dependencies.deposits()
+		: undefined;
+}
+
+/**
  * The GM-only settings menu (design §3.1): type the pairing code and press Connect, see the linked
  * campaign, or Disconnect this browser. Built as a factory because ApplicationV2 exists only inside
  * Foundry, once its scripts have loaded.
@@ -102,7 +115,7 @@ export function defineSettingsMenu(
 
 		async forgetDeposit(depositId: string) {
 			try {
-				await dependencies.deposits()?.forget(depositId);
+				await forgettableDeposits(dependencies)?.forget(depositId);
 				this.#message = "Forgot that deposit.";
 			} catch (error) {
 				this.#message = error instanceof Error ? error.message : String(error);
@@ -138,7 +151,7 @@ export function defineSettingsMenu(
 				renderMenuContent(bridge?.status(), {
 					busy: this.#busy,
 					code: this.#code,
-					interrupted: dependencies.deposits()?.interrupted() ?? [],
+					interrupted: forgettableDeposits(dependencies)?.interrupted() ?? [],
 					message: this.#message,
 				}),
 			);

@@ -1,4 +1,3 @@
-import { isActiveGm } from "./active-gm";
 import { selectAdapter } from "./adapters/adapter";
 import { type Bridge, createBridge } from "./bridge";
 import { colonyOrigin } from "./colony-origin";
@@ -42,8 +41,7 @@ Hooks.once("init", () => {
 		type: defineSettingsMenu(foundry.applications.api.ApplicationV2, {
 			bridge: () => bridge,
 			colonyOrigin: installedColonyOrigin,
-			// Only the active GM writes the escrow, so only its menu lists the entries to forget.
-			deposits: () => (isActiveGm(game) ? deposits : undefined),
+			deposits: () => deposits,
 			reportError,
 		}),
 	});
@@ -62,6 +60,7 @@ Hooks.once("ready", () => {
 
 function startBridge() {
 	const settings = createBridgeSettings(game.settings);
+	const webLocks = "locks" in navigator ? navigator.locks : undefined;
 	const depositLedger = createDepositLedger(
 		{
 			lastWriterIsGm: () =>
@@ -73,6 +72,7 @@ function startBridge() {
 			save: (value) => game.settings.set(moduleId, depositsSettingKey, value),
 		},
 		ui.notifications,
+		webLocks,
 	);
 	deposits = createDeposits({
 		actors: game.actors,
@@ -93,7 +93,7 @@ function startBridge() {
 		deposits,
 		foundryGame: game,
 		notifications: ui.notifications,
-		outboxLocks: "locks" in navigator ? navigator.locks : undefined,
+		outboxLocks: webLocks,
 		schedule: scheduleWithTimeout,
 		settings,
 	});

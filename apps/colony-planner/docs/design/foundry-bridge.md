@@ -1046,8 +1046,10 @@ Module (§14.10 has the ledger):
   the lock, so a second tab's sync starts after the first saved its cursor and never fetches a refund row
   the first applied. A Foundry server's own document create can't serve as the claim: v13's
   `ServerDatabaseBackend#_createDocuments` refuses a caller-chosen `_id` that exists only inside a
-  parent's embedded collection, and a world-level document with `keepId` overwrites the stored one. A
-  browser without `navigator.locks` syncs nothing and shows the GM one error, rather than sync unlocked.
+  parent's embedded collection, and a world-level document with `keepId` overwrites the stored one.
+  Browsers offer `navigator.locks` only to https and localhost pages, and Phases 1 and 2 synced over plain
+  http too, so there the sync runs unlocked and each session warns the GM once to keep one Foundry tab
+  open (§14.10).
 - The refund's GM whisper is flagged `deposit-refund:<depositId>` and posts only when no GM message has
   that flag, so a replay after the coins went back posts it at most once and then succeeds.
 - `DEPOSIT_UNDONE` posts its whisper only when the ledger holds that deposit and no GM message carries its
@@ -1089,7 +1091,16 @@ false`, default `{"entries": {}}`), keyed by deposit ID: `{"event": InboundEvent
 "state", "updatedAt"}`. The ledger, not the client-scope event queue, is a deposit's durable record: a new
 link's `saveLink` clears the queue (§13's settings), but not the ledger. Each write reads the setting
 afresh and changes one entry, since only the active GM writes it, after quarantining a ledger a user who
-isn't a GM wrote last (§14.9).
+isn't a GM wrote last (§14.9). Each tab has its own ledger over the one setting, so each whole
+read-modify-write holds the Web Lock `colony-bridge-deposits`. A per-browser lock is enough because every
+writer (a deposit, a send's `SENT`, a refusal's or a refund's return, session start, and Forget, which the
+settings menu offers only while the bridge runs) runs only in the session that holds the link's
+client-scope token, and only one browser holds it. The outbox sync's lock may wait on this one (a refund
+row writes the ledger), never the reverse. Over plain http (not localhost) the browser has no
+`navigator.locks`: the ledger and the outbox sync then run unlocked, one write at a time within a tab but
+not across tabs, and each session shows the GM one warning: "Your browser can't coordinate Foundry tabs
+here (open Foundry over https or localhost). Keep only one Foundry tab open, or a coin refund could be
+applied twice."
 
 | State | Means |
 |---|---|

@@ -12,6 +12,7 @@ import type {
 	FoundryUser,
 } from "../foundry-types";
 import { readField } from "../wire";
+import { createFakeLocks } from "./fakes";
 
 /** Each Foundry write the fake world can be told to refuse once, as Foundry's server would. */
 export type WriteKind =
@@ -268,6 +269,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 			},
 		},
 		{ error: (message) => ledgerErrors.push(`error: ${message}`) },
+		createFakeLocks(),
 	);
 
 	const dependencies: AdapterDependencies = {
