@@ -1,11 +1,30 @@
+import { formatNumber } from "./adapters/render";
 import type { Bridge, BridgeStatus } from "./bridge";
+import type { Deposits } from "./deposits";
 import type { ApplicationV2 } from "./foundry-types";
 import { connectWithCode } from "./pairing";
 
 export interface SettingsMenuDependencies {
 	bridge: () => Bridge | undefined;
 	colonyOrigin: () => string | undefined;
+	/** The escrow; undefined in a browser that isn't a GM's. */
+	deposits: () => Pick<Deposits, "forget" | "interrupted"> | undefined;
 	reportError: (error: unknown) => void;
+}
+
+type InterruptedDeposit = ReturnType<Deposits["interrupted"]>[number];
+
+/**
+ * Forget writes the ledger, so like every other ledger writer it is offered only where the bridge runs,
+ * holding the link's token: only one browser holds it, so no other browser writes beside it.
+ */
+export function forgettableDeposits(dependencies: {
+	bridge: () => Pick<Bridge, "status"> | undefined;
+	deposits: SettingsMenuDependencies["deposits"];
+}): Pick<Deposits, "forget" | "interrupted"> | undefined {
+	return dependencies.bridge()?.status().condition === "running"
+		? dependencies.deposits()
+		: undefined;
 }
 
 /**
@@ -23,6 +42,12 @@ export function defineSettingsMenu(
 				disconnect(this: unknown) {
 					if (this instanceof ColonyBridgeSettingsMenu) {
 						return this.disconnect();
+					}
+					return undefined;
+				},
+				forgetDeposit(this: unknown, _event: PointerEvent, target: HTMLElement) {
+					if (this instanceof ColonyBridgeSettingsMenu) {
+						return this.forgetDeposit(target.dataset.depositId ?? "");
 					}
 					return undefined;
 				},
@@ -88,6 +113,23 @@ export function defineSettingsMenu(
 			await this.render();
 		}
 
+		async forgetDeposit(depositId: string) {
+			try {
+				await forgettableDeposits(dependencies)?.forget(depositId);
+				this.#message = "Forgot that deposit.";
+			} catch (error) {
+				this.#message = error instanceof Error ? error.message : String(error);
+			}
+			await this.render();
+			// The pressed Forget is gone with its row, so focus lands where the GM was, or on the result.
+			const target =
+				this.element?.querySelector("#colony-bridge-interrupted") ??
+				this.element?.querySelector("#colony-bridge-message");
+			if (target instanceof HTMLElement) {
+				target.focus();
+			}
+		}
+
 		protected override _renderHTML(): Promise<unknown> {
 			// A re-render (a player joining, the stream reconnecting) keeps what the GM was typing.
 			const codeInput = this.element?.querySelector('input[name="code"]');
@@ -109,6 +151,7 @@ export function defineSettingsMenu(
 				renderMenuContent(bridge?.status(), {
 					busy: this.#busy,
 					code: this.#code,
+					interrupted: forgettableDeposits(dependencies)?.interrupted() ?? [],
 					message: this.#message,
 				}),
 			);
@@ -163,9 +206,38 @@ function runningSentence(status: BridgeStatus): string {
 	}
 }
 
+/** Design §14.10: deposits whose coins are in an unknown state, until the GM fixes them by hand. */
+function interruptedDeposits(deposits: InterruptedDeposit[]): Node[] {
+	if (deposits.length === 0) {
+		return [];
+	}
+	const rows = deposits.map((deposit) => {
+		const forgetButton = element("button", { textContent: "Forget", type: "button" });
+		forgetButton.dataset.action = "forgetDeposit";
+		forgetButton.dataset.depositId = deposit.depositId;
+		return element("li", {}, [
+			document.createTextNode(`${formatNumber(deposit.gold)} gp from ${deposit.actorName} `),
+			forgetButton,
+		]);
+	});
+	return [
+		element("h3", {
+			id: "colony-bridge-interrupted",
+			tabIndex: -1,
+			textContent: "Deposits that stopped part way",
+		}),
+		element("p", {
+			className: "hint",
+			textContent:
+				"Foundry stopped while moving these coins. Check each paying actor's coins and fix them by hand, then press Forget.",
+		}),
+		element("ul", {}, rows),
+	];
+}
+
 function renderMenuContent(
 	status: BridgeStatus | undefined,
-	view: { busy: boolean; code: string; message: string },
+	view: { busy: boolean; code: string; interrupted: InterruptedDeposit[]; message: string },
 ): HTMLElement {
 	if (!status) {
 		return element("p", {
@@ -215,8 +287,16 @@ function renderMenuContent(
 			element("button", { disabled: view.busy, textContent: "Connect", type: "submit" }),
 		);
 	}
+	children.push(...interruptedDeposits(view.interrupted));
 	if (view.message) {
-		children.push(element("p", { role: "status", textContent: view.message }));
+		children.push(
+			element("p", {
+				id: "colony-bridge-message",
+				role: "status",
+				tabIndex: -1,
+				textContent: view.message,
+			}),
+		);
 	}
 	return element("section", {}, children);
 }

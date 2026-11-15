@@ -619,7 +619,7 @@ func TestPaidShipmentsAndTheirUndoReachFoundry(t *testing.T) {
 
 func TestOnlySpecialItemsTakeACompendiumUUID(t *testing.T) {
 	test := newColonyTest(t)
-	item, err := test.service.CreateMarketItem(test.context, test.dm, core.MarketItemInput{Name: "Lantern", PriceGold: 1, CompendiumUUID: new(testCompendiumUUID)})
+	item, err := test.service.CreateMarketItem(test.context, test.dm, core.NewMarketItemInput{MarketItemInput: core.MarketItemInput{Name: "Lantern", PriceGold: 1, CompendiumUUID: new(testCompendiumUUID)}})
 	if err != nil || item.Dm == nil || item.Dm.CompendiumUUID == nil || *item.Dm.CompendiumUUID != testCompendiumUUID {
 		t.Fatalf("create with a UUID = %+v, %v", item, err)
 	}

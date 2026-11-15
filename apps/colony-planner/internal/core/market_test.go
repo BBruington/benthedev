@@ -54,7 +54,7 @@ func (test *colonyTest) farmerItem() uuid.UUID {
 
 func (test *colonyTest) specialItem(name string, priceGold int64, maxPerOrder *int64) uuid.UUID {
 	test.t.Helper()
-	item, err := test.service.CreateMarketItem(test.context, test.dm, core.MarketItemInput{Name: name, PriceGold: priceGold, MaxPerOrder: maxPerOrder})
+	item, err := test.service.CreateMarketItem(test.context, test.dm, core.NewMarketItemInput{MarketItemInput: core.MarketItemInput{Name: name, PriceGold: priceGold, MaxPerOrder: maxPerOrder}})
 	if err != nil {
 		test.t.Fatalf("create %s: %v", name, err)
 	}
@@ -291,7 +291,7 @@ func TestOnlyTheDmRunsTheMarket(t *testing.T) {
 	if _, err := test.service.SetColonistOffer(test.context, test.player, "FARMER", core.ColonistOfferInput{PriceGold: 0}); !isKind(err, core.KindForbidden) {
 		t.Fatalf("a player pricing farmers = %v; want forbidden", err)
 	}
-	if _, err := test.service.CreateMarketItem(test.context, test.player, core.MarketItemInput{Name: "Gift"}); !isKind(err, core.KindForbidden) {
+	if _, err := test.service.CreateMarketItem(test.context, test.player, core.NewMarketItemInput{MarketItemInput: core.MarketItemInput{Name: "Gift"}}); !isKind(err, core.KindForbidden) {
 		t.Fatalf("a player creating an item = %v; want forbidden", err)
 	}
 

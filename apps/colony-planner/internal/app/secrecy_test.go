@@ -129,8 +129,9 @@ func sweepRoutes(t *testing.T, server *Server) ([]sweepRoute, map[string]any) {
 	return routes, document
 }
 
-// campaignRoutesLeaveLast lists the campaign routes with every DELETE and then POST .../leave at the
-// end, so the rows a fixture names stay for every other call and a caller who leaves does so last.
+// campaignRoutesLeaveLast lists the campaign routes with every DELETE, and every Foundry inbox decision,
+// and then POST .../leave at the end, so the rows a fixture names stay for every other call and a caller
+// who leaves does so last.
 func campaignRoutesLeaveLast(routes []sweepRoute) []sweepRoute {
 	var campaignRoutes, deletes, leave []sweepRoute
 	for _, route := range routes {
@@ -138,7 +139,7 @@ func campaignRoutesLeaveLast(routes []sweepRoute) []sweepRoute {
 		case !route.inCampaign():
 		case route.isLeave():
 			leave = append(leave, route)
-		case route.method == http.MethodDelete:
+		case route.method == http.MethodDelete, strings.Contains(route.path, "/bridge/inbox/{eventId}/"):
 			deletes = append(deletes, route)
 		default:
 			campaignRoutes = append(campaignRoutes, route)
@@ -748,6 +749,13 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"optionIds":      []string{campaignB.pathIDs["pollOptionId"]},
 		"bridgeEventId":  campaignB.pathIDs["eventId"],
 	}
+	// Each form refuses another kind's item on its own, so only B's item of the kind it answers proves
+	// the campaign filter.
+	bridgeEventOfB := map[string]string{
+		"/npcs":           campaignB.pathIDs["npcImportEventId"],
+		"/market/items":   campaignB.pathIDs["itemImportEventId"],
+		"/colony/advance": campaignB.pathIDs["timeAdvancedEventId"],
+	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
 	npcRecord := func() map[string]any {
@@ -978,8 +986,8 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	validBodies["/polls/{pollId}/vote"] = func() map[string]any {
 		return map[string]any{"optionIds": []string{passFourPoll.Options[0].ID.String()}}
 	}
-	// Pass 3 dismissed A's {eventId} item and disconnected A, so Advance gets a fresh PENDING item of
-	// A's own from a new link; B's item in its place is then refused for the ID alone.
+	// Pass 3 decided A's {eventId} item and disconnected A, so Advance gets a fresh PENDING item of A's
+	// own from a new link; B's item in its place is then refused for the ID alone.
 	bridgeCallerA, err := testHarness.core.EnterBridge(testHarness.context, testHarness.pairBridge(campaignA, testHarness.dmA))
 	if err != nil {
 		t.Fatalf("enter A's pass 4 bridge: %v", err)
@@ -989,10 +997,19 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		t.Fatalf("record A's pass 4 inbox item: %v", err)
 	}
 	bridgeA, err := testHarness.core.GetBridgeStatus(testHarness.context, dmViewerA)
-	if err != nil || len(bridgeA.Inbox) != 1 {
-		t.Fatalf("A's pass 4 inbox = %+v, %v; want one PENDING item", bridgeA.Inbox, err)
+	if err != nil {
+		t.Fatalf("read A's pass 4 inbox: %v", err)
 	}
-	inboxItemA := bridgeA.Inbox[0].ID.String()
+	// The fixture's own time advance is 3 days, so the 1-day item is the one just recorded.
+	inboxItemA := ""
+	for _, item := range bridgeA.Inbox {
+		if item.Kind == core.BridgeEventKindTimeAdvanced && item.Days == 1 {
+			inboxItemA = item.ID.String()
+		}
+	}
+	if inboxItemA == "" {
+		t.Fatalf("A's pass 4 inbox = %+v; want the 1-day item", bridgeA.Inbox)
+	}
 	validBodies["/colony/advance"] = func() map[string]any {
 		return map[string]any{"days": 1, "expectedVersion": boardOf(dmViewerA).Version, "bridgeEventId": inboxItemA}
 	}
@@ -1053,9 +1070,13 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			body := baseline()
 			fieldName := field.path[len(field.path)-1]
 			substituted[fieldName] = true
-			if field.kind == "map" {
+			eventOfB, answersOwnKind := bridgeEventOfB[strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")]
+			switch {
+			case field.kind == "map":
 				setBodyField(body, field.path, map[string]any{keyOfB: 1})
-			} else {
+			case fieldName == "bridgeEventId" && answersOwnKind:
+				setBodyField(body, field.path, eventOfB)
+			default:
 				setBodyField(body, field.path, valuesOfB[fieldName])
 			}
 			encoded, _ := json.Marshal(body)
@@ -1562,6 +1583,8 @@ var bridgeRowFields = map[core.BridgeOutboxKind][]string{
 	core.BridgeOutboxKindDeliveryUndone: {"summary", "items"},
 	core.BridgeOutboxKindPollPosted:     {"question", "options", "allowMultiple", "voting", "closesAt", "pollsUrl"},
 	core.BridgeOutboxKindPollClosed:     {"question", "closedAt", "options"},
+	core.BridgeOutboxKindDepositRefund:  {"depositId", "gold", "actorId", "actorName"},
+	core.BridgeOutboxKindDepositUndone:  {"depositId", "gold", "actorName"},
 	core.BridgeOutboxKindNpcWithdraw:    {},
 	core.BridgeOutboxKindPlaceWithdraw:  {},
 	core.BridgeOutboxKindQuestWithdraw:  {},
@@ -1590,9 +1613,13 @@ func checkBridgeRows(t *testing.T, label string, testHarness *harness, side camp
 		}
 		withdrawHead, isWithdraw := bridgeWithdrawTargets[row.Kind]
 		scanned := string(row.Payload)
-		if row.Kind == core.BridgeOutboxKindDelivery {
-			// A paid shipment hands Foundry its item's DM-only compendium UUID, the one DM-only value a row carries.
+		switch row.Kind {
+		case core.BridgeOutboxKindDelivery:
+			// A paid shipment hands Foundry its item's DM-only compendium UUID, a DM-only value a row carries.
 			scanned = strings.ReplaceAll(scanned, testHarness.plantedCompendiumUUID(campaign), "")
+		case core.BridgeOutboxKindDepositRefund, core.BridgeOutboxKindDepositUndone:
+			// A deposit's own rows repeat the actor name Foundry sent, back to the world that sent it.
+			scanned = strings.ReplaceAll(scanned, testHarness.plantedActorName(campaign), "")
 		}
 		for _, secret := range forbidden {
 			if strings.Contains(scanned, secret) {
@@ -1653,6 +1680,7 @@ func checkBridgeRows(t *testing.T, label string, testHarness *harness, side camp
 		core.BridgeOutboxKindColonySummary, core.BridgeOutboxKindDaysAdvanced, core.BridgeOutboxKindNpcUpsert, core.BridgeOutboxKindNpcWithdraw,
 		core.BridgeOutboxKindPlaceUpsert, core.BridgeOutboxKindPlaceWithdraw, core.BridgeOutboxKindQuestUpsert, core.BridgeOutboxKindDelivery,
 		core.BridgeOutboxKindQuestWithdraw, core.BridgeOutboxKindDeliveryUndone, core.BridgeOutboxKindPollPosted, core.BridgeOutboxKindPollClosed,
+		core.BridgeOutboxKindDepositRefund, core.BridgeOutboxKindDepositUndone,
 	} {
 		if kinds[kind] == 0 {
 			t.Errorf("%s: the outbox held no %s row (it held %v), so the replay proves little", label, kind, kinds)
@@ -1732,16 +1760,53 @@ func (testHarness *harness) changeBridgedContent(t *testing.T, side campaignSide
 	}
 
 	// The docked order is paid, Foundry applies its DELIVERY, and the payment is undone.
+	// Foundry applies what waits, so later reads offer only what came after; seen rows stay checked.
+	applyWaiting := func() {
+		t.Helper()
+		waiting := readOutbox()
+		acknowledged := testHarness.do(http.MethodPost, "/api/bridge/acks", requestOptions{
+			body:    `{"through":` + strconv.FormatInt(waiting[len(waiting)-1].Seq, 10) + `}`,
+			headers: bridgeHeaders(campaign.bridgeToken, campaign.bridgeOrigin),
+		})
+		testHarness.expectStatus(acknowledged, http.StatusNoContent)
+	}
 	paid, err := service.PayMarketOrder(requestContext, dmViewer, uuid.MustParse(campaign.pathIDs["orderId"]), core.PayMarketOrderInput{ExpectedVersion: version()})
 	check("pay the docked order", err)
-	waiting := readOutbox()
-	acknowledged := testHarness.do(http.MethodPost, "/api/bridge/acks", requestOptions{
-		body:    `{"through":` + strconv.FormatInt(waiting[len(waiting)-1].Seq, 10) + `}`,
-		headers: bridgeHeaders(campaign.bridgeToken, campaign.bridgeOrigin),
-	})
-	testHarness.expectStatus(acknowledged, http.StatusNoContent)
+	applyWaiting()
 	_, err = service.UndoLastChange(requestContext, dmViewer, core.UndoInput{GroupID: paid.GroupID})
 	check("undo the payment", err)
+
+	// One deposit is accepted and undone, the other dismissed, and both imports are saved from their sheets.
+	bridge, err := service.GetBridgeStatus(requestContext, dmViewer)
+	check("read the inbox", err)
+	inboxItem := func(kind core.BridgeEventKind, gold int64) uuid.UUID {
+		t.Helper()
+		for _, item := range bridge.Inbox {
+			if item.Kind == kind && (item.Deposit == nil || item.Deposit.Gold == gold) {
+				return item.ID
+			}
+		}
+		t.Fatalf("%s has no %s inbox item: %+v", campaign.name, kind, bridge.Inbox)
+		return uuid.Nil
+	}
+	accepted, err := service.AcceptBridgeDeposit(requestContext, dmViewer, inboxItem(core.BridgeEventKindCoinDeposit, plantedDepositGold))
+	check("accept a deposit", err)
+	if encoded, _ := json.Marshal(accepted.Entries); len(accepted.Entries) != 1 || strings.Contains(string(encoded), testHarness.plantedActorName(campaign)) {
+		t.Errorf("%s: the deposit's public entries name the paying actor: %s", campaign.name, encoded)
+	}
+	_, err = service.UndoLastChange(requestContext, dmViewer, core.UndoInput{GroupID: accepted.GroupID})
+	check("undo the deposit", err)
+	check("dismiss a deposit", service.DismissBridgeInboxItem(requestContext, dmViewer, inboxItem(core.BridgeEventKindCoinDeposit, plantedDepositGold+1)))
+	// The deposit's rows carry the paying actor's DM-only name, which only this campaign's own world reads.
+	applyWaiting()
+	npcImport := inboxItem(core.BridgeEventKindNpcImport, 0)
+	_, err = service.CreateNpc(requestContext, dmViewer, core.NewNpcInput{NpcInput: core.NpcInput{Name: "Brother Aldo " + side.dmSecret}, BridgeEventID: &npcImport})
+	check("import an NPC", err)
+	itemImport := inboxItem(core.BridgeEventKindItemImport, 0)
+	_, err = service.CreateMarketItem(requestContext, dmViewer, core.NewMarketItemInput{
+		MarketItemInput: core.MarketItemInput{Name: "Boots" + visible, PriceGold: 12}, BridgeEventID: &itemImport,
+	})
+	check("import a catalog item", err)
 
 	poll, err := service.CreatePoll(requestContext, dmViewer, core.CreatePollInput{
 		Question: "Which road north?" + visible, Options: []string{"The ridge" + visible, "The river" + visible}, DurationHours: 24,

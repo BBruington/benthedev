@@ -131,8 +131,8 @@ func (q *Queries) CountUnappliedBridgeOutbox(ctx context.Context, campaignID uui
 }
 
 const createBridgeEvent = `-- name: CreateBridgeEvent :execrows
-INSERT INTO bridge_event (campaign_id, module_event_id, kind, status, occurred_at, received_at, days)
-VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7)
+INSERT INTO bridge_event (campaign_id, module_event_id, kind, status, occurred_at, received_at, days, gold, content)
+VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9)
 ON CONFLICT (campaign_id, module_event_id) DO NOTHING
 `
 
@@ -144,6 +144,8 @@ type CreateBridgeEventParams struct {
 	OccurredAt    time.Time
 	Now           time.Time
 	Days          *int32
+	Gold          *int32
+	Content       []byte
 }
 
 // A repeat of a module's event ID inserts nothing.
@@ -156,6 +158,8 @@ func (q *Queries) CreateBridgeEvent(ctx context.Context, arg CreateBridgeEventPa
 		arg.OccurredAt,
 		arg.Now,
 		arg.Days,
+		arg.Gold,
+		arg.Content,
 	)
 	if err != nil {
 		return 0, err
@@ -282,9 +286,10 @@ func (q *Queries) CreateBridgePairingCode(ctx context.Context, arg CreateBridgeP
 	return expires_at, err
 }
 
-const decideBridgeEvent = `-- name: DecideBridgeEvent :execrows
+const decideBridgeEvent = `-- name: DecideBridgeEvent :one
 UPDATE bridge_event SET status = $1, decided_at = $2::timestamptz
-WHERE campaign_id = $3 AND id = $4 AND kind = 'TIME_ADVANCED' AND status = 'PENDING'
+WHERE campaign_id = $3 AND id = $4 AND kind::text = ANY($5::text[]) AND status = 'PENDING'
+RETURNING kind, gold, content, module_event_id
 `
 
 type DecideBridgeEventParams struct {
@@ -292,19 +297,33 @@ type DecideBridgeEventParams struct {
 	Now        time.Time
 	CampaignID uuid.UUID
 	ID         uuid.UUID
+	Kinds      []string
 }
 
-func (q *Queries) DecideBridgeEvent(ctx context.Context, arg DecideBridgeEventParams) (int64, error) {
-	result, err := q.db.Exec(ctx, decideBridgeEvent,
+type DecideBridgeEventRow struct {
+	Kind          BridgeEventKind
+	Gold          *int32
+	Content       []byte
+	ModuleEventID uuid.UUID
+}
+
+// A decision moves a PENDING item of one of the kinds once, so two clicks can't both pass.
+func (q *Queries) DecideBridgeEvent(ctx context.Context, arg DecideBridgeEventParams) (DecideBridgeEventRow, error) {
+	row := q.db.QueryRow(ctx, decideBridgeEvent,
 		arg.Status,
 		arg.Now,
 		arg.CampaignID,
 		arg.ID,
+		arg.Kinds,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var i DecideBridgeEventRow
+	err := row.Scan(
+		&i.Kind,
+		&i.Gold,
+		&i.Content,
+		&i.ModuleEventID,
+	)
+	return i, err
 }
 
 const deleteUnappliedBridgeOutboxKinds = `-- name: DeleteUnappliedBridgeOutboxKinds :execrows
@@ -584,7 +603,7 @@ func (q *Queries) ListFailedBridgeOutbox(ctx context.Context, arg ListFailedBrid
 }
 
 const listPendingBridgeEvents = `-- name: ListPendingBridgeEvents :many
-SELECT id, kind, received_at, days FROM bridge_event
+SELECT id, kind, received_at, days, gold, content FROM bridge_event
 WHERE campaign_id = $1 AND status = 'PENDING'
 ORDER BY received_at, id
 LIMIT $2::integer
@@ -600,6 +619,8 @@ type ListPendingBridgeEventsRow struct {
 	Kind       BridgeEventKind
 	ReceivedAt time.Time
 	Days       *int32
+	Gold       *int32
+	Content    []byte
 }
 
 func (q *Queries) ListPendingBridgeEvents(ctx context.Context, arg ListPendingBridgeEventsParams) ([]ListPendingBridgeEventsRow, error) {
@@ -616,6 +637,8 @@ func (q *Queries) ListPendingBridgeEvents(ctx context.Context, arg ListPendingBr
 			&i.Kind,
 			&i.ReceivedAt,
 			&i.Days,
+			&i.Gold,
+			&i.Content,
 		); err != nil {
 			return nil, err
 		}
@@ -673,7 +696,9 @@ func (q *Queries) NextBridgeOutboxSeq(ctx context.Context, campaignID uuid.UUID)
 
 const pruneBridgeEvents = `-- name: PruneBridgeEvents :exec
 DELETE FROM bridge_event
-WHERE campaign_id = $1 AND status <> 'PENDING' AND coalesce(decided_at, received_at) < $2::timestamptz
+WHERE bridge_event.campaign_id = $1 AND bridge_event.status <> 'PENDING' AND bridge_event.kind <> 'COIN_DEPOSIT'
+  AND coalesce(bridge_event.decided_at, bridge_event.received_at) < $2::timestamptz
+  AND bridge_event.id IS DISTINCT FROM (SELECT (colony.last_change -> 'before' ->> 'bridgeEventId')::uuid FROM colony WHERE colony.campaign_id = $1)
 `
 
 type PruneBridgeEventsParams struct {
@@ -682,7 +707,9 @@ type PruneBridgeEventsParams struct {
 }
 
 // Pending items wait for the DM however old they are; decided ones are kept 30 days past the decision
-// only to ignore repeats. A STATUS row is decided on arrival, so it has no decided_at.
+// only to ignore repeats. A STATUS row is decided on arrival, so it has no decided_at. The item the undo
+// slot names stays, so an undo can always put it back in the inbox. A coin deposit stays for good: a replay
+// of a forgotten one would come back PENDING, and its Dismiss would refund coins the colony already holds.
 func (q *Queries) PruneBridgeEvents(ctx context.Context, arg PruneBridgeEventsParams) error {
 	_, err := q.db.Exec(ctx, pruneBridgeEvents, arg.CampaignID, arg.Before)
 	return err
@@ -720,23 +747,36 @@ func (q *Queries) PruneBridgePairingCodes(ctx context.Context, arg PruneBridgePa
 	return err
 }
 
-const reopenAcceptedBridgeEvent = `-- name: ReopenAcceptedBridgeEvent :execrows
+const reopenAcceptedBridgeEvent = `-- name: ReopenAcceptedBridgeEvent :one
 UPDATE bridge_event SET status = 'PENDING', decided_at = NULL
-WHERE campaign_id = $1 AND id = $2 AND kind = 'TIME_ADVANCED' AND status = 'ACCEPTED'
+WHERE campaign_id = $1 AND id = $2 AND kind::text = ANY($3::text[]) AND status = 'ACCEPTED'
+RETURNING kind, gold, content, module_event_id
 `
 
 type ReopenAcceptedBridgeEventParams struct {
 	CampaignID uuid.UUID
 	ID         uuid.UUID
+	Kinds      []string
 }
 
-// Undoing the Advance that accepted an item puts it back in the inbox; a pruned item stays gone.
-func (q *Queries) ReopenAcceptedBridgeEvent(ctx context.Context, arg ReopenAcceptedBridgeEventParams) (int64, error) {
-	result, err := q.db.Exec(ctx, reopenAcceptedBridgeEvent, arg.CampaignID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+type ReopenAcceptedBridgeEventRow struct {
+	Kind          BridgeEventKind
+	Gold          *int32
+	Content       []byte
+	ModuleEventID uuid.UUID
+}
+
+// Undoing the change that accepted an item puts it back in the inbox; a pruned item stays gone.
+func (q *Queries) ReopenAcceptedBridgeEvent(ctx context.Context, arg ReopenAcceptedBridgeEventParams) (ReopenAcceptedBridgeEventRow, error) {
+	row := q.db.QueryRow(ctx, reopenAcceptedBridgeEvent, arg.CampaignID, arg.ID, arg.Kinds)
+	var i ReopenAcceptedBridgeEventRow
+	err := row.Scan(
+		&i.Kind,
+		&i.Gold,
+		&i.Content,
+		&i.ModuleEventID,
+	)
+	return i, err
 }
 
 const reserveBridgeOutboxSeqs = `-- name: ReserveBridgeOutboxSeqs :one
@@ -839,7 +879,8 @@ const trimBridgeEvents = `-- name: TrimBridgeEvents :exec
 DELETE FROM bridge_event
 WHERE bridge_event.campaign_id = $1 AND bridge_event.id IN (
     SELECT decided.id FROM bridge_event AS decided
-    WHERE decided.campaign_id = $1 AND decided.status <> 'PENDING'
+    WHERE decided.campaign_id = $1 AND decided.status <> 'PENDING' AND decided.kind <> 'COIN_DEPOSIT'
+      AND decided.id IS DISTINCT FROM (SELECT (colony.last_change -> 'before' ->> 'bridgeEventId')::uuid FROM colony WHERE colony.campaign_id = $1)
     ORDER BY coalesce(decided.decided_at, decided.received_at) DESC, decided.id DESC
     OFFSET $2::integer
 )

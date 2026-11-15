@@ -18,6 +18,9 @@ type BridgeEventKind string
 const (
 	BridgeEventKindSTATUS       BridgeEventKind = "STATUS"
 	BridgeEventKindTIMEADVANCED BridgeEventKind = "TIME_ADVANCED"
+	BridgeEventKindCOINDEPOSIT  BridgeEventKind = "COIN_DEPOSIT"
+	BridgeEventKindNPCIMPORT    BridgeEventKind = "NPC_IMPORT"
+	BridgeEventKindITEMIMPORT   BridgeEventKind = "ITEM_IMPORT"
 )
 
 func (e *BridgeEventKind) Scan(src interface{}) error {
@@ -58,7 +61,10 @@ func (ns NullBridgeEventKind) Value() (driver.Value, error) {
 func (e BridgeEventKind) Valid() bool {
 	switch e {
 	case BridgeEventKindSTATUS,
-		BridgeEventKindTIMEADVANCED:
+		BridgeEventKindTIMEADVANCED,
+		BridgeEventKindCOINDEPOSIT,
+		BridgeEventKindNPCIMPORT,
+		BridgeEventKindITEMIMPORT:
 		return true
 	}
 	return false
@@ -68,6 +74,9 @@ func AllBridgeEventKindValues() []BridgeEventKind {
 	return []BridgeEventKind{
 		BridgeEventKindSTATUS,
 		BridgeEventKindTIMEADVANCED,
+		BridgeEventKindCOINDEPOSIT,
+		BridgeEventKindNPCIMPORT,
+		BridgeEventKindITEMIMPORT,
 	}
 }
 
@@ -147,6 +156,8 @@ const (
 	BridgeOutboxKindDELIVERYUNDONE BridgeOutboxKind = "DELIVERY_UNDONE"
 	BridgeOutboxKindPOLLPOSTED     BridgeOutboxKind = "POLL_POSTED"
 	BridgeOutboxKindPOLLCLOSED     BridgeOutboxKind = "POLL_CLOSED"
+	BridgeOutboxKindDEPOSITREFUND  BridgeOutboxKind = "DEPOSIT_REFUND"
+	BridgeOutboxKindDEPOSITUNDONE  BridgeOutboxKind = "DEPOSIT_UNDONE"
 )
 
 func (e *BridgeOutboxKind) Scan(src interface{}) error {
@@ -197,7 +208,9 @@ func (e BridgeOutboxKind) Valid() bool {
 		BridgeOutboxKindDELIVERY,
 		BridgeOutboxKindDELIVERYUNDONE,
 		BridgeOutboxKindPOLLPOSTED,
-		BridgeOutboxKindPOLLCLOSED:
+		BridgeOutboxKindPOLLCLOSED,
+		BridgeOutboxKindDEPOSITREFUND,
+		BridgeOutboxKindDEPOSITUNDONE:
 		return true
 	}
 	return false
@@ -217,6 +230,8 @@ func AllBridgeOutboxKindValues() []BridgeOutboxKind {
 		BridgeOutboxKindDELIVERYUNDONE,
 		BridgeOutboxKindPOLLPOSTED,
 		BridgeOutboxKindPOLLCLOSED,
+		BridgeOutboxKindDEPOSITREFUND,
+		BridgeOutboxKindDEPOSITUNDONE,
 	}
 }
 
@@ -1342,6 +1357,8 @@ type BridgeEvent struct {
 	DecidedAt     *time.Time
 	Days          *int32
 	CampaignID    uuid.UUID
+	Gold          *int32
+	Content       []byte
 }
 
 type BridgeLink struct {

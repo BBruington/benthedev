@@ -20,12 +20,12 @@ func seedMarket(requestContext context.Context, service *core.Service, dm core.V
 		return fmt.Errorf("the mage offer: %w", err)
 	}
 	mostPerOrder := int64(1)
-	boots, err := service.CreateMarketItem(requestContext, dm, core.MarketItemInput{
+	boots, err := service.CreateMarketItem(requestContext, dm, core.NewMarketItemInput{MarketItemInput: core.MarketItemInput{
 		Name:        "Boots of Striding",
 		Description: "Uncommon wondrous item, sent from a Thornwall enchanter. The DM hands it to whoever claims it.",
 		PriceGold:   120,
 		MaxPerOrder: &mostPerOrder,
-	})
+	}})
 	if err != nil {
 		return fmt.Errorf("the boots item: %w", err)
 	}

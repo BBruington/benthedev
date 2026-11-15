@@ -41,8 +41,8 @@ activate_aggressive); in a bare shell use `mise exec -- go ...`.
 | Path | Holds |
 |---|---|
 | `cmd/colony/main.go` | subcommands serve, migrate up/status, openapi, seed, reset; `cmd/colony/config.go` reads every env var |
-| `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`); `internal/game/market.go` holds an order's total, its docking day and `Unload` (the payment); `internal/game/polls.go` holds a poll's limits (Discord's), its duration, when it is closed or due a lazy close (`DiscordPollCloseGrace`) and the close entry's text |
-| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market, shown as Shipments (items, the party cart, orders, the voyage and ship limit settings); `internal/core/polls.go` is Polls (site votes, closing, the Discord poll's record, its vote sync and the deadline hooks; `internal/core/poll_voting.go` re-exports `PollVoting`); `internal/core/bridge.go` is the Foundry bridge (pairing codes, links, `EnterBridge` and `BridgeCaller`, the outbox, inbound events, the DM's inbox; `internal/core/bridge_enums.go` re-exports its enums), and `internal/core/bridge_content.go` its Phase 2 rows (the NPC, place, quest, delivery and poll payloads, the pairing backfill and `bridgeOutbox`, one transaction's writer) |
+| `internal/game/` | pure rules with table tests: no I/O, no clock, no randomness (depguard and forbidigo enforce it); `internal/game/sessions.go` holds occurrences() (`Occurrences`) and the planner's rules (`PlanSessions`); `internal/game/market.go` holds an order's total, its docking day and `Unload` (the payment); `internal/game/polls.go` holds a poll's limits (Discord's), its duration, when it is closed or due a lazy close (`DiscordPollCloseGrace`) and the close entry's text; `internal/game/deposit.go` holds `Deposit`, a Foundry coin deposit into colony gold that refuses rather than caps |
+| `internal/core/` | transport-neutral operations and DTOs, one file per feature; `internal/core/redact.go`, `internal/core/errors.go`, `internal/core/notify.go`, `internal/core/broker.go`; game sessions are `internal/core/game_sessions.go` (series, dates, stamps, recaps, the ICS feed) and `internal/core/session_planner.go` (the planner's reads, claims and leases, Discord event status), apart from sign-in sessions in `internal/core/sessions.go`; `internal/core/market.go` is the Market, shown as Shipments (items, the party cart, orders, the voyage and ship limit settings); `internal/core/polls.go` is Polls (site votes, closing, the Discord poll's record, its vote sync and the deadline hooks; `internal/core/poll_voting.go` re-exports `PollVoting`); `internal/core/bridge.go` is the Foundry bridge (pairing codes, links, `EnterBridge` and `BridgeCaller`, the outbox, inbound events, the DM's inbox; `internal/core/bridge_enums.go` re-exports its enums), and `internal/core/bridge_content.go` its Phase 2 rows (the NPC, place, quest, delivery and poll payloads, the pairing backfill and `bridgeOutbox`, one transaction's writer), and `internal/core/bridge_imports.go` its Phase 3 inbox kinds (coin deposits, NPC and item imports: their checks, the inbox objects, `AcceptBridgeDeposit`, Dismiss and the deposit refund and undone rows) |
 | `internal/app/` | HTTP only: `internal/app/access.go` (levels, Register, startup check), `internal/app/app.go` (route table, security headers), `internal/app/compress.go` (gzip for JSON, html, css, js and svg; never the event stream, images, fonts or the ICS feed), `internal/app/transform.go`, `internal/app/errors.go`, `internal/app/enums.go`, `internal/app/bridge.go` (the bridge's guard: bearer token, CORS, 256 KiB cap, rate limits; its preflight and stream), `internal/app/foundry.go` (serves the module's manifest and zip, with the served manifest inside the zip), one thin file per feature |
 | `internal/auth/` | Discord OAuth2, the session cookie and its in-memory cache, the Caller middleware; `internal/auth/devauth.go` (build tag). Session data itself lives in `internal/core/sessions.go` |
 | `internal/store/` | sqlc output |
@@ -264,7 +264,9 @@ web/src/** -> web/src/api -> the Go API
     after a delete.
 21. The Foundry bridge (`docs/design/foundry-bridge.md`). Outbox payloads come only from the player
     projection, so nothing DM-only or hidden reaches Foundry, except a paid special item's compendium UUID
-    in its DELIVERY row (Invariant 19), sent once the item is the party's. auth never reads the session cookie under
+    in its DELIVERY row (Invariant 19), sent once the item is the party's. DEPOSIT_REFUND and
+    DEPOSIT_UNDONE aren't projections at all: they repeat only what Foundry sent and core checked (the
+    amount, the paying actor's ID and name) and name nothing of Colony Planner's. auth never reads the session cookie under
     `/api/bridge/`, which is what makes that prefix's CrossOriginProtection bypass safe; CORS there echoes
     only the token's own link origin (pairing, the preflight and the bare 401: any origin allowed to
     pair), never with credentials. Only core builds a `BridgeCaller` (`EnterBridge`), and every bridge
@@ -275,8 +277,15 @@ web/src/** -> web/src/api -> the Go API
     one writes its withdraw, `{}`. An operation that writes outbox rows takes the colony lock first, as
     `PairBridge` does, so pairing's backfill of every revealed place, NPC and quest can't miss a change
     committing beside it. Past 10,000 waiting rows only one-shot rows are trimmed: a trimmed state row
-    would lose its target until it next changed, and a trimmed withdraw would leave it visible. Inbound events change nothing by themselves: only Advance with `bridgeEventId` accepts an inbox
-    item, in the same transaction.
+    would lose its target until it next changed, and a trimmed withdraw would leave it visible. Inbound events change nothing by themselves, and a bridge token can only add inbox items (at most
+    `BridgeInboxLimit` pending) and status. Payloads are checked as request bodies are and stored
+    cleaned. Only the DM decides an item, in the deciding change's own transaction: Advance, the NPC
+    create and the catalog item create with `bridgeEventId` (each answers its own kind), Accept on a
+    coin deposit (a colony change that refuses past gold's max rather than caps, whose undo puts the
+    item back and writes DEPOSIT_UNDONE), and Dismiss, which for a deposit writes DEPOSIT_REFUND and so
+    needs an active link. DEPOSIT_REFUND is never trimmed (it would lose the coins), and the event prune
+    and trim skip the item the undo slot names and never drop a COIN_DEPOSIT (its replay would come back
+    PENDING, so Dismiss would refund coins the colony holds and Accept would add them twice).
 
 API details that keep the contract single-sourced:
 - Closed sets are Postgres enums. Add each to `enumTypes` in `internal/app/enums.go` so TypeScript gets a union.

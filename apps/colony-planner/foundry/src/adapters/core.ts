@@ -448,7 +448,7 @@ export function findPostedMessage(
 }
 
 /** One-shot chat kinds post once: a message flagged with the row's target key means it's done. */
-async function postOnce(
+export async function postOnce(
 	row: OutboxRow,
 	message: { content: string; whisper?: string[] },
 	dependencies: CoreAdapterDependencies,

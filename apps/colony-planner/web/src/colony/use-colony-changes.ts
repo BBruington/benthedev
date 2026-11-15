@@ -27,12 +27,13 @@ import {
 } from "@/api/queries";
 import { useCampaignId } from "@/hooks/use-campaign";
 import { cachedMe, canUseDmTools } from "@/lib/access";
-import { isPublicEntry } from "@/lib/colony";
+import { formatNumber, isPublicEntry } from "@/lib/colony";
 import { markAnnounced } from "./live-toasts";
 
 type ColonyChange = Schemas["ColonyChange"];
 
 const undoToastDurationInMilliseconds = 12_000;
+const goldResourceKey = "gold";
 
 /**
  * Brings this tab up to date after the DM's own change, without waiting for the live stream: the
@@ -79,14 +80,18 @@ function refreshAfter(
  * The toast for this tab's own change: its public text, and Undo for the DM (spec §6.3). A player's
  * change (paying for the goods ship) has no Undo, since only the DM may undo.
  */
-function toastChange(change: ColonyChange, undo: ((groupId: string) => void) | null) {
+function toastChange(
+	change: ColonyChange,
+	undo: ((groupId: string) => void) | null,
+	title?: string,
+) {
 	markAnnounced(change.entries.map((entry) => entry.id));
 	const publicEntry = change.entries.find(isPublicEntry);
 	let description = "Only you can see it on the timeline.";
 	if (publicEntry) {
 		description = publicEntry.body || "Everyone sees it on the timeline.";
 	}
-	toast.success(publicEntry?.title ?? change.label, {
+	toast.success(title ?? publicEntry?.title ?? change.label, {
 		action: undo
 			? {
 					label: "Undo",
@@ -100,6 +105,13 @@ function toastChange(change: ColonyChange, undo: ((groupId: string) => void) | n
 	});
 }
 
+/** "40 gold added to the colony.", from the deposit's own entry. */
+function depositToastTitle(change: ColonyChange): string | undefined {
+	const deposited = change.entries.find((entry) => entry.kind === "COIN_DEPOSITED");
+	const gold = deposited?.deltas.resources?.[goldResourceKey];
+	return gold === undefined ? undefined : `${formatNumber(gold)} gold added to the colony.`;
+}
+
 /** True for the 409 the write path answers when the colony moved on (spec §5.1). */
 export function isConflict(error: unknown): boolean {
 	return problemStatus(error) === 409;
@@ -107,7 +119,7 @@ export function isConflict(error: unknown): boolean {
 
 /**
  * Every colony write the DM makes from the board, the timeline, /people, an NPC's page, a quest, a
- * patron and the approval sheet. The callbacks live on the
+ * patron, the approval sheet and the Foundry inbox. The callbacks live on the
  * mutations themselves, so a toast's Undo still works after the screen that made the change closes.
  * Each screen adds its own callbacks when it calls mutate (closing a sheet, moving focus).
  */
@@ -148,6 +160,22 @@ export function useColonyChanges() {
 	};
 
 	return {
+		acceptBridgeDeposit: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/bridge/inbox/{eventId}/accept-deposit",
+			{
+				...changeOptions,
+				onSuccess: (change: ColonyChange) => {
+					const me = cachedMe(queryClient, campaignId);
+					toastChange(
+						change,
+						me && canUseDmTools(me) ? undoGroup : null,
+						depositToastTitle(change),
+					);
+					return refreshAfter(queryClient, campaignId, change);
+				},
+			},
+		),
 		adjust: api.useMutation("post", "/api/campaigns/{campaignId}/colony/adjust", changeOptions),
 		adjustFavor: api.useMutation(
 			"post",

@@ -17,6 +17,7 @@ import { focusAfterClose } from "@/people/colonist-actions";
 import { SheetButtons } from "@/people/workforce-sheets";
 
 type MarketItem = Schemas["MarketItem"];
+type BridgeInboxMarketItem = NonNullable<Schemas["BridgeInboxMarketItem"]>;
 
 const nameMaxLength = 80;
 const proseMaxLength = 4000;
@@ -32,18 +33,37 @@ export function ItemSheet({
 	onOpenChange,
 	campaignId,
 	item,
+	prefill,
+	bridgeEventId,
+	onCreated,
+	onCreateError,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	campaignId: string;
 	item: MarketItem | null;
+	/** A Foundry import's fields for a new item. */
+	prefill?: BridgeInboxMarketItem;
+	/** The Foundry inbox item this create answers; the server accepts it with the create. */
+	bridgeEventId?: string;
+	onCreated?: () => void;
+	onCreateError?: (error: unknown) => void;
 }) {
 	const queryClient = useQueryClient();
-	const [name, setName] = useState(item?.name ?? "");
-	const [description, setDescription] = useState(item?.description ?? "");
-	const [priceText, setPriceText] = useState(item ? String(item.priceGold) : "");
+	const start = item ? undefined : prefill;
+	const [name, setName] = useState(item?.name ?? start?.name ?? "");
+	const [description, setDescription] = useState(item?.description ?? start?.description ?? "");
+	const [priceText, setPriceText] = useState(() => {
+		if (item) {
+			return String(item.priceGold);
+		}
+		const startPrice = start?.priceGold ?? null;
+		return startPrice === null ? "" : String(startPrice);
+	});
 	const [limitText, setLimitText] = useState(item?.maxPerOrder ? String(item.maxPerOrder) : "");
-	const [compendiumUuid, setCompendiumUuid] = useState(item?.dm?.compendiumUuid ?? "");
+	const [compendiumUuid, setCompendiumUuid] = useState(
+		item?.dm?.compendiumUuid ?? start?.compendiumUuid ?? "",
+	);
 	const settled = {
 		onSettled: () => queryClient.invalidateQueries({ queryKey: marketQuery(campaignId).queryKey }),
 	};
@@ -71,6 +91,10 @@ export function ItemSheet({
 	const limitProblem =
 		limit === "invalid" || (typeof limit === "number" && (limit < 1 || limit > largestOrderLimit))
 			? "Enter a limit from 1 to 10,000, or leave it blank."
+			: undefined;
+	const priceHint =
+		start?.priceGold === null
+			? "Foundry's price wasn't a whole number of gold. Type one."
 			: undefined;
 	const canSave =
 		name.trim() !== "" &&
@@ -108,11 +132,13 @@ export function ItemSheet({
 			return;
 		}
 		create.mutate(
-			{ body, params: { path: { campaignId } } },
+			{ body: { ...body, bridgeEventId }, params: { path: { campaignId } } },
 			{
+				onError: onCreateError,
 				onSuccess: (created) => {
 					toast.success(`${created.name} added.`);
 					onOpenChange(false);
+					onCreated?.();
 				},
 			},
 		);
@@ -136,7 +162,7 @@ export function ItemSheet({
 	const generalError =
 		error && Object.keys(serverErrors).length === 0
 			? problemMessage(error, "The item couldn't be saved.")
-			: null;
+			: serverErrors.bridgeEventId;
 
 	return (
 		<BottomSheet
@@ -174,12 +200,17 @@ export function ItemSheet({
 				</Field>
 				<div className="grid gap-5 sm:grid-cols-2">
 					<Field
+						description={priceHint}
 						error={priceProblem ?? serverErrors.priceGold}
 						id="item-price"
 						label="Price in gold"
 					>
 						<Input
-							{...fieldInputProps("item-price", priceProblem ?? serverErrors.priceGold, false)}
+							{...fieldInputProps(
+								"item-price",
+								priceProblem ?? serverErrors.priceGold,
+								priceHint !== undefined,
+							)}
 							autoComplete="off"
 							inputMode="numeric"
 							onChange={(event) => {

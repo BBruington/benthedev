@@ -315,7 +315,8 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 			topics = append(topics, TopicMarket)
 		}
 		if input.BridgeEventID != nil {
-			if err := decideBridgeEvent(requestContext, queries, viewer.campaignID, *input.BridgeEventID, BridgeEventStatusAccepted, service.clock().UTC(), "bridgeEventId"); err != nil {
+			if _, err := decideBridgeEvent(requestContext, queries, viewer.campaignID, *input.BridgeEventID, []BridgeEventKind{BridgeEventKindTimeAdvanced},
+				BridgeEventStatusAccepted, service.clock().UTC(), "bridgeEventId"); err != nil {
 				return colonyOutcome{}, err
 			}
 			topics = append(topics, TopicBridge)
@@ -522,12 +523,21 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err := restoreMarketOrders(requestContext, queries, viewer.campaignID, record.Before.MarketOrders); err != nil {
 			return err
 		}
+		var reopenedDeposit *store.ReopenAcceptedBridgeEventRow
 		if record.Before.BridgeEventID != nil {
-			reopened, err := queries.ReopenAcceptedBridgeEvent(requestContext, store.ReopenAcceptedBridgeEventParams{CampaignID: viewer.campaignID, ID: *record.Before.BridgeEventID})
-			if err != nil {
+			reopened, err := queries.ReopenAcceptedBridgeEvent(requestContext, store.ReopenAcceptedBridgeEventParams{
+				CampaignID: viewer.campaignID, ID: *record.Before.BridgeEventID, Kinds: bridgeUndoReopenedKinds,
+			})
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+			case err != nil:
 				return err
+			default:
+				inboxReopened = true
+				if reopened.Kind == BridgeEventKindCoinDeposit {
+					reopenedDeposit = &reopened
+				}
 			}
-			inboxReopened = reopened > 0
 		}
 		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
 		if err != nil {
@@ -606,6 +616,11 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		}
 		for _, orderID := range slices.SortedFunc(maps.Keys(record.Before.MarketOrders), compareIDs) {
 			if err := outbox.undoDelivery(colony, record.GroupID, orderID); err != nil {
+				return err
+			}
+		}
+		if reopenedDeposit != nil {
+			if err := outbox.depositUndone(record.GroupID, *reopenedDeposit); err != nil {
 				return err
 			}
 		}

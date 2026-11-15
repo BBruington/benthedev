@@ -1,10 +1,12 @@
 import type { FoundryGame, FoundryItem, FoundryPartyActor } from "../foundry-types";
 import { escapeHtml } from "../html";
 import {
+	compendiumItemUuidPattern,
 	type DeliveryItem,
 	type DeliveryPayload,
 	type DeliveryUndonePayload,
 	isDeliveryPayload,
+	maximumFoundryUuidLength,
 	type OutboxRow,
 	readField,
 } from "../wire";
@@ -26,11 +28,6 @@ export interface Pf2eAdapterDependencies extends CoreAdapterDependencies {
 	fromUuid: (uuid: string) => Promise<unknown>;
 }
 
-// Design §13.6's pattern. Anything else (a world item, an actor's item) could copy a document players
-// can't see into the party's inventory.
-const compendiumItemUuid = /^Compendium\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.Item\.[A-Za-z0-9]{16}$/;
-const maximumCompendiumUuidLength = 200;
-
 /** The core adapter, with DELIVERY adding compendium items to the party actor's inventory. */
 export function createPf2eAdapter(dependencies: Pf2eAdapterDependencies): BridgeAdapter {
 	const core = createCoreAdapter(dependencies);
@@ -48,9 +45,10 @@ export function createPf2eAdapter(dependencies: Pf2eAdapterDependencies): Bridge
 	};
 }
 
+// Any other UUID (a world or actor item) could copy a document players can't see to the party.
 function isCompendiumUuid(uuid: string | null): uuid is string {
 	return (
-		uuid !== null && uuid.length <= maximumCompendiumUuidLength && compendiumItemUuid.test(uuid)
+		uuid !== null && uuid.length <= maximumFoundryUuidLength && compendiumItemUuidPattern.test(uuid)
 	);
 }
 

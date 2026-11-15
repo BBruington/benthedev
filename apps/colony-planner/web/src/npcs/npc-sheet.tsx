@@ -29,6 +29,7 @@ import { NpcPortraitField } from "./npc-portrait";
 
 type Npc = Schemas["Npc"];
 type NpcInput = Schemas["NpcInput"];
+type BridgeInboxNpc = NonNullable<Schemas["BridgeInboxNpc"]>;
 
 const nameMaxLength = 80;
 const shortMaxLength = 80;
@@ -97,6 +98,19 @@ function toDraft(npc: Npc | null): Draft {
 	};
 }
 
+/** A new NPC's draft with what Foundry sent; the actor's UUID is no NPC field, so it stays behind. */
+function prefilledDraft(prefill: BridgeInboxNpc): Draft {
+	return {
+		...toDraft(null),
+		appearance: prefill.appearance,
+		characterClass: prefill.characterClass,
+		dmNotes: prefill.dmNotes,
+		levelText: prefill.level === null ? "" : String(prefill.level),
+		name: prefill.name,
+		race: prefill.race,
+	};
+}
+
 function FormSection({ title, children }: { title: string; children: ReactNode }) {
 	return (
 		<fieldset className="grid gap-4">
@@ -118,18 +132,28 @@ export function NpcSheet({
 	open,
 	onOpenChange,
 	npc,
+	prefill,
+	bridgeEventId,
 	onCreated,
+	onCreateError,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	/** The NPC to edit, or null to create one. */
 	npc: Npc | null;
+	/** A Foundry import's fields for a new NPC. */
+	prefill?: BridgeInboxNpc;
+	/** The Foundry inbox item this create answers; the server accepts it with the create. */
+	bridgeEventId?: string;
 	onCreated?: (created: Npc) => void;
+	onCreateError?: (error: unknown) => void;
 }) {
 	const queryClient = useQueryClient();
 	const campaignId = useCampaignId();
 	const places = useQuery(placesQuery(campaignId));
-	const [draft, setDraft] = useState(() => toDraft(npc));
+	const [draft, setDraft] = useState(() =>
+		prefill && !npc ? prefilledDraft(prefill) : toDraft(npc),
+	);
 	// New NPCs start hidden (spec §5.9, Open Question 9).
 	const [revealed, setRevealed] = useState(false);
 
@@ -155,7 +179,10 @@ export function NpcSheet({
 		levelError = "Enter a whole number, or leave it empty.";
 	}
 	const canSave = draft.name.trim() !== "" && levelError === undefined && !isSaving;
-	const showGeneralError = error !== null && Object.keys(serverErrors).length === 0;
+	const generalError =
+		error !== null && Object.keys(serverErrors).length === 0
+			? problemMessage(error, "The NPC couldn't be saved.")
+			: serverErrors.bridgeEventId;
 
 	function set<Key extends keyof Draft>(key: Key, value: Draft[Key]) {
 		setDraft((current) => ({ ...current, [key]: value }));
@@ -198,8 +225,9 @@ export function NpcSheet({
 			return;
 		}
 		create.mutate(
-			{ body: { ...body, revealed }, params: { path: { campaignId } } },
+			{ body: { ...body, bridgeEventId, revealed }, params: { path: { campaignId } } },
 			{
+				onError: onCreateError,
 				onSuccess: (created) => {
 					toast.success(
 						created.dm?.revealed
@@ -461,9 +489,9 @@ export function NpcSheet({
 						/>
 					</Field>
 				</FormSection>
-				{showGeneralError ? (
+				{generalError ? (
 					<p className="text-ember-ink text-sm" role="alert">
-						{problemMessage(error, "The NPC couldn't be saved.")}
+						{generalError}
 					</p>
 				) : null}
 				<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

@@ -1,4 +1,5 @@
-import type { Pf2eAdapterDependencies } from "../adapters/pf2e";
+import type { AdapterDependencies } from "../adapters/adapter";
+import { createDepositLedger } from "../deposits";
 import type {
 	DocumentOwnership,
 	FoundryChatMessage,
@@ -11,6 +12,7 @@ import type {
 	FoundryUser,
 } from "../foundry-types";
 import { readField } from "../wire";
+import { createFakeLocks } from "./fakes";
 
 /** Each Foundry write the fake world can be told to refuse once, as Foundry's server would. */
 export type WriteKind =
@@ -245,11 +247,32 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		items: collection<FakeDocument>(partyItems),
 		name: "The <Wardens>",
 	};
-	const actors: { party: FoundryPartyActor | null } = {
+	const actorsById = new Map<string, unknown>();
+	const actors = {
+		get: (id: string) => actorsById.get(id),
 		party: options.party === false ? null : party,
 	};
+	// The world setting's value; every module write is the GM's, until a test says a player wrote last.
+	const ledgerSetting: { lastWriterIsGm: boolean; value: unknown } = {
+		lastWriterIsGm: true,
+		value: { entries: {} },
+	};
+	const ledgerErrors: string[] = [];
+	const depositLedger = createDepositLedger(
+		{
+			lastWriterIsGm: () => ledgerSetting.lastWriterIsGm,
+			load: () => ledgerSetting.value,
+			save: (value) => {
+				ledgerSetting.value = structuredClone(value);
+				ledgerSetting.lastWriterIsGm = true;
+				return Promise.resolve();
+			},
+		},
+		{ error: (message) => ledgerErrors.push(`error: ${message}`) },
+		createFakeLocks(),
+	);
 
-	const dependencies: Pf2eAdapterDependencies = {
+	const dependencies: AdapterDependencies = {
 		chatMessage: {
 			create: (data, writeOptions) =>
 				createDocument(
@@ -260,6 +283,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 					messages,
 				),
 		},
+		depositLedger,
 		folder: {
 			create: (data, writeOptions) =>
 				createDocument(
@@ -311,6 +335,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 
 	return {
 		actors,
+		actorsById,
 		addCompendiumItem(uuid: string, name: string, itemOptions: CompendiumItemOptions = {}) {
 			const source = {
 				_id: uuid.slice(-16),
@@ -352,11 +377,14 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		},
 		cancelNext,
 		dependencies,
+		depositLedger,
 		entries,
 		entryFor: (externalId: string) =>
 			entries.find((entry) => entry.getFlag("colony-bridge", "externalId") === externalId),
 		failNext,
 		folders,
+		ledgerErrors,
+		ledgerSetting,
 		messages,
 		partyItems,
 		writes,

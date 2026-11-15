@@ -31,7 +31,7 @@ func (handlers *handlers) registerMarket(api huma.API) {
 		Summary:       "Add an item to the catalog",
 		Tags:          []string{"market"},
 		DefaultStatus: http.StatusCreated,
-	}, func(requestContext context.Context, input *campaignBodyInput[core.MarketItemInput]) (*bodyOutput[core.MarketItem], error) {
+	}, func(requestContext context.Context, input *campaignBodyInput[core.NewMarketItemInput]) (*bodyOutput[core.MarketItem], error) {
 		item, err := handlers.core.CreateMarketItem(requestContext, viewerFrom(requestContext), input.Body)
 		if err != nil {
 			return nil, handlers.fail(requestContext, err)

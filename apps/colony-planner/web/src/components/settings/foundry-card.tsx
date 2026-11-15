@@ -35,6 +35,8 @@ const outboxKindNames: Record<BridgeOutboxKind, string> = {
 	DAYS_ADVANCED: "A days-passed chat message",
 	DELIVERY: "A paid shipment",
 	DELIVERY_UNDONE: "An undone payment's note to the GMs",
+	DEPOSIT_REFUND: "A dismissed deposit's coins going back",
+	DEPOSIT_UNDONE: "An undone deposit's note to the GMs",
 	NPC_UPSERT: "An NPC's journal entry",
 	NPC_WITHDRAW: "Hiding an NPC's journal entry",
 	PLACE_UPSERT: "A place's journal entry",
@@ -44,6 +46,17 @@ const outboxKindNames: Record<BridgeOutboxKind, string> = {
 	QUEST_UPSERT: "A quest's journal entry",
 	QUEST_WITHDRAW: "Hiding a quest's journal entry",
 };
+
+/** The Disconnect warning while deposits wait: dismissing one sends its coins back through Foundry. */
+function waitingDepositsText(count: number): string | null {
+	if (count === 0) {
+		return null;
+	}
+	if (count === 1) {
+		return "1 deposit waits in the inbox; dismissing it needs a connected world.";
+	}
+	return `${formatNumber(count)} deposits wait in the inbox; dismissing one needs a connected world.`;
+}
 
 function originHost(origin: string): string {
 	return URL.canParse(origin) ? new URL(origin).host : origin;
@@ -105,6 +118,7 @@ export function FoundryCard({
 			{status.link ? (
 				<>
 					<ConnectedWorld
+						depositsWaiting={status.inbox.filter((item) => item.kind === "COIN_DEPOSIT").length}
 						isClearingFailed={isClearingFailed}
 						isDisconnecting={isDisconnecting}
 						link={status.link}
@@ -270,12 +284,15 @@ function PairingCodePanel({
 
 function ConnectedWorld({
 	link,
+	depositsWaiting,
 	isDisconnecting,
 	onDisconnect,
 	isClearingFailed,
 	onClearFailed,
 }: {
 	link: BridgeLink;
+	/** Pending COIN_DEPOSIT items in the inbox. */
+	depositsWaiting: number;
 	isDisconnecting: boolean;
 	onDisconnect: () => void;
 	isClearingFailed: boolean;
@@ -284,6 +301,7 @@ function ConnectedWorld({
 	const [isConfirmOpen, setConfirmOpen] = useState(false);
 	const [confirmed, setConfirmed] = useState(false);
 	const host = originHost(link.origin);
+	const depositWarning = waitingDepositsText(depositsWaiting);
 	const system = [link.systemId, link.systemVersion].filter(Boolean).join(" ");
 	const facts = [
 		{ label: "World", value: link.worldTitle },
@@ -384,6 +402,7 @@ function ConnectedWorld({
 						<AlertDialogDescription>
 							Foundry's Colony page stops updating and this campaign stops hearing from Foundry. The
 							page stays in your world. Connecting again needs a new code.
+							{depositWarning ? ` ${depositWarning}` : null}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

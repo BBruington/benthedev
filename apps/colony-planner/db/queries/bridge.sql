@@ -163,21 +163,26 @@ LIMIT @row_limit::integer;
 
 -- A repeat of a module's event ID inserts nothing.
 -- name: CreateBridgeEvent :execrows
-INSERT INTO bridge_event (campaign_id, module_event_id, kind, status, occurred_at, received_at, days)
-VALUES (@campaign_id, @module_event_id, @kind, @status, @occurred_at, @now::timestamptz, sqlc.narg(days))
+INSERT INTO bridge_event (campaign_id, module_event_id, kind, status, occurred_at, received_at, days, gold, content)
+VALUES (@campaign_id, @module_event_id, @kind, @status, @occurred_at, @now::timestamptz, sqlc.narg(days), sqlc.narg(gold), sqlc.narg(content))
 ON CONFLICT (campaign_id, module_event_id) DO NOTHING;
 
 -- Pending items wait for the DM however old they are; decided ones are kept 30 days past the decision
--- only to ignore repeats. A STATUS row is decided on arrival, so it has no decided_at.
+-- only to ignore repeats. A STATUS row is decided on arrival, so it has no decided_at. The item the undo
+-- slot names stays, so an undo can always put it back in the inbox. A coin deposit stays for good: a replay
+-- of a forgotten one would come back PENDING, and its Dismiss would refund coins the colony already holds.
 -- name: PruneBridgeEvents :exec
 DELETE FROM bridge_event
-WHERE campaign_id = @campaign_id AND status <> 'PENDING' AND coalesce(decided_at, received_at) < @before::timestamptz;
+WHERE bridge_event.campaign_id = @campaign_id AND bridge_event.status <> 'PENDING' AND bridge_event.kind <> 'COIN_DEPOSIT'
+  AND coalesce(bridge_event.decided_at, bridge_event.received_at) < @before::timestamptz
+  AND bridge_event.id IS DISTINCT FROM (SELECT (colony.last_change -> 'before' ->> 'bridgeEventId')::uuid FROM colony WHERE colony.campaign_id = @campaign_id);
 
 -- name: TrimBridgeEvents :exec
 DELETE FROM bridge_event
 WHERE bridge_event.campaign_id = @campaign_id AND bridge_event.id IN (
     SELECT decided.id FROM bridge_event AS decided
-    WHERE decided.campaign_id = @campaign_id AND decided.status <> 'PENDING'
+    WHERE decided.campaign_id = @campaign_id AND decided.status <> 'PENDING' AND decided.kind <> 'COIN_DEPOSIT'
+      AND decided.id IS DISTINCT FROM (SELECT (colony.last_change -> 'before' ->> 'bridgeEventId')::uuid FROM colony WHERE colony.campaign_id = @campaign_id)
     ORDER BY coalesce(decided.decided_at, decided.received_at) DESC, decided.id DESC
     OFFSET @keep::integer
 );
@@ -186,7 +191,7 @@ WHERE bridge_event.campaign_id = @campaign_id AND bridge_event.id IN (
 SELECT count(*)::integer FROM bridge_event WHERE campaign_id = @campaign_id AND status = 'PENDING';
 
 -- name: ListPendingBridgeEvents :many
-SELECT id, kind, received_at, days FROM bridge_event
+SELECT id, kind, received_at, days, gold, content FROM bridge_event
 WHERE campaign_id = @campaign_id AND status = 'PENDING'
 ORDER BY received_at, id
 LIMIT @row_limit::integer;
@@ -194,11 +199,14 @@ LIMIT @row_limit::integer;
 -- name: GetBridgeEventStatus :one
 SELECT status FROM bridge_event WHERE campaign_id = @campaign_id AND id = @id;
 
--- name: DecideBridgeEvent :execrows
+-- A decision moves a PENDING item of one of the kinds once, so two clicks can't both pass.
+-- name: DecideBridgeEvent :one
 UPDATE bridge_event SET status = @status, decided_at = @now::timestamptz
-WHERE campaign_id = @campaign_id AND id = @id AND kind = 'TIME_ADVANCED' AND status = 'PENDING';
+WHERE campaign_id = @campaign_id AND id = @id AND kind::text = ANY(@kinds::text[]) AND status = 'PENDING'
+RETURNING kind, gold, content, module_event_id;
 
--- Undoing the Advance that accepted an item puts it back in the inbox; a pruned item stays gone.
--- name: ReopenAcceptedBridgeEvent :execrows
+-- Undoing the change that accepted an item puts it back in the inbox; a pruned item stays gone.
+-- name: ReopenAcceptedBridgeEvent :one
 UPDATE bridge_event SET status = 'PENDING', decided_at = NULL
-WHERE campaign_id = @campaign_id AND id = @id AND kind = 'TIME_ADVANCED' AND status = 'ACCEPTED';
+WHERE campaign_id = @campaign_id AND id = @id AND kind::text = ANY(@kinds::text[]) AND status = 'ACCEPTED'
+RETURNING kind, gold, content, module_event_id;

@@ -2,8 +2,9 @@ import { isActiveGm } from "./active-gm";
 import type { BridgeAdapter } from "./adapters/adapter";
 import { createBridgeClient, type Fetch, UnauthorizedError } from "./bridge-client";
 import { createCoalescingTask } from "./coalescing-task";
+import type { DepositEvents } from "./deposits";
 import { createEventQueue, type EventQueue } from "./event-queue";
-import type { FoundryGame, FoundryNotifications, FoundryUsers } from "./foundry-types";
+import type { FoundryGame, FoundryNotifications, FoundryUsers, WebLocks } from "./foundry-types";
 import { syncOutbox, WithdrawFailedError } from "./outbox";
 import type { Schedule } from "./schedule";
 import { type BridgeSettings, moduleId } from "./settings";
@@ -13,7 +14,7 @@ import {
 	startStreamConnection,
 } from "./stream-connection";
 import { createTimeTracker, type TimeTracker } from "./time-tracker";
-import { maximumStatusFieldLength, type StatusPayload } from "./wire";
+import { type InboundEvent, maximumStatusFieldLength, type StatusPayload } from "./wire";
 
 /** Why the bridge is or isn't running in this browser, for the settings menu. */
 export type BridgeCondition =
@@ -44,6 +45,10 @@ export interface Bridge {
 	/** Forgets this browser's token; the link on Colony Planner stays until the DM unlinks it there. */
 	forgetLink(): Promise<void>;
 	observeWorldTime(worldTime: number, options: unknown): void;
+	/** This world's link's random ID, which deposits record; "" while unlinked. */
+	linkId(): string;
+	/** Queues an event made elsewhere (an import, a deposit); false when the bridge isn't running here. */
+	queueEvent(event: InboundEvent): boolean;
 	/**
 	 * Stores a new link from pairing and connects with it. Its first sync first withdraws the journal
 	 * entries earlier links made (design §13.5: the backfill shows the revealed ones again).
@@ -52,6 +57,10 @@ export interface Bridge {
 	status(): BridgeStatus;
 	subscribe(listener: () => void): () => void;
 }
+
+const outboxLockName = "colony-bridge-outbox";
+const noWebLocks =
+	"Your browser can't coordinate Foundry tabs here (open Foundry over https or localhost). Keep only one Foundry tab open, or a coin refund could be applied twice.";
 
 interface Session {
 	abortController: AbortController;
@@ -63,11 +72,18 @@ interface Session {
 export function createBridge(options: {
 	adapter: BridgeAdapter;
 	colonyOrigin: string | undefined;
+	/** The escrow, told what becomes of deposit events; PF2e worlds only make them. */
+	deposits?: DepositEvents;
 	fetchFunction?: Fetch;
 	foundryGame: Pick<FoundryGame, "modules" | "system" | "time" | "user" | "version" | "world"> & {
 		users: Pick<FoundryUsers, "activeGM">;
 	};
 	notifications: FoundryNotifications;
+	/**
+	 * Only this browser holds the link's token (a new pairing revokes the old link), so its tabs are the
+	 * only sessions that can sync at once, and they share the token and the cursor (design §14.8).
+	 */
+	outboxLocks: WebLocks | undefined;
 	schedule: Schedule;
 	settings: BridgeSettings;
 }): Bridge {
@@ -202,12 +218,26 @@ export function createBridge(options: {
 			signal,
 			token: linkToken(),
 		});
+		const linkId = settings.linkId();
+		// Phase 1 and 2 synced over plain http, where browsers offer no Web Locks, so the bridge still runs.
+		if (!options.outboxLocks) {
+			notifications.warn(`Colony Bridge: ${noWebLocks}`);
+		}
 		const queue = createEventQueue({
-			onDropped: (reason) =>
-				notifications.warn(
-					`Colony Bridge: Colony Planner refused an update from Foundry. ${reason}`,
-				),
+			maySend: (event) => options.deposits?.maySend(event, linkId) ?? true,
+			onDropped: (reason, events, status) => {
+				// A refused deposit gets its own warning once its coins are back.
+				if (events.some((event) => event.kind !== "COIN_DEPOSIT")) {
+					notifications.warn(
+						`Colony Bridge: Colony Planner refused an update from Foundry. ${reason}`,
+					);
+				}
+				options.deposits?.returnRefused(events, reason, status).catch(recordProblem);
+			},
 			onError: recordProblem,
+			onSent: (events) => {
+				options.deposits?.markSent(events).catch(recordProblem);
+			},
 			schedule: options.schedule,
 			send: client.sendEvents,
 			storage: { load: settings.pendingEvents, save: settings.savePendingEvents },
@@ -220,7 +250,7 @@ export function createBridge(options: {
 		});
 		const requestOutboxSync = createCoalescingTask(
 			() => {
-				const sync = outboxSyncs.then(async () => {
+				const run = async () => {
 					await withdrawOwedEntries(signal);
 					await syncOutbox({
 						appliers: options.adapter.appliers,
@@ -229,7 +259,11 @@ export function createBridge(options: {
 						signal,
 					});
 					withdrawRowFailureShown = false;
-				});
+				};
+				// Another tab's sync may hold the lock; the cursor is read only once it ends, so this tab
+				// never fetches a row that tab applied.
+				const locks = options.outboxLocks;
+				const sync = outboxSyncs.then(() => (locks ? locks.request(outboxLockName, run) : run()));
 				outboxSyncs = sync.catch(() => undefined);
 				return sync;
 			},
@@ -267,6 +301,7 @@ export function createBridge(options: {
 			open: client.stream,
 			schedule: options.schedule,
 		});
+		options.deposits?.resume(queue, linkId).catch(recordProblem);
 		return { abortController, connection: streamConnection, queue, tracker };
 	}
 
@@ -309,6 +344,7 @@ export function createBridge(options: {
 			await settings.saveLink({ campaignName: "", token: "", worldId: "" });
 			evaluate();
 		},
+		linkId: () => (linkToken() ? settings.linkId() : ""),
 		observeWorldTime(worldTime, updateOptions) {
 			const madeByBridge =
 				typeof updateOptions === "object" &&
@@ -316,6 +352,13 @@ export function createBridge(options: {
 				"colonyBridge" in updateOptions &&
 				updateOptions.colonyBridge === true;
 			session?.tracker.observe(worldTime, madeByBridge);
+		},
+		queueEvent(event) {
+			if (!session) {
+				return false;
+			}
+			session.queue.add(event);
+			return true;
 		},
 		async saveLink(link) {
 			stopSession();

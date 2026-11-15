@@ -311,6 +311,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/bridge/inbox/{eventId}/accept-deposit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a Foundry coin deposit to colony gold; one already handled, or past gold's max, is 409 */
+        post: operations["acceptBridgeDeposit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/bridge/inbox/{eventId}/dismiss": {
         parameters: {
             query?: never;
@@ -320,7 +337,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Dismiss a Foundry inbox item; one already handled is 409 */
+        /** Dismiss a Foundry inbox item; one already handled is 409, and a coin deposit returns its coins through Foundry, so it needs a connected world */
         post: operations["dismissBridgeInboxItem"];
         delete?: never;
         options?: never;
@@ -2570,7 +2587,7 @@ export interface components {
             through: number;
         };
         /** @enum {string} */
-        BridgeEventKind: "STATUS" | "TIME_ADVANCED";
+        BridgeEventKind: "STATUS" | "TIME_ADVANCED" | "COIN_DEPOSIT" | "NPC_IMPORT" | "ITEM_IMPORT";
         BridgeEventsInput: {
             /** @description 1 to 100 events */
             events: components["schemas"]["BridgeInboundEvent"][];
@@ -2600,15 +2617,58 @@ export interface components {
             occurredAt: string;
             payload: unknown;
         };
-        BridgeInboxItem: {
+        BridgeInboxDeposit: {
+            /** @description Foundry's name for the actor that paid: the party or a character */
+            actorName: string;
             /** Format: int64 */
+            gold: number;
+        } | null;
+        BridgeInboxItem: {
+            /**
+             * Format: int64
+             * @description A TIME_ADVANCED item's days; 0 for every other kind
+             */
             days: number;
+            /** @description A COIN_DEPOSIT item's coins; null for every other kind */
+            deposit: components["schemas"]["BridgeInboxDeposit"];
             /** Format: uuid */
             id: string;
+            /** @description An ITEM_IMPORT item's catalog item; null for every other kind */
+            item: components["schemas"]["BridgeInboxMarketItem"];
             kind: components["schemas"]["BridgeEventKind"];
+            /** @description An NPC_IMPORT item's NPC; null for every other kind */
+            npc: components["schemas"]["BridgeInboxNpc"];
             /** Format: date-time */
             receivedAt: string;
         };
+        BridgeInboxMarketItem: {
+            /** @description The compendium item a paid shipment would hand the party, or null */
+            compendiumUuid: string | null;
+            description: string;
+            /** @description The Foundry item's UUID */
+            foundryUuid: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description null when Foundry's price isn't a whole number of gold
+             */
+            priceGold: number | null;
+        } | null;
+        BridgeInboxNpc: {
+            appearance: string;
+            characterClass: string;
+            dmNotes: string;
+            /** @description The Foundry actor's UUID */
+            foundryUuid: string;
+            /**
+             * Format: int64
+             * @description null when unknown
+             */
+            level: number | null;
+            /** @description The true name */
+            name: string;
+            race: string;
+        } | null;
         BridgeLinkStatus: {
             /** @description The newest rows Foundry couldn't apply, newest first */
             failedRows: components["schemas"]["BridgeFailedRow"][];
@@ -2635,7 +2695,7 @@ export interface components {
             expiresAt: string;
         } | null;
         /** @enum {string} */
-        BridgeOutboxKind: "COLONY_SUMMARY" | "DAYS_ADVANCED" | "NPC_UPSERT" | "NPC_WITHDRAW" | "PLACE_UPSERT" | "PLACE_WITHDRAW" | "QUEST_UPSERT" | "QUEST_WITHDRAW" | "DELIVERY" | "DELIVERY_UNDONE" | "POLL_POSTED" | "POLL_CLOSED";
+        BridgeOutboxKind: "COLONY_SUMMARY" | "DAYS_ADVANCED" | "NPC_UPSERT" | "NPC_WITHDRAW" | "PLACE_UPSERT" | "PLACE_WITHDRAW" | "QUEST_UPSERT" | "QUEST_WITHDRAW" | "DELIVERY" | "DELIVERY_UNDONE" | "POLL_POSTED" | "POLL_CLOSED" | "DEPOSIT_REFUND" | "DEPOSIT_UNDONE";
         BridgeOutboxPage: {
             /** @description More unapplied rows follow the last one */
             more: boolean;
@@ -3302,6 +3362,29 @@ export interface components {
              */
             width: number;
         };
+        NewMarketItemInput: {
+            /**
+             * Format: uuid
+             * @description A PENDING ITEM_IMPORT inbox item this create accepts
+             */
+            bridgeEventId?: string;
+            /** @description The Foundry compendium item paid shipments hand the party, at most 200 characters; null or blank for none */
+            compendiumUuid?: string | null;
+            /** @description At most 4000 characters; may be blank */
+            description: string;
+            /**
+             * Format: int64
+             * @description The most one order may carry, 1 to 10000; null is no limit
+             */
+            maxPerOrder?: number | null;
+            /** @description 1 to 80 characters */
+            name: string;
+            /**
+             * Format: int64
+             * @description Gold per unit, 0 or more
+             */
+            priceGold: number;
+        };
         NewNpcInput: {
             /** @description Free text, at most 80 characters */
             age: string;
@@ -3311,6 +3394,11 @@ export interface components {
             appearance: string;
             /** @description At most 4000 characters */
             backstory: string;
+            /**
+             * Format: uuid
+             * @description A PENDING NPC_IMPORT inbox item this create accepts
+             */
+            bridgeEventId?: string;
             /** @description At most 80 characters */
             characterClass: string;
             /**
@@ -4392,7 +4480,7 @@ export interface components {
             visibility: components["schemas"]["TimelineVisibility"];
         };
         /** @enum {string} */
-        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED" | "POLL_CLOSED";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED" | "POLL_CLOSED" | "COIN_DEPOSITED";
         TimelinePage: {
             /**
              * Format: int64
@@ -5131,6 +5219,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    acceptBridgeDeposit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                eventId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
             };
             /** @description Error */
             default: {
@@ -6435,7 +6556,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MarketItemInput"];
+                "application/json": components["schemas"]["NewMarketItemInput"];
             };
         };
         responses: {

@@ -49,6 +49,35 @@ export interface FoundryItem extends FlaggedDocument {
 	toObject(): Record<string, unknown>;
 }
 
+/** A world or compendium Actor or Item as the import readers see it: `system` is per game system. */
+export interface FoundrySourceDocument {
+	_stats?: { compendiumSource?: string | null } | null;
+	id: string | null;
+	name: string;
+	/** The compendium's collection ID when the document was opened from a pack. */
+	pack?: string | null;
+	system?: unknown;
+	type: string;
+	uuid: string;
+}
+
+/** pf2e's coins, `{pp, gp, sp, cp}`, as `removeCurrency` and `addCurrency` take them. */
+export interface Pf2eCoins {
+	cp?: number;
+	gp?: number;
+	pp?: number;
+	sp?: number;
+}
+
+/** pf2e's ActorInventory, the part deposits use. */
+export interface Pf2eInventory {
+	addCurrency(coins: Pf2eCoins): Promise<unknown>;
+	/** pf2e's Coins; `copperValue` counts cp 1, sp 10, gp 100, pp 1000. */
+	currency: { copperValue: number };
+	/** False, changing nothing, when the coins are worth less; `byValue` lets it make change. */
+	removeCurrency(coins: Pf2eCoins, options: { byValue: boolean }): Promise<boolean>;
+}
+
 /** PF2e's party actor, `game.actors.party`. */
 export interface FoundryPartyActor {
 	createEmbeddedDocuments(embeddedName: "Item", data: object[], options?: object): Promise<unknown>;
@@ -99,7 +128,8 @@ export interface SettingMenuConfig {
 }
 
 export interface FoundrySettings {
-	get(namespace: string, key: string): unknown;
+	/** With `document`, the Setting itself, whose `_stats.lastModifiedBy` Foundry's server sets. */
+	get(namespace: string, key: string, options?: { document: boolean }): unknown;
 	register(namespace: string, key: string, config: SettingConfig): void;
 	registerMenu(namespace: string, key: string, config: SettingMenuConfig): void;
 	set(namespace: string, key: string, value: unknown): Promise<unknown>;
@@ -107,11 +137,13 @@ export interface FoundrySettings {
 
 export interface FoundryGame {
 	/** `party` is PF2e's; other systems have none. */
-	actors: { party?: FoundryPartyActor | null };
+	actors: { get(id: string): unknown; party?: FoundryPartyActor | null };
 	folders: FoundryCollection<FoundryFolder>;
 	journal: FoundryCollection<FoundryJournalEntry>;
 	messages: FoundryCollection<FoundryChatMessage>;
 	modules: { get(id: string): FoundryModule | undefined };
+	/** `generation` is the major version, 13 or 14. */
+	release: { generation: number };
 	settings: FoundrySettings;
 	system: { id: string; version: string };
 	time: {
@@ -122,6 +154,14 @@ export interface FoundryGame {
 	users: FoundryUsers;
 	version: string;
 	world: { id: string; title: string };
+}
+
+/**
+ * Web Locks (`navigator.locks`), shared by every tab of one browser; absent outside a secure context
+ * (https or localhost).
+ */
+export interface WebLocks {
+	request<Result>(name: string, task: () => Promise<Result>): Promise<Result>;
 }
 
 export interface FoundryNotifications {
@@ -162,6 +202,39 @@ export declare class ApplicationV2 {
 	protected _replaceHTML(result: unknown, content: HTMLElement, options: unknown): void;
 }
 
+/** The entry's `li`; directory and compendium entries both carry `data-entry-id`. */
+export type ContextMenuTarget = Pick<HTMLElement, "dataset">;
+
+/** v13's context menu entry; with `jQuery: false` each callback gets the entry's `li`. */
+export interface ContextMenuEntryV13 {
+	callback: (target: ContextMenuTarget) => unknown;
+	condition: (target: ContextMenuTarget) => boolean;
+	icon: string;
+	name: string;
+}
+
+/** v14 renames v13's fields and passes the click event first. */
+export interface ContextMenuEntryV14 {
+	icon: string;
+	label: string;
+	onClick: (event: Event, target: ContextMenuTarget) => unknown;
+	visible: (target: ContextMenuTarget) => boolean;
+}
+
+export type ContextMenuEntry = ContextMenuEntryV13 | ContextMenuEntryV14;
+
+/**
+ * `get${documentName}ContextOptions(application, menuItems)`, called once as the directory or
+ * compendium first renders; entries are added by pushing onto `menuItems`.
+ */
+export type ContextOptionsHook = (application: unknown, menuItems: ContextMenuEntry[]) => void;
+
+export interface DialogInputOptions {
+	content: string;
+	ok: { label: string };
+	window: { title: string };
+}
+
 export type HookCallback = (...parameters: never[]) => unknown;
 
 export interface FoundryHooks {
@@ -177,5 +250,14 @@ declare global {
 	const JournalEntry: JournalEntryClass;
 	const Folder: DocumentClass<FoundryFolder>;
 	function fromUuid(uuid: string): Promise<unknown>;
-	const foundry: { applications: { api: { ApplicationV2: typeof ApplicationV2 } } };
+	const foundry: {
+		applications: {
+			api: {
+				ApplicationV2: typeof ApplicationV2;
+				/** Resolves to the form's values as an object, or null when dismissed. */
+				DialogV2: { input(options: DialogInputOptions): Promise<unknown> };
+			};
+			sidebar: { apps: { Compendium: abstract new (...parameters: never[]) => object } };
+		};
+	};
 }
