@@ -1038,6 +1038,16 @@ Module (§14.10 has the ledger):
   RETURNING (the browser closed between the two writes) can't know whether the coins went back, so it adds
   nothing and fails with "This deposit's return was interrupted. Check the paying actor's coins and fix
   them by hand." This is §13.7's one-shot rule with the ledger as the flag.
+- **Two sessions never apply the same row.** Only the browser that holds the link's token can read the
+  outbox: the token is a client setting, and a new pairing revokes the old link. So the only sessions that
+  can sync at once are tabs of that one browser, which share the token and the acknowledged cursor in
+  localStorage. Each whole sync (the connect-time withdrawal, then fetch, apply and acknowledge) runs under
+  the Web Lock `colony-bridge-outbox` (`navigator.locks.request`), and reads the cursor only once it holds
+  the lock, so a second tab's sync starts after the first saved its cursor and never fetches a refund row
+  the first applied. A Foundry server's own document create can't serve as the claim: v13's
+  `ServerDatabaseBackend#_createDocuments` refuses a caller-chosen `_id` that exists only inside a
+  parent's embedded collection, and a world-level document with `keepId` overwrites the stored one. A
+  browser without `navigator.locks` syncs nothing and shows the GM one error, rather than sync unlocked.
 - The refund's GM whisper is flagged `deposit-refund:<depositId>` and posts only when no GM message has
   that flag, so a replay after the coins went back posts it at most once and then succeeds.
 - `DEPOSIT_UNDONE` posts its whisper only when the ledger holds that deposit and no GM message carries its
@@ -1061,9 +1071,12 @@ Module (§14.10 has the ledger):
   setting was last written by a user who isn't a GM (`game.settings.get(..., {document: true})`), the
   module resends nothing at session start and adds no coins for a refund or a refusal, with a GM error.
   The check (`isWrittenByGameMaster`) fails closed: a stored Setting without a string writer is refused,
-  and only an unstored one (no `_id`, holding the registered default) passes without a writer. The limit: it sees only the last writer, so
-  a planted entry the GM's own later ledger write covers (a new deposit, a send's `SENT`) goes unnoticed.
-  Granting players `SETTINGS_MODIFY` stays the GM's risk.
+  and only an unstored one (no `_id`, holding the registered default) passes without a writer. Since a GM's
+  own write would make the GM the last writer and so vouch for a planted entry, every ledger write (a new
+  deposit, a send's `SENT`, a refund's `RETURNING`, a Forget) checks the writer first: when it isn't a GM,
+  the module marks every `HELD`, `SENT`, `REMOVING` and `RETURNING` entry `INTERRUPTED`, shows one GM error
+  saying a user who isn't a GM changed the deposit records and the GM should check those actors' coins by
+  hand, and then makes its write. So an entry from such a ledger is never sent or refunded automatically.
 - PF2e gives a new party actor `ownership.default` Observer, so a member player can't change the party's
   coins directly; pf2e moves items for players through its own GM socket. A player who owns the party
   could still spend between the module's check and the removal; `removeCurrency` then refuses (§14.10). A
@@ -1075,7 +1088,8 @@ The module keeps every deposit in a world setting, `colony-bridge.deposits` (`sc
 false`, default `{"entries": {}}`), keyed by deposit ID: `{"event": InboundEvent, "actorId", "gold",
 "state", "updatedAt"}`. The ledger, not the client-scope event queue, is a deposit's durable record: a new
 link's `saveLink` clears the queue (§13's settings), but not the ledger. Each write reads the setting
-afresh and changes one entry, since only the active GM writes it.
+afresh and changes one entry, since only the active GM writes it, after quarantining a ledger a user who
+isn't a GM wrote last (§14.9).
 
 | State | Means |
 |---|---|
@@ -1117,6 +1131,8 @@ The failure cases:
 | A refund for a deposit this world doesn't hold (another world, or a forged deposit) | the row fails: "This world has no record of that deposit, so no coins were added." The DM reads it on Settings |
 | A refund whose paying actor is gone | the row fails: "The actor that paid this deposit is gone. Add 40 gp by hand." The entry stays as it was |
 | A refund that throws while adding | `INTERRUPTED`, the row fails with Foundry's reason; never retried |
+| Two tabs of the GM's browser get the same refund row | their syncs take turns under one Web Lock, and the second reads the cursor the first saved, so it never sees the row (§14.8) |
+| A user who isn't a GM wrote the ledger last | session start resends nothing, and a refund or a refusal adds no coins, each with a GM error; the GM's next ledger write first marks every `HELD`, `SENT`, `REMOVING` and `RETURNING` entry `INTERRUPTED`, with one GM error (§14.9) |
 
 The refund adds the amount back as gold pieces, not as the coins that paid it: `removeCurrency` reports no
 breakdown (open question 5). The module's settings menu lists `INTERRUPTED` entries, each with its amount,
@@ -1125,7 +1141,7 @@ its paying actor and a **Forget** button for once the GM has fixed the coins. `R
 
 ### 14.11 The module
 
-Version 0.3.0 in `foundry/package.json`. `wire.ts` gains the three event payload types, their limits
+Version 0.3.1 in `foundry/package.json`. `wire.ts` gains the three event payload types, their limits
 (mirroring §14.2) and guards for `DEPOSIT_REFUND` and `DEPOSIT_UNDONE`; `isInboundEvent` accepts the new
 kinds, or a reload would drop them from the stored queue. `foundry-types.ts` gains the context menu entry
 and hook shapes, `game.release`, `DialogV2.input`, an actor's `system`, `type`, `uuid`, `pack` and

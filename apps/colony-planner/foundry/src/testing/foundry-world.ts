@@ -251,19 +251,24 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		get: (id: string) => actorsById.get(id),
 		party: options.party === false ? null : party,
 	};
-	// The world setting's value, which only the GM's writes change unless a test says a player wrote last.
+	// The world setting's value; every module write is the GM's, until a test says a player wrote last.
 	const ledgerSetting: { lastWriterIsGm: boolean; value: unknown } = {
 		lastWriterIsGm: true,
 		value: { entries: {} },
 	};
-	const depositLedger = createDepositLedger({
-		lastWriterIsGm: () => ledgerSetting.lastWriterIsGm,
-		load: () => ledgerSetting.value,
-		save: (value) => {
-			ledgerSetting.value = structuredClone(value);
-			return Promise.resolve();
+	const ledgerErrors: string[] = [];
+	const depositLedger = createDepositLedger(
+		{
+			lastWriterIsGm: () => ledgerSetting.lastWriterIsGm,
+			load: () => ledgerSetting.value,
+			save: (value) => {
+				ledgerSetting.value = structuredClone(value);
+				ledgerSetting.lastWriterIsGm = true;
+				return Promise.resolve();
+			},
 		},
-	});
+		{ error: (message) => ledgerErrors.push(`error: ${message}`) },
+	);
 
 	const dependencies: AdapterDependencies = {
 		chatMessage: {
@@ -376,6 +381,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 			entries.find((entry) => entry.getFlag("colony-bridge", "externalId") === externalId),
 		failNext,
 		folders,
+		ledgerErrors,
 		ledgerSetting,
 		messages,
 		partyItems,

@@ -338,9 +338,10 @@ function menusFor(options: {
 	const deposits: [string, number, string][] = [];
 	const dialogs: DialogInputOptions[] = [];
 	const status = { condition: options.condition ?? "running" };
+	const link = { id: "link-1" };
 	const context: ImportContext = {
 		bridge: {
-			linkId: () => "link-1",
+			linkId: () => link.id,
 			queueEvent: (event) => {
 				queued.push(event);
 				return true;
@@ -396,7 +397,19 @@ function menusFor(options: {
 		entries(hook, application)
 			.filter((entry) => entry.condition(target(entryId)))
 			.map((entry) => entry.name);
-	return { deposits, dialogs, entries, hooks, notices, queued, status, target, visibleLabels };
+	return {
+		context,
+		deposits,
+		dialogs,
+		entries,
+		hooks,
+		link,
+		notices,
+		queued,
+		status,
+		target,
+		visibleLabels,
+	};
 }
 
 describe("registerContextMenus", () => {
@@ -504,6 +517,35 @@ describe("registerContextMenus", () => {
 		expect(menus.notices[0]).toStartWith("warn: Colony Bridge isn't running in this browser");
 	});
 
+	test("a link replaced while a pack loads sends nothing to the new link, and warns", async () => {
+		const menus = menusFor({});
+		const relinking = (document: unknown) => ({
+			collection: {
+				getDocument: () => {
+					menus.link.id = "link-2";
+					return Promise.resolve(document);
+				},
+			},
+			pack: true,
+		});
+		const [sendActor] = menus.entries(
+			"getActorContextOptions",
+			relinking(worldActors.get(actorId)),
+		);
+		const [sendItem] = menus.entries(
+			"getItemContextOptions",
+			relinking(itemDocument({}, { pack: "pf2e.equipment-srd", uuid: packItemUuid })),
+		);
+		await sendActor?.callback(menus.target(actorId));
+		menus.link.id = "link-1";
+		await sendItem?.callback(menus.target("abcdefghij123456"));
+		expect(menus.queued).toEqual([]);
+		expect(menus.notices).toEqual([
+			"warn: This world's Colony Planner link changed while Foundry was busy, so nothing was sent. Try again.",
+			"warn: This world's Colony Planner link changed while Foundry was busy, so nothing was sent. Try again.",
+		]);
+	});
+
 	test("Deposit asks for the gold and hands a whole number to the escrow", async () => {
 		const menus = menusFor({ dialogAnswer: { gold: 40 } });
 		const deposit = menus.entries("getActorContextOptions", actorDirectory)[1];
@@ -518,6 +560,21 @@ describe("registerContextMenus", () => {
 		const deposit = menus.entries("getActorContextOptions", actorDirectory)[1];
 		await deposit?.callback(menus.target(characterId));
 		expect(menus.deposits).toEqual([[characterId, 12, "link-1"]]);
+	});
+
+	test("a link replaced while the deposit dialog is open takes no coins, and warns", async () => {
+		const menus = menusFor({});
+		menus.context.inputDialog = () => {
+			menus.link.id = "link-2";
+			return Promise.resolve({ gold: 40 });
+		};
+		await menus
+			.entries("getActorContextOptions", actorDirectory)[1]
+			?.callback(menus.target(partyId));
+		expect(menus.deposits).toEqual([]);
+		expect(menus.notices).toEqual([
+			"warn: This world's Colony Planner link changed while Foundry was busy, so nothing was sent. Try again.",
+		]);
 	});
 
 	test("Deposit does nothing when dismissed, and warns on anything but a whole number from 1 to 1,000,000", async () => {

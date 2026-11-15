@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createBridge } from "./bridge";
+import { createBridge, type OutboxLocks } from "./bridge";
 import type { Fetch } from "./bridge-client";
 import type { DepositEvents } from "./deposits";
 import type { FoundryUser } from "./foundry-types";
@@ -141,11 +141,27 @@ function fakeColonyPlanner(
 	};
 }
 
+/** One browser's Web Locks: a task waits for the one holding the same name to finish. */
+function fakeLocks(): OutboxLocks & { names: string[] } {
+	const names: string[] = [];
+	let held: Promise<unknown> = Promise.resolve();
+	return {
+		names,
+		request: (name, task) => {
+			names.push(name);
+			const run = held.then(task);
+			held = run.catch(() => undefined);
+			return run;
+		},
+	};
+}
+
 function bridgeFor(options: {
 	activeGm: FoundryUser | null;
 	colonyPlanner: ReturnType<typeof fakeColonyPlanner>;
 	appliers?: Partial<Record<string, RowApplier>>;
 	deposits?: DepositEvents;
+	outboxLocks?: OutboxLocks | null;
 	settings: BridgeSettings;
 	withdrawBridgedEntries?: () => Promise<void>;
 }) {
@@ -175,6 +191,7 @@ function bridgeFor(options: {
 			info: () => undefined,
 			warn: (message) => errors.push(message),
 		},
+		outboxLocks: options.outboxLocks === null ? undefined : (options.outboxLocks ?? fakeLocks()),
 		schedule: schedule.schedule,
 		settings: options.settings,
 	});
@@ -615,6 +632,59 @@ describe("createBridge with Phase 3 events", () => {
 		};
 		return { calls, deposits };
 	}
+
+	test("two tabs of one browser sync one at a time, so a refund row is applied once", async () => {
+		const refund: OutboxRow = {
+			kind: "DEPOSIT_REFUND",
+			payload: { actorId: "abcdefghij123456", actorName: "Kyra", depositId: "deposit-1", gold: 40 },
+			seq: 9,
+			targetKey: "deposit-refund:deposit-1",
+		};
+		const colonyPlanner = fakeColonyPlanner({ outboxRows: [refund] });
+		const { settings, values } = memorySettings({});
+		const locks = fakeLocks();
+		let refunds = 0;
+		const appliers = {
+			DEPOSIT_REFUND: async () => {
+				refunds += 1;
+				await settle();
+			},
+		};
+		const tabs = [1, 2].map(() =>
+			bridgeFor({ activeGm: thisGm, appliers, colonyPlanner, outboxLocks: locks, settings }),
+		);
+		for (const tab of tabs) {
+			tab.bridge.evaluate();
+		}
+		await settle();
+		await settle();
+		const outboxReads = colonyPlanner.requests
+			.filter((request) => request.path.startsWith("/api/bridge/outbox"))
+			.map((request) => request.path);
+		expect(refunds).toBe(1);
+		expect(values.cursor).toBe(9);
+		expect(outboxReads).toEqual(["/api/bridge/outbox?after=0", "/api/bridge/outbox?after=9"]);
+		expect(locks.names).toEqual(["colony-bridge-outbox", "colony-bridge-outbox"]);
+	});
+
+	test("a browser without Web Locks syncs nothing and tells the GM once", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { bridge, errors } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			outboxLocks: null,
+			settings: memorySettings({}).settings,
+		});
+		bridge.evaluate();
+		await settle();
+		expect(
+			colonyPlanner.requests.filter((request) => request.path.startsWith("/api/bridge/outbox")),
+		).toEqual([]);
+		expect(errors).toEqual([
+			"Colony Bridge: This browser has no Web Locks, so Colony Bridge can't keep two of its tabs from applying the same Colony Planner change twice, and it reads nothing from Colony Planner. Use a current browser or Foundry's desktop app.",
+		]);
+		expect(bridge.status().lastProblem).toStartWith("This browser has no Web Locks");
+	});
 
 	test("queueEvent sends only while the bridge runs here", async () => {
 		const colonyPlanner = fakeColonyPlanner();

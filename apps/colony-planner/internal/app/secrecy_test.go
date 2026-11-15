@@ -749,6 +749,13 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"optionIds":      []string{campaignB.pathIDs["pollOptionId"]},
 		"bridgeEventId":  campaignB.pathIDs["eventId"],
 	}
+	// Each form refuses another kind's item on its own, so only B's item of the kind it answers proves
+	// the campaign filter.
+	bridgeEventOfB := map[string]string{
+		"/npcs":           campaignB.pathIDs["npcImportEventId"],
+		"/market/items":   campaignB.pathIDs["itemImportEventId"],
+		"/colony/advance": campaignB.pathIDs["timeAdvancedEventId"],
+	}
 	keyOfB := campaignB.pathIDs["resourceKey"]
 	roleKeyA := campaignA.pathIDs["roleKey"]
 	npcRecord := func() map[string]any {
@@ -1063,9 +1070,13 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			body := baseline()
 			fieldName := field.path[len(field.path)-1]
 			substituted[fieldName] = true
-			if field.kind == "map" {
+			eventOfB, answersOwnKind := bridgeEventOfB[strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")]
+			switch {
+			case field.kind == "map":
 				setBodyField(body, field.path, map[string]any{keyOfB: 1})
-			} else {
+			case fieldName == "bridgeEventId" && answersOwnKind:
+				setBodyField(body, field.path, eventOfB)
+			default:
 				setBodyField(body, field.path, valuesOfB[fieldName])
 			}
 			encoded, _ := json.Marshal(body)

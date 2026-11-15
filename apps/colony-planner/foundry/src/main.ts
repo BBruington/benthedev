@@ -62,15 +62,18 @@ Hooks.once("ready", () => {
 
 function startBridge() {
 	const settings = createBridgeSettings(game.settings);
-	const depositLedger = createDepositLedger({
-		lastWriterIsGm: () =>
-			isWrittenByGameMaster(
-				game.settings.get(moduleId, depositsSettingKey, { document: true }),
-				new Set(game.users.filter((user) => user.isGM).map((user) => user.id)),
-			),
-		load: () => game.settings.get(moduleId, depositsSettingKey),
-		save: (value) => game.settings.set(moduleId, depositsSettingKey, value),
-	});
+	const depositLedger = createDepositLedger(
+		{
+			lastWriterIsGm: () =>
+				isWrittenByGameMaster(
+					game.settings.get(moduleId, depositsSettingKey, { document: true }),
+					new Set(game.users.filter((user) => user.isGM).map((user) => user.id)),
+				),
+			load: () => game.settings.get(moduleId, depositsSettingKey),
+			save: (value) => game.settings.set(moduleId, depositsSettingKey, value),
+		},
+		ui.notifications,
+	);
 	deposits = createDeposits({
 		actors: game.actors,
 		ledger: depositLedger,
@@ -90,6 +93,7 @@ function startBridge() {
 		deposits,
 		foundryGame: game,
 		notifications: ui.notifications,
+		outboxLocks: "locks" in navigator ? navigator.locks : undefined,
 		schedule: scheduleWithTimeout,
 		settings,
 	});

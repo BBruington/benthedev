@@ -108,6 +108,13 @@ export function defineSettingsMenu(
 				this.#message = error instanceof Error ? error.message : String(error);
 			}
 			await this.render();
+			// The pressed Forget is gone with its row, so focus lands where the GM was, or on the result.
+			const target =
+				this.element?.querySelector("#colony-bridge-interrupted") ??
+				this.element?.querySelector("#colony-bridge-message");
+			if (target instanceof HTMLElement) {
+				target.focus();
+			}
 		}
 
 		protected override _renderHTML(): Promise<unknown> {
@@ -201,7 +208,11 @@ function interruptedDeposits(deposits: InterruptedDeposit[]): Node[] {
 		]);
 	});
 	return [
-		element("h3", { textContent: "Deposits that stopped part way" }),
+		element("h3", {
+			id: "colony-bridge-interrupted",
+			tabIndex: -1,
+			textContent: "Deposits that stopped part way",
+		}),
 		element("p", {
 			className: "hint",
 			textContent:
@@ -265,7 +276,14 @@ function renderMenuContent(
 	}
 	children.push(...interruptedDeposits(view.interrupted));
 	if (view.message) {
-		children.push(element("p", { role: "status", textContent: view.message }));
+		children.push(
+			element("p", {
+				id: "colony-bridge-message",
+				role: "status",
+				tabIndex: -1,
+				textContent: view.message,
+			}),
+		);
 	}
 	return element("section", {}, children);
 }

@@ -172,6 +172,7 @@ describe("createDepositLedger", () => {
 					return Promise.resolve();
 				},
 			},
+			{ error: () => undefined },
 			() => new Date("2026-11-14T11:00:00.000Z"),
 		);
 		return { ledger, stored };
@@ -371,6 +372,64 @@ describe("the escrow at session start and after a send", () => {
 			"error: Colony Bridge: A user who isn't a GM changed this world's deposit records last",
 		);
 	});
+
+	test.each(["markSent", "deposit"] as const)(
+		"a GM's %s after a non-GM's write first stops every open entry, so a planted deposit is never sent or refunded",
+		async (firstWrite) => {
+			const world = createFoundryWorld();
+			const { deposits } = depositsIn(world);
+			const { added, party } = fakeParty({ copper: 5000 });
+			world.actorsById.set(partyId, party);
+			// The GM's own deposit-0 waits; a non-GM then adds a HELD entry under the running link.
+			world.ledgerSetting.value = {
+				entries: {
+					"deposit-0": entry("HELD", { event: depositEvent("deposit-0") }),
+					planted: entry("HELD", { event: depositEvent("planted") }),
+				},
+			};
+			world.ledgerSetting.lastWriterIsGm = false;
+			const queued: InboundEvent[] = [];
+			const depositNow = () =>
+				deposits.deposit(
+					party,
+					40,
+					linkThat((event) => queued.push(event) > 0),
+				);
+			const markOwnSent = () => deposits.markSent([depositEvent("deposit-0")]);
+			if (firstWrite === "markSent") {
+				await markOwnSent();
+				await depositNow();
+			} else {
+				await depositNow();
+				await markOwnSent();
+			}
+			await deposits.markSent(queued);
+			const { added: resent, queue } = fakeQueue();
+			await deposits.resume(queue, "link-1");
+			await deposits.returnRefused([depositEvent("planted")], "Too big", 422);
+			await expect(
+				applyRow(world, {
+					...refundRow,
+					payload: { ...refundPayload, depositId: "planted" },
+					targetKey: "deposit-refund:planted",
+				}),
+			).rejects.toThrow("This deposit's return was interrupted.");
+			expect(resent).toEqual([]);
+			expect(added).toEqual([]);
+			expect(deposits.maySend(depositEvent("planted"), "link-1")).toBe(false);
+			expect(
+				world.depositLedger.entries().map((stored) => [stored.event.id, stored.state]),
+			).toEqual([
+				["deposit-0", "INTERRUPTED"],
+				["planted", "INTERRUPTED"],
+				["deposit-1", "SENT"],
+			]);
+			expect(world.ledgerErrors).toHaveLength(1);
+			expect(world.ledgerErrors[0]).toStartWith(
+				"error: Colony Bridge: A user who isn't a GM changed this world's deposit records,",
+			);
+		},
+	);
 
 	test("a deposit records the link it was made under, and never the token", async () => {
 		const world = createFoundryWorld();

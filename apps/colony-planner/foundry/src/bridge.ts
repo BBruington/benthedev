@@ -58,6 +58,15 @@ export interface Bridge {
 	subscribe(listener: () => void): () => void;
 }
 
+/** Web Locks (`navigator.locks`), shared by every tab of one browser. */
+export interface OutboxLocks {
+	request(name: string, task: () => Promise<void>): Promise<void>;
+}
+
+const outboxLockName = "colony-bridge-outbox";
+const noOutboxLocks =
+	"This browser has no Web Locks, so Colony Bridge can't keep two of its tabs from applying the same Colony Planner change twice, and it reads nothing from Colony Planner. Use a current browser or Foundry's desktop app.";
+
 interface Session {
 	abortController: AbortController;
 	connection: StreamConnection;
@@ -75,6 +84,11 @@ export function createBridge(options: {
 		users: Pick<FoundryUsers, "activeGM">;
 	};
 	notifications: FoundryNotifications;
+	/**
+	 * Only this browser holds the link's token (a new pairing revokes the old link), so its tabs are the
+	 * only sessions that can sync at once, and they share the token and the cursor (design §14.8).
+	 */
+	outboxLocks: OutboxLocks | undefined;
 	schedule: Schedule;
 	settings: BridgeSettings;
 }): Bridge {
@@ -87,6 +101,7 @@ export function createBridge(options: {
 	let pairing = false;
 	let withdrawFailureShown = false;
 	let withdrawRowFailureShown = false;
+	let noOutboxLocksShown = false;
 	// Every session's outbox syncs run one after another, so a sync still finishing for a stopped
 	// session never applies the same rows beside the next session's (two "Colony" entries, a clock
 	// moved twice).
@@ -237,16 +252,32 @@ export function createBridge(options: {
 		});
 		const requestOutboxSync = createCoalescingTask(
 			() => {
-				const sync = outboxSyncs.then(async () => {
-					await withdrawOwedEntries(signal);
-					await syncOutbox({
-						appliers: options.adapter.appliers,
-						client,
-						cursor: { load: settings.acknowledgedThrough, save: settings.saveAcknowledgedThrough },
-						signal,
-					});
-					withdrawRowFailureShown = false;
-				});
+				const locks = options.outboxLocks;
+				if (!locks) {
+					if (!noOutboxLocksShown) {
+						noOutboxLocksShown = true;
+						notifications.error(`Colony Bridge: ${noOutboxLocks}`);
+					}
+					recordProblem(noOutboxLocks);
+					return Promise.resolve();
+				}
+				// Another tab's sync may hold the lock; the cursor is read only once it ends, so this tab
+				// never fetches a row that tab applied.
+				const sync = outboxSyncs.then(() =>
+					locks.request(outboxLockName, async () => {
+						await withdrawOwedEntries(signal);
+						await syncOutbox({
+							appliers: options.adapter.appliers,
+							client,
+							cursor: {
+								load: settings.acknowledgedThrough,
+								save: settings.saveAcknowledgedThrough,
+							},
+							signal,
+						});
+						withdrawRowFailureShown = false;
+					}),
+				);
 				outboxSyncs = sync.catch(() => undefined);
 				return sync;
 			},

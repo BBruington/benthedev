@@ -3,7 +3,7 @@
 Phase 3 is done when you can right-click an actor or an item in Foundry and find it waiting in the DM's
 inbox on the site, and when the party's or a character's coins go into colony gold and come back again without ever being
 lost or counted twice (`docs/design/foundry-bridge.md` §14). Foundry still changes nothing on the site by
-itself: every send is an inbox item that only you accept. Colony Bridge is now 0.3.0. Coin deposits are
+itself: every send is an inbox item that only you accept. Colony Bridge is now 0.3.1. Coin deposits are
 PF2e only (pf2e 7.12.2, which runs on Foundry 13 only), in whole gold pieces. Your dnd5e world gets the NPC
 and item sends.
 
@@ -23,9 +23,9 @@ Console in Foundry's own app.
 ## Part B. Local: your Mac and a local Foundry
 
 1. **Upgrade.** Restart `mise run dev` so the server has the new code. In Foundry, open **Add-on
-   Modules** and update Colony Bridge to 0.3.0, then reload the world. You don't need a new code: the
+   Modules** and update Colony Bridge to 0.3.1, then reload the world. You don't need a new code: the
    link stays.
-   - [ ] Settings' **Foundry** card shows **Colony Bridge** 0.3.0 under the world details, and "Foundry is
+   - [ ] Settings' **Foundry** card shows **Colony Bridge** 0.3.1 under the world details, and "Foundry is
      up to date."
 2. **Only the active GM sees the entries.** In the GM's window, right-click an NPC in the **Actors** tab,
    then an item in the **Items** tab. Do the same in the player's window.
@@ -138,7 +138,7 @@ Console in Foundry's own app.
       "Deposits that stopped part way": add the 5 gp back to the party by hand, then press **Forget**, and
       the list is gone.
     - [ ] Otherwise, no "Deposits that stopped part way" list shows in that menu.
-16. **A dnd5e world.** Connect the dnd5e world (update it to 0.3.0 first), then repeat steps 2 to 9 there
+16. **A dnd5e world.** Connect the dnd5e world (update it to 0.3.1 first), then repeat steps 2 to 9 there
     with a dnd5e NPC and character and dnd5e items.
     - [ ] No actor has **Deposit to colony…**.
     - [ ] A character arrives with its level, its race and every class name ("Fighter, Wizard"), its
@@ -155,9 +155,9 @@ Repeat in this order, with the live site and your Forge world. Where Part B said
 normally. Use throwaway coins and test actors you don't mind seeing in your real campaign's inbox, and
 dismiss or delete what you made afterwards.
 
-1. **Upgrade.** Update Colony Bridge to 0.3.0 in Forge's **Add-on Modules** (Forge may need its own
+1. **Upgrade.** Update Colony Bridge to 0.3.1 in Forge's **Add-on Modules** (Forge may need its own
    refresh of the module list), then reload.
-   - [ ] Settings shows **Colony Bridge** 0.3.0 and "Foundry is up to date."
+   - [ ] Settings shows **Colony Bridge** 0.3.1 and "Foundry is up to date."
 2. **Sends.** Part B steps 2 to 9.
    - [ ] Only the active GM sees **Send to Colony Planner**; NPCs import hidden with secrets only in DM
      notes; items fill price and **Foundry item UUID**; the description check from step 6 gives the same
@@ -185,9 +185,6 @@ dismiss or delete what you made afterwards.
 - Clearing Foundry's chat log can let a whisper about a deposit post again; the coins never move twice.
 - A GM secret block, PF2e's GM-only text, an enricher with no label (such as `@Check[fortitude|dc:25]`)
   and an unlabelled inline roll (such as `[[/gmr 1d20]]`) never reach an item's description or an NPC's Appearance; an NPC's go to its DM notes instead.
-- If you let Trusted Players change world settings, the module refuses to resend or refund from deposit
-  records a player changed last, but a later deposit of yours hides such a change. Keep that permission
-  for GMs.
 
 ## When you're done
 

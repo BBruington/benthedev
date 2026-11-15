@@ -110,18 +110,42 @@ function storedEntries(storage: DepositLedgerStorage): Record<string, unknown> {
 		: {};
 }
 
+const quarantinedStates: readonly DepositState[] = ["HELD", "SENT", "REMOVING", "RETURNING"];
+const quarantinedLedger =
+	"A user who isn't a GM changed this world's deposit records, so every deposit in them that waited, was sent or was moving coins is now marked as stopped part way, and none will be sent again or refunded. Check those actors' coins by hand, then press Forget in Colony Bridge's settings. Check who may change world settings too.";
+
 export function createDepositLedger(
 	storage: DepositLedgerStorage,
+	notifications: Pick<FoundryNotifications, "error">,
 	now: () => Date = () => new Date(),
 ): DepositLedger {
 	// Each write rereads its entry after earlier writes land, so a stale read can't undo a later state.
 	let writes: Promise<unknown> = Promise.resolve();
+
+	/**
+	 * A GM's write makes the GM the last writer, which would vouch for whatever a non-GM planted (design
+	 * §14.9), so first every entry that could still be sent or refunded is marked INTERRUPTED.
+	 */
+	async function quarantine(): Promise<void> {
+		const updatedAt = now().toISOString();
+		const entries = Object.entries(storedEntries(storage)).map(
+			([depositId, entry]): [string, unknown] =>
+				isDepositEntry(depositId, entry) && quarantinedStates.includes(entry.state)
+					? [depositId, { ...entry, state: "INTERRUPTED", updatedAt }]
+					: [depositId, entry],
+		);
+		await storage.save({ entries: Object.fromEntries(entries) });
+		notifications.error(`Colony Bridge: ${quarantinedLedger}`);
+	}
 
 	function write(
 		depositId: string,
 		decide: (current: DepositEntry | undefined) => DepositEntry | null | undefined,
 	): Promise<boolean> {
 		const result = writes.then(async () => {
+			if (!storage.lastWriterIsGm()) {
+				await quarantine();
+			}
 			const stored = storedEntries(storage);
 			const current = stored[depositId];
 			const next = decide(isDepositEntry(depositId, current) ? current : undefined);

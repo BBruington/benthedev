@@ -10,6 +10,7 @@ import {
 	UserPlusIcon,
 	XIcon,
 } from "lucide-react";
+import { useRef } from "react";
 import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
 import { problemMessage } from "@/api/problem";
@@ -101,6 +102,8 @@ export function FoundryInbox({
 	const queryClient = useQueryClient();
 	const changes = useColonyChanges();
 	const sheet = useSheetState<BridgeInboxItem>();
+	const openSessionRef = useRef<number | null>(null);
+	openSessionRef.current = sheet.open ? sheet.session : null;
 
 	function refresh() {
 		queryClient.invalidateQueries({ queryKey: colonyBoardQuery(campaignId).queryKey });
@@ -146,7 +149,12 @@ export function FoundryInbox({
 	// A 409 from a sheet is either the sheet's own conflict (it stays open and says so) or an item
 	// handled elsewhere, which the fresh board tells apart.
 	async function handleSheetError(item: BridgeInboxItem, error: unknown) {
+		const session = sheet.session;
 		if (!isConflict(error) || (await isStillPending(item)) !== false) {
+			return;
+		}
+		// The DM may have closed this sheet or opened another item's while the board was read.
+		if (openSessionRef.current !== session) {
 			return;
 		}
 		toast.error(alreadyHandledMessage);

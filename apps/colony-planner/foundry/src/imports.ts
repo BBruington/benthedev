@@ -303,6 +303,9 @@ const sendIcon = '<i class="fa-solid fa-paper-plane"></i>';
 const depositIcon = '<i class="fa-solid fa-coins"></i>';
 const notRunningWarning =
 	"Colony Bridge isn't running in this browser, so nothing was sent. Only the active GM's browser sends to Colony Planner.";
+// Another link may name another campaign, so what was read under the first never goes to the second.
+const linkChangedWarning =
+	"This world's Colony Planner link changed while Foundry was busy, so nothing was sent. Try again.";
 
 function entryId(target: ContextMenuTarget): string {
 	return target.dataset.entryId ?? "";
@@ -343,8 +346,13 @@ function isPf2eWorldParty(document: unknown, context: ImportContext): boolean {
 function queueImport<Kind extends "NPC_IMPORT" | "ITEM_IMPORT">(
 	kind: Kind,
 	payload: InboundPayloads[Kind],
+	linkId: string,
 	context: ImportContext,
 ): void {
+	if (context.bridge.linkId() !== linkId) {
+		context.notifications.warn(linkChangedWarning);
+		return;
+	}
 	const queued = context.bridge.queueEvent({
 		id: (context.createId ?? (() => crypto.randomUUID()))(),
 		kind,
@@ -371,6 +379,7 @@ async function sendActor(
 	target: ContextMenuTarget,
 	context: ImportContext,
 ): Promise<void> {
+	const linkId = context.bridge.linkId();
 	const actor = await entryDocument(application, target, context);
 	if (!isSourceDocument(actor)) {
 		context.notifications.warn("Foundry couldn't find that actor.");
@@ -389,7 +398,7 @@ async function sendActor(
 		);
 		return;
 	}
-	queueImport("NPC_IMPORT", payload, context);
+	queueImport("NPC_IMPORT", payload, linkId, context);
 }
 
 async function sendItem(
@@ -397,6 +406,7 @@ async function sendItem(
 	target: ContextMenuTarget,
 	context: ImportContext,
 ): Promise<void> {
+	const linkId = context.bridge.linkId();
 	const item = await entryDocument(application, target, context);
 	if (!isSourceDocument(item)) {
 		context.notifications.warn("Foundry couldn't find that item.");
@@ -409,7 +419,7 @@ async function sendItem(
 		);
 		return;
 	}
-	queueImport("ITEM_IMPORT", payload, context);
+	queueImport("ITEM_IMPORT", payload, linkId, context);
 }
 
 const wholeNumber = /^\d+$/;
@@ -443,6 +453,7 @@ async function depositFromActor(
 		context.notifications.warn("Foundry couldn't find that party or character.");
 		return;
 	}
+	const linkId = context.bridge.linkId();
 	const answer = await context.inputDialog(depositDialog);
 	if (answer === null || answer === undefined) {
 		return;
@@ -455,6 +466,10 @@ async function depositFromActor(
 	// The dialog may have stayed open while another GM took over.
 	if (context.bridge.status().condition !== "running") {
 		context.notifications.warn(notRunningWarning);
+		return;
+	}
+	if (context.bridge.linkId() !== linkId) {
+		context.notifications.warn(linkChangedWarning);
 		return;
 	}
 	await context.deposits.deposit(actor, gold, {

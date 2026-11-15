@@ -873,8 +873,16 @@ var secrecyFixtures = []secrecyFixture{
 			}
 			for _, item := range bridge.Inbox {
 				side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, item.ID.String())
-				if item.Deposit != nil && item.Deposit.Gold == plantedDepositGold {
+				switch {
+				case item.Deposit != nil && item.Deposit.Gold == plantedDepositGold:
 					side.campaign.pathIDs["eventId"] = item.ID.String()
+				// No route takes these in the path; pass 4 puts B's into the create body that answers each kind.
+				case item.Kind == core.BridgeEventKindNpcImport:
+					side.campaign.pathIDs["npcImportEventId"] = item.ID.String()
+				case item.Kind == core.BridgeEventKindItemImport:
+					side.campaign.pathIDs["itemImportEventId"] = item.ID.String()
+				case item.Kind == core.BridgeEventKindTimeAdvanced:
+					side.campaign.pathIDs["timeAdvancedEventId"] = item.ID.String()
 				}
 			}
 			// An open code too, so the Settings card shows one.
