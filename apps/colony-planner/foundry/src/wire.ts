@@ -1,4 +1,4 @@
-/** The bridge's wire format, docs/design/foundry-bridge.md §12 and §13, and guards for what the server sends. */
+/** The bridge's wire format, docs/design/foundry-bridge.md §12, §13 and §14, and guards for what the server sends. */
 
 export interface OutboxRow {
 	kind: string;
@@ -22,7 +22,15 @@ export interface Acknowledgement {
 	through: number;
 }
 
-export type InboundEventKind = "STATUS" | "TIME_ADVANCED";
+export const inboundEventKinds = [
+	"STATUS",
+	"TIME_ADVANCED",
+	"COIN_DEPOSIT",
+	"NPC_IMPORT",
+	"ITEM_IMPORT",
+] as const;
+
+export type InboundEventKind = (typeof inboundEventKinds)[number];
 
 export interface StatusPayload {
 	foundryVersion: string;
@@ -36,11 +44,64 @@ export interface TimeAdvancedPayload {
 	days: number;
 }
 
+export interface CoinDepositPayload {
+	gold: number;
+	actorId: string;
+	actorName: string;
+}
+
+/** Field names are the site's NpcInput's, so the NPC sheet fills from them directly. */
+export interface NpcImportPayload {
+	appearance: string;
+	characterClass: string;
+	dmNotes: string;
+	foundryUuid: string;
+	level: number | null;
+	name: string;
+	race: string;
+}
+
+/** Field names are the site's MarketItemInput's. */
+export interface ItemImportPayload {
+	compendiumUuid: string | null;
+	description: string;
+	foundryUuid: string;
+	name: string;
+	priceGold: number | null;
+}
+
+export interface InboundPayloads {
+	COIN_DEPOSIT: CoinDepositPayload;
+	ITEM_IMPORT: ItemImportPayload;
+	NPC_IMPORT: NpcImportPayload;
+	STATUS: StatusPayload;
+	TIME_ADVANCED: TimeAdvancedPayload;
+}
+
 export interface InboundEvent {
 	id: string;
 	kind: InboundEventKind;
 	occurredAt: string;
-	payload: StatusPayload | TimeAdvancedPayload;
+	payload: InboundPayloads[InboundEventKind];
+}
+
+/** A COIN_DEPOSIT event with its payload's type known. */
+export interface CoinDepositEvent extends InboundEvent {
+	kind: "COIN_DEPOSIT";
+	payload: CoinDepositPayload;
+}
+
+export interface DepositRefundPayload {
+	depositId: string;
+	gold: number;
+	actorId: string;
+	actorName: string;
+}
+
+export interface DepositUndonePayload {
+	depositId: string;
+	gold: number;
+	actorName: string;
 }
 
 export interface PairResponse {
@@ -167,6 +228,26 @@ export const maximumStatusFieldLength = 100;
 export const maximumEventsPerBatch = 100;
 export const maximumReportedDays = 3650;
 
+// Design §14.2's limits, which Colony Planner checks again.
+export const maximumDepositGold = 1_000_000;
+export const maximumActorNameLength = 100;
+export const maximumFoundryUuidLength = 200;
+export const maximumNpcNameLength = 80;
+export const maximumNpcLevel = 100;
+export const maximumNpcShortTextLength = 80;
+export const maximumProseLength = 4000;
+export const maximumItemNameLength = 80;
+/** The server's game.MaxStored, the most any colony amount or price may be. */
+export const maximumPriceGold = 2_147_483_647;
+export const foundryActorIdPattern = /^[A-Za-z0-9]{16}$/;
+export const importedActorUuidPattern =
+	/^(Compendium\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)?Actor\.[A-Za-z0-9]{16}$/;
+export const importedItemUuidPattern =
+	/^(Compendium\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)?Item\.[A-Za-z0-9]{16}$/;
+/** Design §13.6's pattern, the one form the catalog's Foundry item UUID takes. */
+export const compendiumItemUuidPattern =
+	/^Compendium\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.Item\.[A-Za-z0-9]{16}$/;
+
 export function readField(value: unknown, field: string): unknown {
 	if (typeof value !== "object" || value === null) {
 		return undefined;
@@ -238,13 +319,49 @@ export function isPairResponse(value: unknown): value is PairResponse {
 	);
 }
 
+/** Checks an event a reload reads back from storage; an unknown kind would be refused, so it is dropped. */
 export function isInboundEvent(value: unknown): value is InboundEvent {
-	const kind = readField(value, "kind");
 	return (
 		typeof readField(value, "id") === "string" &&
-		(kind === "STATUS" || kind === "TIME_ADVANCED") &&
+		isOneOf(inboundEventKinds, readField(value, "kind")) &&
 		typeof readField(value, "occurredAt") === "string" &&
 		typeof readField(value, "payload") === "object"
+	);
+}
+
+export function isCoinDepositPayload(value: unknown): value is CoinDepositPayload {
+	const gold = readField(value, "gold");
+	const actorId = readField(value, "actorId");
+	return (
+		isInteger(gold) &&
+		gold >= 1 &&
+		gold <= maximumDepositGold &&
+		isString(actorId) &&
+		foundryActorIdPattern.test(actorId) &&
+		isString(readField(value, "actorName"))
+	);
+}
+
+export function isCoinDepositEvent(value: unknown): value is CoinDepositEvent {
+	return (
+		isInboundEvent(value) && value.kind === "COIN_DEPOSIT" && isCoinDepositPayload(value.payload)
+	);
+}
+
+function isDepositAmount(value: unknown): value is number {
+	return isInteger(value) && value >= 1 && value <= maximumDepositGold;
+}
+
+export function isDepositRefundPayload(value: unknown): value is DepositRefundPayload {
+	return (
+		hasStringFields(value, ["depositId", "actorId", "actorName"]) &&
+		isDepositAmount(readField(value, "gold"))
+	);
+}
+
+export function isDepositUndonePayload(value: unknown): value is DepositUndonePayload {
+	return (
+		hasStringFields(value, ["depositId", "actorName"]) && isDepositAmount(readField(value, "gold"))
 	);
 }
 

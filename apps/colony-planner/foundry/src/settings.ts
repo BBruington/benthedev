@@ -2,6 +2,7 @@ import type { FoundrySettings } from "./foundry-types";
 import { type InboundEvent, isInboundEvent, readField } from "./wire";
 
 export const moduleId = "colony-bridge";
+export const depositsSettingKey = "deposits";
 
 /**
  * Typed reads and writes of the module's settings. The token and everything tied to it are `client`
@@ -15,6 +16,8 @@ export interface BridgeSettings {
 	lastReportedDay(): number | undefined;
 	/** The Foundry world the link was paired in; "" for none, and for a link saved by 0.1.1. */
 	linkedWorldId(): string;
+	/** A random ID naming this link, never derived from its token; "" for none. */
+	linkId(): string;
 	moveClockWithColonyDays(): boolean;
 	pendingEvents(): InboundEvent[];
 	saveAcknowledgedThrough(seq: number): Promise<unknown>;
@@ -58,6 +61,13 @@ export function registerSettings(
 		scope: "world",
 		type: Boolean,
 	});
+	// The escrow (design §14.10): world scope so players can't write it, and it outlives a new link.
+	settings.register(moduleId, depositsSettingKey, {
+		config: false,
+		default: { entries: {} },
+		scope: "world",
+		type: Object,
+	});
 	settings.register(moduleId, "timeTracker", {
 		config: false,
 		default: {},
@@ -77,6 +87,12 @@ export function registerSettings(
 		type: String,
 	});
 	settings.register(moduleId, "worldId", {
+		config: false,
+		default: "",
+		scope: "client",
+		type: String,
+	});
+	settings.register(moduleId, "linkId", {
 		config: false,
 		default: "",
 		scope: "client",
@@ -102,6 +118,18 @@ export function registerSettings(
 	});
 }
 
+/**
+ * Gives a stored link saved before 0.3.0, whose ID is "", a random one, so no deposit is ever recorded
+ * under an ID that another such link shares.
+ */
+export async function assignMissingLinkId(settings: FoundrySettings): Promise<void> {
+	const token = settings.get(moduleId, "token");
+	const linkId = settings.get(moduleId, "linkId");
+	if (readString(token) !== "" && readString(linkId) === "") {
+		await settings.set(moduleId, "linkId", crypto.randomUUID());
+	}
+}
+
 export function createBridgeSettings(settings: FoundrySettings): BridgeSettings {
 	const read = (key: string) => settings.get(moduleId, key);
 	const write = (key: string, value: unknown) => settings.set(moduleId, key, value);
@@ -111,6 +139,7 @@ export function createBridgeSettings(settings: FoundrySettings): BridgeSettings 
 		campaignName: () => readString(read("campaignName")),
 		lastReportedDay: () => readNumber(readField(read("timeTracker"), "day")),
 		linkedWorldId: () => readString(read("worldId")),
+		linkId: () => readString(read("linkId")),
 		moveClockWithColonyDays: () => read("moveClock") === true,
 		pendingEvents: () => {
 			const events = readField(read("pendingEvents"), "events");
@@ -128,6 +157,7 @@ export function createBridgeSettings(settings: FoundrySettings): BridgeSettings 
 			await write("withdrawOwed", link.token !== "");
 			await write("campaignName", link.campaignName);
 			await write("worldId", link.worldId);
+			await write("linkId", link.token === "" ? "" : crypto.randomUUID());
 			await write("token", link.token);
 		},
 		savePendingEvents: (events) => write("pendingEvents", { events }),

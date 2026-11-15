@@ -138,6 +138,12 @@ type MarketItemInput struct {
 	CompendiumUUID *string `json:"compendiumUuid" required:"false" nullable:"true" doc:"The Foundry compendium item paid shipments hand the party, at most 200 characters; null or blank for none"`
 }
 
+// NewMarketItemInput adds a special item. Only a create takes bridgeEventId, so an edit can't accept anything.
+type NewMarketItemInput struct {
+	MarketItemInput
+	BridgeEventID *uuid.UUID `json:"bridgeEventId,omitempty" format:"uuid" doc:"A PENDING ITEM_IMPORT inbox item this create accepts"`
+}
+
 type SupplyOfferInput struct {
 	PriceGold int64 `json:"priceGold" doc:"Gold per purchase, 0 or more"`
 	Amount    int64 `json:"amount" doc:"How much of the resource one purchase brings, 1 to 1000000"`
@@ -450,12 +456,13 @@ func decodeGrants(encoded []byte) (map[string]int64, error) {
 	return grants, nil
 }
 
-// CreateMarketItem adds a special item: a record only, granting nothing.
-func (service *Service) CreateMarketItem(requestContext context.Context, viewer Viewer, input MarketItemInput) (MarketItem, error) {
+// CreateMarketItem adds a special item: a record only, granting nothing. Accepting a Foundry inbox item
+// with it is final, since a catalog edit has no undo.
+func (service *Service) CreateMarketItem(requestContext context.Context, viewer Viewer, input NewMarketItemInput) (MarketItem, error) {
 	if err := requireDm(viewer); err != nil {
 		return MarketItem{}, err
 	}
-	cleaned, err := cleanMarketItemInput(input)
+	cleaned, err := cleanMarketItemInput(input.MarketItemInput)
 	if err != nil {
 		return MarketItem{}, err
 	}
@@ -474,6 +481,12 @@ func (service *Service) CreateMarketItem(requestContext context.Context, viewer 
 		if counts.Total >= MarketItemLimitIncludingArchived {
 			return errMarketItemTotalLimit
 		}
+		if input.BridgeEventID != nil {
+			if _, err := decideBridgeEvent(requestContext, queries, viewer.campaignID, *input.BridgeEventID, []BridgeEventKind{BridgeEventKindItemImport},
+				BridgeEventStatusAccepted, service.clock().UTC(), "bridgeEventId"); err != nil {
+				return err
+			}
+		}
 		row, err := queries.CreateMarketItem(requestContext, store.CreateMarketItemParams{
 			CampaignID:     viewer.campaignID,
 			Name:           cleaned.Name,
@@ -491,7 +504,11 @@ func (service *Service) CreateMarketItem(requestContext context.Context, viewer 
 	if err != nil {
 		return MarketItem{}, err
 	}
-	service.broker.Publish(viewer.campaignID, TopicMarket)
+	if input.BridgeEventID != nil {
+		service.broker.Publish(viewer.campaignID, TopicMarket, TopicColony, TopicBridge)
+	} else {
+		service.broker.Publish(viewer.campaignID, TopicMarket)
+	}
 	return item, nil
 }
 

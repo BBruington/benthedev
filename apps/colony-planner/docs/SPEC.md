@@ -1731,7 +1731,7 @@ Nothing here happens unless, after approving M5, the author says the app meets t
 **Foundry bridge (designed and approved 2026-11-12; `docs/design/foundry-bridge.md`).** Not part of the original M0 to M6 slices. Each phase ends with a checklist in `docs/checklists/` for the author to run, with a stop for the author's check-in after it (design §8).
 - **Phase 1, plumbing (in progress):** the bridge tables, token, pairing and the cookie-free `/api/bridge/` routes; the Settings card and the board's inbox card; the module with the core adapter, the colony summary page and the days-advanced message; and the time-advance inbox item. Done means the author connects the live site to their Forge world, advances a day on each side and sees both show up, including after closing Foundry and reopening it. Its Forge check needs the M6 cutover, since a Forge game can't reach the author's Mac.
 - **Phase 2, Colony to Foundry content:** NPCs, places and pins, quests, deliveries (with the PF2e adapter), polls and sessions.
-- **Phase 3, Foundry to Colony content:** coin deposits and their refunds, NPC import and catalog import.
+- **Phase 3, Foundry to Colony content (built 2026-11-14, awaiting the author's check; design §14):** coin deposits and their refunds, NPC import and catalog import. The server side is migration `0010_bridge_imports.sql`, the `COIN_DEPOSIT`, `NPC_IMPORT` and `ITEM_IMPORT` inbox kinds, Accept on a deposit (a colony change with undo, refused past gold's max), Dismiss returning a deposit's coins through `DEPOSIT_REFUND`, and `bridgeEventId` on the NPC and catalog item creates; the site's inbox opens the NPC and item sheets filled from Foundry.
 
 ---
 

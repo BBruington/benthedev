@@ -39,6 +39,7 @@ type Glyph = { icon: LucideIcon; label: string; tone: string };
 /** Each kind's typed glyph (spec §6.6); the Record fails typechecking when a kind is added. */
 export const timelineKinds: Record<TimelineKind, Glyph> = {
 	CARGO_RECORDED: { icon: PackageOpenIcon, label: "Cargo", tone: "bg-moss/14 text-moss-ink" },
+	COIN_DEPOSITED: { icon: CoinsIcon, label: "Coins deposited", tone: "bg-moss/14 text-moss-ink" },
 	COLONIST_JOINED: {
 		icon: UserPlusIcon,
 		label: "Colonist joined",

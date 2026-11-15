@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createBridge } from "./bridge";
 import type { Fetch } from "./bridge-client";
+import type { DepositEvents } from "./deposits";
 import type { FoundryUser } from "./foundry-types";
 import type { RowApplier } from "./outbox";
 import type { BridgeSettings } from "./settings";
@@ -26,6 +27,7 @@ function memorySettings(initial: {
 		enabled: initial.enabled ?? true,
 		events: [] as InboundEvent[],
 		lastReportedDay: initial.lastReportedDay,
+		linkId: "link-1",
 		token: initial.token ?? "secret-token",
 		withdrawOwed: false,
 		worldId: initial.worldId ?? thisWorld,
@@ -36,6 +38,7 @@ function memorySettings(initial: {
 		campaignName: () => values.campaignName,
 		lastReportedDay: () => values.lastReportedDay,
 		linkedWorldId: () => values.worldId,
+		linkId: () => values.linkId,
 		moveClockWithColonyDays: () => false,
 		pendingEvents: () => values.events,
 		saveAcknowledgedThrough: (seq) => {
@@ -50,6 +53,7 @@ function memorySettings(initial: {
 			values.campaignName = link.campaignName;
 			values.token = link.token;
 			values.worldId = link.worldId;
+			values.linkId = link.token === "" ? "" : `link-for-${link.token}`;
 			values.cursor = 0;
 			values.events = [];
 			values.withdrawOwed = link.token !== "";
@@ -70,7 +74,12 @@ function memorySettings(initial: {
 }
 
 function fakeColonyPlanner(
-	options: { holdRequestsWithToken?: string; outboxRows?: OutboxRow[]; refuseToken?: boolean } = {},
+	options: {
+		holdRequestsWithToken?: string;
+		outboxRows?: OutboxRow[];
+		refuseEventKind?: string;
+		refuseToken?: boolean;
+	} = {},
 ) {
 	const requests: { authorization: string | null; method: string; path: string }[] = [];
 	const heldAnswers: ((response: Response) => void)[] = [];
@@ -107,6 +116,9 @@ function fakeColonyPlanner(
 		}
 		if (path === "/api/bridge/events") {
 			const body: { events: InboundEvent[] } = JSON.parse(String(init.body));
+			if (body.events.some((event) => event.kind === options.refuseEventKind)) {
+				return Promise.resolve(jsonResponse(422, { detail: "actorName is too long" }));
+			}
 			sentEvents.push(...body.events);
 			return Promise.resolve(jsonResponse(200, { accepted: body.events.length, duplicates: 0 }));
 		}
@@ -133,6 +145,7 @@ function bridgeFor(options: {
 	activeGm: FoundryUser | null;
 	colonyPlanner: ReturnType<typeof fakeColonyPlanner>;
 	appliers?: Partial<Record<string, RowApplier>>;
+	deposits?: DepositEvents;
 	settings: BridgeSettings;
 	withdrawBridgedEntries?: () => Promise<void>;
 }) {
@@ -154,6 +167,7 @@ function bridgeFor(options: {
 			withdrawBridgedEntries: options.withdrawBridgedEntries ?? (() => Promise.resolve()),
 		},
 		colonyOrigin: origin,
+		deposits: options.deposits,
 		fetchFunction: options.colonyPlanner.fetchFunction,
 		foundryGame,
 		notifications: {
@@ -567,5 +581,137 @@ describe("createBridge", () => {
 		endPairing();
 		await settle();
 		expect(colonyPlanner.liveStreams()).toBe(1);
+	});
+});
+
+describe("createBridge with Phase 3 events", () => {
+	const deposit: InboundEvent = {
+		id: "deposit-1",
+		kind: "COIN_DEPOSIT",
+		occurredAt: "2026-11-14T10:00:00.000Z",
+		payload: { actorId: "abcdefghij123456", actorName: "The Wayfarers", gold: 40 },
+	};
+
+	function recordingDeposits(sendable = true) {
+		const calls: string[] = [];
+		const deposits: DepositEvents = {
+			markSent: (events) => {
+				calls.push(`sent ${events.map((event) => event.id).join(",")}`);
+				return Promise.resolve();
+			},
+			maySend: (event, linkId) => {
+				calls.push(`may send ${event.id} under ${linkId}`);
+				return sendable || event.kind !== "COIN_DEPOSIT";
+			},
+			resume: (queue, linkId) => {
+				calls.push(`resume ${linkId} holds=${queue.holds(deposit.id)}`);
+				queue.add(deposit);
+				return Promise.resolve();
+			},
+			returnRefused: (events, reason, status) => {
+				calls.push(`refused ${events.map((event) => event.id).join(",")} ${status}: ${reason}`);
+				return Promise.resolve();
+			},
+		};
+		return { calls, deposits };
+	}
+
+	test("queueEvent sends only while the bridge runs here", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { bridge } = bridgeFor({
+			activeGm: otherGm,
+			colonyPlanner,
+			settings: memorySettings({}).settings,
+		});
+		bridge.evaluate();
+		expect(bridge.queueEvent(deposit)).toBe(false);
+		expect(bridge.linkId()).toBe("link-1");
+		await settle();
+		expect(colonyPlanner.sentEvents).toEqual([]);
+	});
+
+	test("each session start resumes the escrow, and a sent deposit goes alone and is marked sent", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { calls, deposits } = recordingDeposits();
+		const { bridge } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			deposits,
+			settings: memorySettings({}).settings,
+		});
+		bridge.evaluate();
+		await settle();
+		const eventPosts = colonyPlanner.requests.filter(
+			(request) => request.path === "/api/bridge/events",
+		);
+		expect(eventPosts).toHaveLength(2);
+		expect(colonyPlanner.sentEvents.map((event) => event.kind)).toEqual(["COIN_DEPOSIT", "STATUS"]);
+		const statusId = colonyPlanner.sentEvents[1]?.id;
+		expect(calls).toEqual([
+			"resume link-1 holds=false",
+			"may send deposit-1 under link-1",
+			"sent deposit-1",
+			`may send ${statusId} under link-1`,
+			`sent ${statusId}`,
+		]);
+	});
+
+	test("a deposit the escrow no longer holds under this link leaves the queue unsent", async () => {
+		const colonyPlanner = fakeColonyPlanner();
+		const { deposits } = recordingDeposits(false);
+		const { settings, values } = memorySettings({});
+		values.events = [deposit];
+		const { bridge } = bridgeFor({ activeGm: thisGm, colonyPlanner, deposits, settings });
+		bridge.evaluate();
+		await settle();
+		expect(colonyPlanner.sentEvents.map((event) => event.kind)).toEqual(["STATUS"]);
+		expect(values.events).toEqual([]);
+	});
+
+	test("a refused deposit goes to the escrow with Colony Planner's reason and no generic warning", async () => {
+		const colonyPlanner = fakeColonyPlanner({ refuseEventKind: "COIN_DEPOSIT" });
+		const { calls, deposits } = recordingDeposits();
+		const { bridge, errors } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			deposits,
+			settings: memorySettings({}).settings,
+		});
+		bridge.evaluate();
+		await settle();
+		expect(calls).toContain("refused deposit-1 422: actorName is too long");
+		expect(errors).toEqual([]);
+		expect(colonyPlanner.sentEvents.map((event) => event.kind)).toEqual(["STATUS"]);
+	});
+
+	test("a refused import keeps the generic warning", async () => {
+		const colonyPlanner = fakeColonyPlanner({ refuseEventKind: "NPC_IMPORT" });
+		const { bridge, errors } = bridgeFor({
+			activeGm: thisGm,
+			colonyPlanner,
+			settings: memorySettings({}).settings,
+		});
+		bridge.evaluate();
+		await settle();
+		expect(
+			bridge.queueEvent({
+				id: "import-1",
+				kind: "NPC_IMPORT",
+				occurredAt: "2026-11-14T10:00:00.000Z",
+				payload: {
+					appearance: "",
+					characterClass: "",
+					dmNotes: "",
+					foundryUuid: "Actor.abcdefghij123456",
+					level: null,
+					name: "Brother Aldo",
+					race: "",
+				},
+			}),
+		).toBe(true);
+		await settle();
+		expect(errors).toEqual([
+			"Colony Bridge: Colony Planner refused an update from Foundry. actorName is too long",
+		]);
 	});
 });

@@ -139,12 +139,15 @@ type BridgeOpenCode struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-// BridgeInboxItem is one event waiting for the DM. TIME_ADVANCED is the only kind in Phase 1.
+// BridgeInboxItem is one event waiting for the DM; its kind's own object is set and the others are null.
 type BridgeInboxItem struct {
-	ID         uuid.UUID       `json:"id" format:"uuid"`
-	Kind       BridgeEventKind `json:"kind"`
-	ReceivedAt time.Time       `json:"receivedAt"`
-	Days       int64           `json:"days"`
+	ID         uuid.UUID              `json:"id" format:"uuid"`
+	Kind       BridgeEventKind        `json:"kind"`
+	ReceivedAt time.Time              `json:"receivedAt"`
+	Days       int64                  `json:"days" doc:"A TIME_ADVANCED item's days; 0 for every other kind"`
+	Deposit    *BridgeInboxDeposit    `json:"deposit" doc:"A COIN_DEPOSIT item's coins; null for every other kind"`
+	Npc        *BridgeInboxNpc        `json:"npc" doc:"An NPC_IMPORT item's NPC; null for every other kind"`
+	Item       *BridgeInboxMarketItem `json:"item" doc:"An ITEM_IMPORT item's catalog item; null for every other kind"`
 }
 
 type BridgePairInput struct {
@@ -526,25 +529,13 @@ func bridgeInbox(requestContext context.Context, queries *store.Queries, campaig
 	}
 	inbox := make([]BridgeInboxItem, 0, len(rows))
 	for _, row := range rows {
-		item := BridgeInboxItem{ID: row.ID, Kind: row.Kind, ReceivedAt: row.ReceivedAt.UTC()}
-		if row.Days != nil {
-			item.Days = int64(*row.Days)
+		item, err := toBridgeInboxItem(row)
+		if err != nil {
+			return nil, err
 		}
 		inbox = append(inbox, item)
 	}
 	return inbox, nil
-}
-
-// DismissBridgeInboxItem sets a PENDING item DISMISSED; anything else is 409.
-func (service *Service) DismissBridgeInboxItem(requestContext context.Context, viewer Viewer, eventID uuid.UUID) error {
-	if err := requireDm(viewer); err != nil {
-		return err
-	}
-	if err := decideBridgeEvent(requestContext, service.queries, viewer.campaignID, eventID, BridgeEventStatusDismissed, service.clock().UTC(), ""); err != nil {
-		return err
-	}
-	service.broker.Publish(viewer.campaignID, TopicColony, TopicBridge)
-	return nil
 }
 
 // ClearBridgeFailedRows forgets the changes Foundry couldn't apply, once the DM has dealt with them.
@@ -561,27 +552,37 @@ func (service *Service) ClearBridgeFailedRows(requestContext context.Context, vi
 	return nil
 }
 
-// decideBridgeEvent moves one PENDING TIME_ADVANCED item on. A missing item is 404, or the named body
-// field's error when the ID came in a body (Invariant 11); a decided one is 409.
-func decideBridgeEvent(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, eventID uuid.UUID, status BridgeEventStatus, now time.Time, bodyField string) error {
-	decided, err := queries.DecideBridgeEvent(requestContext, store.DecideBridgeEventParams{CampaignID: campaignID, ID: eventID, Status: status, Now: now})
-	if err != nil {
-		return err
+// decideBridgeEvent moves one PENDING item of the given kinds on and returns what it stored. A missing
+// item is 404, or the named body field's error when the ID came in a body (Invariant 11); a decided one
+// is 409. A PENDING item of another kind is the body field's error, or 409 on a path of its own kind.
+func decideBridgeEvent(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, eventID uuid.UUID, kinds []BridgeEventKind,
+	status BridgeEventStatus, now time.Time, bodyField string,
+) (store.DecideBridgeEventRow, error) {
+	kindNames := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		kindNames = append(kindNames, string(kind))
 	}
-	if decided == 1 {
-		return nil
+	decided, err := queries.DecideBridgeEvent(requestContext, store.DecideBridgeEventParams{CampaignID: campaignID, ID: eventID, Kinds: kindNames, Status: status, Now: now})
+	if err == nil {
+		return decided, nil
 	}
-	_, err = queries.GetBridgeEventStatus(requestContext, store.GetBridgeEventStatusParams{CampaignID: campaignID, ID: eventID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		if bodyField != "" {
-			return Invalid("That Foundry inbox item doesn't exist.", FieldError{Field: bodyField, Message: "That Foundry inbox item doesn't exist."})
-		}
-		return NotFound("That Foundry inbox item doesn't exist.")
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return store.DecideBridgeEventRow{}, err
 	}
-	if err != nil {
-		return err
+	const missing = "That Foundry inbox item doesn't exist."
+	currentStatus, err := queries.GetBridgeEventStatus(requestContext, store.GetBridgeEventStatusParams{CampaignID: campaignID, ID: eventID})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows) && bodyField != "":
+		return store.DecideBridgeEventRow{}, Invalid(missing, FieldError{Field: bodyField, Message: missing})
+	case errors.Is(err, pgx.ErrNoRows):
+		return store.DecideBridgeEventRow{}, NotFound(missing)
+	case err != nil:
+		return store.DecideBridgeEventRow{}, err
+	case currentStatus == BridgeEventStatusPending && bodyField != "":
+		const wrongKind = "That Foundry inbox item isn't one this form answers."
+		return store.DecideBridgeEventRow{}, Invalid(wrongKind, FieldError{Field: bodyField, Message: wrongKind})
 	}
-	return Conflict("That Foundry inbox item was already handled.")
+	return store.DecideBridgeEventRow{}, Conflict("That Foundry inbox item was already handled.")
 }
 
 // enqueueColonySummary writes the colony's COLONY_SUMMARY row when the campaign has an active link,
@@ -845,11 +846,14 @@ type validatedBridgeEvent struct {
 	event  BridgeInboundEvent
 	status *bridgeStatusPayload
 	days   *int32
+	// gold and content are a Phase 3 inbox item's (bridge_imports.go): its amount and cleaned payload.
+	gold    *int32
+	content []byte
 }
 
 // RecordBridgeEvents stores a batch of Foundry's events. Every field is checked before anything is
 // written, since any player can run code in their own browser; a repeated module ID is ignored. STATUS
-// lands on the link; TIME_ADVANCED waits in the DM's inbox and changes nothing by itself.
+// lands on the link; every other kind waits in the DM's inbox and changes nothing by itself.
 func (service *Service) RecordBridgeEvents(requestContext context.Context, caller BridgeCaller, input BridgeEventsInput) (BridgeEventsResult, error) {
 	if err := requireBridgeCaller(caller); err != nil {
 		return BridgeEventsResult{}, err
@@ -859,14 +863,14 @@ func (service *Service) RecordBridgeEvents(requestContext context.Context, calle
 		return BridgeEventsResult{}, Invalid(message, FieldError{Field: "events", Message: message})
 	}
 	validated := make([]validatedBridgeEvent, 0, len(input.Events))
-	timeAdvances := 0
+	inboxEvents := 0
 	for index, event := range input.Events {
 		checked, err := validateBridgeEvent("events["+strconv.Itoa(index)+"]", event)
 		if err != nil {
 			return BridgeEventsResult{}, err
 		}
-		if checked.days != nil {
-			timeAdvances++
+		if checked.status == nil {
+			inboxEvents++
 		}
 		validated = append(validated, checked)
 	}
@@ -879,12 +883,12 @@ func (service *Service) RecordBridgeEvents(requestContext context.Context, calle
 		}
 		for _, checked := range validated {
 			status := BridgeEventStatusAccepted
-			if checked.days != nil {
+			if checked.status == nil {
 				status = BridgeEventStatusPending
 			}
 			inserted, err := queries.CreateBridgeEvent(requestContext, store.CreateBridgeEventParams{
 				CampaignID: caller.campaignID, ModuleEventID: checked.event.ID, Kind: checked.event.Kind, Status: status,
-				OccurredAt: checked.event.OccurredAt.UTC(), Now: now, Days: checked.days,
+				OccurredAt: checked.event.OccurredAt.UTC(), Now: now, Days: checked.days, Gold: checked.gold, Content: checked.content,
 			})
 			if err != nil {
 				return err
@@ -932,7 +936,7 @@ func (service *Service) RecordBridgeEvents(requestContext context.Context, calle
 		service.broker.Publish(caller.campaignID, TopicBridge)
 	}
 	service.logger.InfoContext(requestContext, "bridge events recorded", slog.String("link_id", caller.linkID.String()),
-		slog.Int64("accepted", result.Accepted), slog.Int64("duplicates", result.Duplicates), slog.Int("time_advanced", timeAdvances))
+		slog.Int64("accepted", result.Accepted), slog.Int64("duplicates", result.Duplicates), slog.Int("inbox_events", inboxEvents))
 	return result, nil
 }
 
@@ -988,7 +992,7 @@ func validateBridgeEvent(field string, event BridgeInboundEvent) (validatedBridg
 		days := int32(*payload.Days)
 		checked.days = &days
 	default:
-		return invalid("kind", "That event kind isn't known.")
+		return validateBridgeImport(field, event)
 	}
 	return checked, nil
 }

@@ -532,7 +532,7 @@ func TestInboundEventsAreCheckedAndDeduplicated(t *testing.T) {
 		"too many events":  tooMany,
 		"no ID":            {{Kind: core.BridgeEventKindTimeAdvanced, OccurredAt: time.Now(), Payload: json.RawMessage(`{"days":1}`)}},
 		"no time":          {{ID: uuid.New(), Kind: core.BridgeEventKindTimeAdvanced, Payload: json.RawMessage(`{"days":1}`)}},
-		"unknown kind":     {{ID: uuid.New(), Kind: "NPC_IMPORT", OccurredAt: time.Now(), Payload: json.RawMessage(`{}`)}},
+		"unknown kind":     {{ID: uuid.New(), Kind: "BOGUS", OccurredAt: time.Now(), Payload: json.RawMessage(`{}`)}},
 		"no days":          {{ID: uuid.New(), Kind: core.BridgeEventKindTimeAdvanced, OccurredAt: time.Now(), Payload: json.RawMessage(`{}`)}},
 		"zero days":        {timeAdvanced(0)},
 		"too many days":    {timeAdvanced(core.BridgeTimeAdvancedMaxDays + 1)},
@@ -700,6 +700,8 @@ func TestADecidedInboxItemIsRememberedForThirtyDaysAfterItsDecision(t *testing.T
 		t.Fatalf("inbox = %+v, want only the undecided item", inbox)
 	}
 	test.clock.advance(2 * 24 * time.Hour)
+	// The undo slot keeps the item it names, so a later change has to replace the slot first.
+	test.advance(1)
 	if _, err := test.service.RecordBridgeEvents(test.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{timeAdvanced(1)}}); err != nil {
 		t.Fatalf("record 31 days after the decision: %v", err)
 	}

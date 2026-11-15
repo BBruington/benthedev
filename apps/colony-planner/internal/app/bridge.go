@@ -97,10 +97,24 @@ func (handlers *handlers) registerBridge(api huma.API) {
 	})
 
 	Register(api, AccessDm, huma.Operation{
+		OperationID: "acceptBridgeDeposit",
+		Method:      http.MethodPost,
+		Path:        "/api/campaigns/{campaignId}/bridge/inbox/{eventId}/accept-deposit",
+		Summary:     "Add a Foundry coin deposit to colony gold; one already handled, or past gold's max, is 409",
+		Tags:        []string{"bridge"},
+	}, func(requestContext context.Context, input *bridgeEventPath) (*bodyOutput[core.ColonyChange], error) {
+		change, err := handlers.core.AcceptBridgeDeposit(requestContext, viewerFrom(requestContext), input.EventID)
+		if err != nil {
+			return nil, handlers.fail(requestContext, err)
+		}
+		return &bodyOutput[core.ColonyChange]{Body: change}, nil
+	})
+
+	Register(api, AccessDm, huma.Operation{
 		OperationID:   "dismissBridgeInboxItem",
 		Method:        http.MethodPost,
 		Path:          "/api/campaigns/{campaignId}/bridge/inbox/{eventId}/dismiss",
-		Summary:       "Dismiss a Foundry inbox item; one already handled is 409",
+		Summary:       "Dismiss a Foundry inbox item; one already handled is 409, and a coin deposit returns its coins through Foundry, so it needs a connected world",
 		Tags:          []string{"bridge"},
 		DefaultStatus: http.StatusNoContent,
 	}, func(requestContext context.Context, input *bridgeEventPath) (*struct{}, error) {

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { FoundrySettings, SettingConfig } from "./foundry-types";
-import { createBridgeSettings, registerSettings } from "./settings";
+import { assignMissingLinkId, createBridgeSettings, registerSettings } from "./settings";
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function fakeSettings() {
 	const values = new Map<string, unknown>();
@@ -53,6 +55,42 @@ describe("createBridgeSettings", () => {
 		expect(writes.at(-1)).toEqual(["token", "new-token"]);
 	});
 
+	test("each link gets its own random ID, in this browser only, written before the token", async () => {
+		const { configs, settings, writes } = fakeSettings();
+		const bridgeSettings = createBridgeSettings(settings);
+		await bridgeSettings.saveLink({
+			campaignName: "Ridgehold",
+			token: "first-token",
+			worldId: "w",
+		});
+		const firstLinkId = bridgeSettings.linkId();
+		await bridgeSettings.saveLink({
+			campaignName: "Ridgehold",
+			token: "second-token",
+			worldId: "w",
+		});
+		expect(configs.get("linkId")?.scope).toBe("client");
+		expect(firstLinkId).toMatch(uuidPattern);
+		expect(bridgeSettings.linkId()).toMatch(uuidPattern);
+		expect(bridgeSettings.linkId()).not.toBe(firstLinkId);
+		expect(writes.at(-2)?.[0]).toBe("linkId");
+		await bridgeSettings.saveLink({ campaignName: "", token: "", worldId: "" });
+		expect(bridgeSettings.linkId()).toBe("");
+	});
+
+	test("a link saved before 0.3.0 gets a random ID, and no link gets none", async () => {
+		const { settings, values } = fakeSettings();
+		const bridgeSettings = createBridgeSettings(settings);
+		await assignMissingLinkId(settings);
+		expect(bridgeSettings.linkId()).toBe("");
+		values.set("token", "old-token");
+		await assignMissingLinkId(settings);
+		const assigned = bridgeSettings.linkId();
+		expect(assigned).toMatch(uuidPattern);
+		await assignMissingLinkId(settings);
+		expect(bridgeSettings.linkId()).toBe(assigned);
+	});
+
 	test("forgetting a link owes no withdrawal", async () => {
 		const { settings } = fakeSettings();
 		const bridgeSettings = createBridgeSettings(settings);
@@ -65,5 +103,39 @@ describe("createBridgeSettings", () => {
 		const { settings, values } = fakeSettings();
 		values.set("token", "old-token");
 		expect(createBridgeSettings(settings).linkedWorldId()).toBe("");
+	});
+
+	test("a reload keeps queued deposits and imports, and drops kinds it doesn't know", () => {
+		const { settings, values } = fakeSettings();
+		const event = (id: string, kind: string) => ({
+			id,
+			kind,
+			occurredAt: "2026-11-14T10:00:00Z",
+			payload: {},
+		});
+		values.set("pendingEvents", {
+			events: [
+				event("deposit", "COIN_DEPOSIT"),
+				event("npc", "NPC_IMPORT"),
+				event("item", "ITEM_IMPORT"),
+				event("future", "SOMETHING_NEW"),
+			],
+		});
+		expect(
+			createBridgeSettings(settings)
+				.pendingEvents()
+				.map((queued) => queued.id),
+		).toEqual(["deposit", "npc", "item"]);
+	});
+
+	test("the deposit escrow is a world setting no menu shows, outside every link", async () => {
+		const { configs, settings, writes } = fakeSettings();
+		expect(configs.get("deposits")).toMatchObject({
+			config: false,
+			default: { entries: {} },
+			scope: "world",
+		});
+		await createBridgeSettings(settings).saveLink({ campaignName: "", token: "t", worldId: "w" });
+		expect(writes.map(([key]) => key)).not.toContain("deposits");
 	});
 });

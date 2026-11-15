@@ -121,6 +121,9 @@ type NpcPortraitInput struct {
 type NewNpcInput struct {
 	NpcInput
 	Revealed bool `json:"revealed" doc:"Visible to players; the create form starts it off"`
+	// BridgeEventID is the Foundry inbox item this create answers; only a create takes one, so an edit
+	// can't accept anything.
+	BridgeEventID *uuid.UUID `json:"bridgeEventId,omitempty" format:"uuid" doc:"A PENDING NPC_IMPORT inbox item this create accepts"`
 }
 
 // NpcFilter narrows the roster; every zero value is off. Players search display names and aliases
@@ -230,13 +233,13 @@ func (service *Service) revealedNpcsByDisplayName(requestContext context.Context
 	return npcs, nil
 }
 
-// CreateNpc adds an NPC. It is not a colony mutation.
+// CreateNpc adds an NPC. It is not a colony mutation, so accepting a Foundry inbox item with it is final.
 func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer, input NewNpcInput) (Npc, error) {
 	if err := requireDm(viewer); err != nil {
 		return Npc{}, err
 	}
 	var npc Npc
-	bridged := false
+	bridged := input.BridgeEventID != nil
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first, so concurrent creates can't each pass the count and go over the limit.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -252,6 +255,12 @@ func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer,
 		cleaned, err := cleanNpcInput(requestContext, queries, viewer.campaignID, input.NpcInput)
 		if err != nil {
 			return err
+		}
+		if input.BridgeEventID != nil {
+			if _, err := decideBridgeEvent(requestContext, queries, viewer.campaignID, *input.BridgeEventID, []BridgeEventKind{BridgeEventKindNpcImport},
+				BridgeEventStatusAccepted, service.clock().UTC(), "bridgeEventId"); err != nil {
+				return err
+			}
 		}
 		row, err := queries.CreateNpc(requestContext, store.CreateNpcParams{
 			CampaignID:     cleaned.CampaignID,
@@ -285,10 +294,11 @@ func (service *Service) CreateNpc(requestContext context.Context, viewer Viewer,
 		if err := outbox.npcUpsert(row.ID); err != nil {
 			return err
 		}
-		bridged, err = outbox.finish()
+		wroteRows, err := outbox.finish()
 		if err != nil {
 			return err
 		}
+		bridged = bridged || wroteRows
 		npc, err = readNpc(requestContext, queries, viewer.campaignID, row.ID, true)
 		return err
 	})

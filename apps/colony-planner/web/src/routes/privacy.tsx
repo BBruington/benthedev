@@ -190,18 +190,30 @@ function PrivacyPage() {
 							goes, and the site keeps a copy of everything it sends. Everyone in that world can
 							read the pages and chat messages it makes there; when something is hidden or deleted
 							on the site, its page there is set so players can't open it, and kept for the GM.
-							Foundry sends back only its status (the world's title and versions above) and how far
-							its clock moved, which waits for the DM to accept or dismiss and changes nothing by
-							itself.
+							Foundry sends back its status (the world's title and versions above), how far its
+							clock moved, and any NPC, item or deposit its GM sends; each waits for the DM to
+							accept or dismiss and changes nothing by itself.
+						</p>
+						<p>
+							When the GM sends an NPC, an item or a deposit from Foundry, the site keeps what was
+							sent in the DM's inbox until about 30 days after the DM accepts or dismisses it, or
+							longer while accepting it is the colony's last change the DM can undo. A deposit's
+							record is kept until the campaign is deleted, so the same deposit can never be counted
+							twice. What is kept is the Foundry document's ID and name, an NPC's level, ancestry,
+							class, description and the GM's notes, an item's description, price and compendium
+							item, and a deposit's amount and the ID and name of the actor that paid it (the party
+							or a character). Only the DM sees it. What the DM saves from it becomes an ordinary
+							NPC, catalog item or colony gold, and a dismissed or undone deposit sends its amount
+							and that actor's name back to Foundry.
 						</p>
 						<p>
 							Only the DM sees any of this on the site, on the campaign's Settings, where they can
 							disconnect at any time; Foundry's waiting notes also show on their colony board. The
 							address and the world's details stay until the campaign is deleted, even after
 							Disconnect, and so do the copies sent, except that copies Foundry has dealt with are
-							cleared about 30 days later. Foundry's notes are cleared about 30 days after the DM
-							decides them, and its status notes about 30 days after they arrive. Both clean-ups
-							happen the next time a connected Foundry is in touch.
+							cleared about 30 days later. Foundry's notes, deposits aside, are cleared about 30
+							days after the DM decides them, and its status notes about 30 days after they arrive.
+							Both clean-ups happen the next time a connected Foundry is in touch.
 						</p>
 					</PrivacySection>
 

@@ -18,6 +18,8 @@ const (
 	BridgeOutboxKindDeliveryUndone = store.BridgeOutboxKindDELIVERYUNDONE
 	BridgeOutboxKindPollPosted     = store.BridgeOutboxKindPOLLPOSTED
 	BridgeOutboxKindPollClosed     = store.BridgeOutboxKindPOLLCLOSED
+	BridgeOutboxKindDepositRefund  = store.BridgeOutboxKindDEPOSITREFUND
+	BridgeOutboxKindDepositUndone  = store.BridgeOutboxKindDEPOSITUNDONE
 )
 
 // AllBridgeOutboxKindValues lists every outbox kind, for the API's enum schema.
@@ -31,6 +33,9 @@ type BridgeEventKind = store.BridgeEventKind
 const (
 	BridgeEventKindStatus       = store.BridgeEventKindSTATUS
 	BridgeEventKindTimeAdvanced = store.BridgeEventKindTIMEADVANCED
+	BridgeEventKindCoinDeposit  = store.BridgeEventKindCOINDEPOSIT
+	BridgeEventKindNpcImport    = store.BridgeEventKindNPCIMPORT
+	BridgeEventKindItemImport   = store.BridgeEventKindITEMIMPORT
 )
 
 // AllBridgeEventKindValues lists every inbound kind, for the API's enum schema.

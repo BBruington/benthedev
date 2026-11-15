@@ -1,12 +1,18 @@
+import { formatNumber } from "./adapters/render";
 import type { Bridge, BridgeStatus } from "./bridge";
+import type { Deposits } from "./deposits";
 import type { ApplicationV2 } from "./foundry-types";
 import { connectWithCode } from "./pairing";
 
 export interface SettingsMenuDependencies {
 	bridge: () => Bridge | undefined;
 	colonyOrigin: () => string | undefined;
+	/** The escrow; undefined in a browser that isn't a GM's. */
+	deposits: () => Pick<Deposits, "forget" | "interrupted"> | undefined;
 	reportError: (error: unknown) => void;
 }
+
+type InterruptedDeposit = ReturnType<Deposits["interrupted"]>[number];
 
 /**
  * The GM-only settings menu (design §3.1): type the pairing code and press Connect, see the linked
@@ -23,6 +29,12 @@ export function defineSettingsMenu(
 				disconnect(this: unknown) {
 					if (this instanceof ColonyBridgeSettingsMenu) {
 						return this.disconnect();
+					}
+					return undefined;
+				},
+				forgetDeposit(this: unknown, _event: PointerEvent, target: HTMLElement) {
+					if (this instanceof ColonyBridgeSettingsMenu) {
+						return this.forgetDeposit(target.dataset.depositId ?? "");
 					}
 					return undefined;
 				},
@@ -88,6 +100,16 @@ export function defineSettingsMenu(
 			await this.render();
 		}
 
+		async forgetDeposit(depositId: string) {
+			try {
+				await dependencies.deposits()?.forget(depositId);
+				this.#message = "Forgot that deposit.";
+			} catch (error) {
+				this.#message = error instanceof Error ? error.message : String(error);
+			}
+			await this.render();
+		}
+
 		protected override _renderHTML(): Promise<unknown> {
 			// A re-render (a player joining, the stream reconnecting) keeps what the GM was typing.
 			const codeInput = this.element?.querySelector('input[name="code"]');
@@ -109,6 +131,7 @@ export function defineSettingsMenu(
 				renderMenuContent(bridge?.status(), {
 					busy: this.#busy,
 					code: this.#code,
+					interrupted: dependencies.deposits()?.interrupted() ?? [],
 					message: this.#message,
 				}),
 			);
@@ -163,9 +186,34 @@ function runningSentence(status: BridgeStatus): string {
 	}
 }
 
+/** Design §14.10: deposits whose coins are in an unknown state, until the GM fixes them by hand. */
+function interruptedDeposits(deposits: InterruptedDeposit[]): Node[] {
+	if (deposits.length === 0) {
+		return [];
+	}
+	const rows = deposits.map((deposit) => {
+		const forgetButton = element("button", { textContent: "Forget", type: "button" });
+		forgetButton.dataset.action = "forgetDeposit";
+		forgetButton.dataset.depositId = deposit.depositId;
+		return element("li", {}, [
+			document.createTextNode(`${formatNumber(deposit.gold)} gp from ${deposit.actorName} `),
+			forgetButton,
+		]);
+	});
+	return [
+		element("h3", { textContent: "Deposits that stopped part way" }),
+		element("p", {
+			className: "hint",
+			textContent:
+				"Foundry stopped while moving these coins. Check each paying actor's coins and fix them by hand, then press Forget.",
+		}),
+		element("ul", {}, rows),
+	];
+}
+
 function renderMenuContent(
 	status: BridgeStatus | undefined,
-	view: { busy: boolean; code: string; message: string },
+	view: { busy: boolean; code: string; interrupted: InterruptedDeposit[]; message: string },
 ): HTMLElement {
 	if (!status) {
 		return element("p", {
@@ -215,6 +263,7 @@ function renderMenuContent(
 			element("button", { disabled: view.busy, textContent: "Connect", type: "submit" }),
 		);
 	}
+	children.push(...interruptedDeposits(view.interrupted));
 	if (view.message) {
 		children.push(element("p", { role: "status", textContent: view.message }));
 	}

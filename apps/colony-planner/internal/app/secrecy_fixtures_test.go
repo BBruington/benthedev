@@ -734,17 +734,17 @@ var secrecyFixtures = []secrecyFixture{
 				}
 			}
 			compendiumUUID := testHarness.plantedCompendiumUUID(side.campaign)
-			shown, err := testHarness.core.CreateMarketItem(testHarness.context, dmViewer, core.MarketItemInput{
+			shown, err := testHarness.core.CreateMarketItem(testHarness.context, dmViewer, core.NewMarketItemInput{MarketItemInput: core.MarketItemInput{
 				Name: "Seed Grain" + visible, Description: "From the mainland" + visible, PriceGold: 3, CompendiumUUID: &compendiumUUID,
-			})
+			}})
 			check("plant a market item", err)
 			supplies, err := testHarness.core.SetSupplyOffer(testHarness.context, dmViewer, resourceKey, core.SupplyOfferInput{PriceGold: 2, Amount: 3})
 			check("price a supply offer", err)
 			colonists, err := testHarness.core.SetColonistOffer(testHarness.context, dmViewer, roleKey, core.ColonistOfferInput{PriceGold: 4})
 			check("price a colonist offer", err)
-			archived, err := testHarness.core.CreateMarketItem(testHarness.context, dmViewer, core.MarketItemInput{
+			archived, err := testHarness.core.CreateMarketItem(testHarness.context, dmViewer, core.NewMarketItemInput{MarketItemInput: core.MarketItemInput{
 				Name: "Old Lantern" + visible, Description: "Withdrawn" + visible, PriceGold: 1,
-			})
+			}})
 			check("plant an item to archive", err)
 			_, err = testHarness.core.SetMarketItemArchived(testHarness.context, dmViewer, archived.ID, true)
 			check("archive an item", err)
@@ -829,8 +829,9 @@ var secrecyFixtures = []secrecyFixture{
 	{
 		feature: "Foundry bridge",
 		// The whole bridge is the DM's: the world's title (a STATUS event) carries the DM token, and the
-		// pairing codes and the bridge token are DM-only literals. A PENDING TIME_ADVANCED item is the
-		// {eventId} row; the board's dm.bridgeInbox carries it, so its ID is DM-only too.
+		// pairing codes and the bridge token are DM-only literals. The inbox is DM-only too, so every text
+		// field of a coin deposit, an NPC import and an item import carries the DM token, and every item's
+		// ID is DM-only. The first deposit is the {eventId} row; a second waits for Dismiss.
 		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
 			t.Helper()
 			side.campaign.bridgeOrigin = "https://" + strings.ToLower(strings.ReplaceAll(side.campaign.slug, "-", "")) + ".forge-vtt.com"
@@ -843,19 +844,39 @@ var secrecyFixtures = []secrecyFixture{
 				"foundryVersion": "13.351", "systemId": "pf2e", "systemVersion": "7.12.2", "moduleVersion": "0.0.0",
 				"worldTitle": "World " + side.dmSecret,
 			})
+			deposit := func(gold int) json.RawMessage {
+				payload, _ := json.Marshal(map[string]any{"gold": gold, "actorId": "abcdefghij123456", "actorName": testHarness.plantedActorName(side.campaign)})
+				return payload
+			}
+			npcImport, _ := json.Marshal(map[string]any{
+				"foundryUuid": "Compendium." + side.dmSecret + ".npcs.Actor.abcdefghij123456", "name": "Brother Aldo " + side.dmSecret, "level": 3,
+				"race": "Human " + side.dmSecret, "characterClass": "Cleric " + side.dmSecret, "appearance": "Grey robes " + side.dmSecret,
+				"dmNotes": "A spy " + side.dmSecret,
+			})
+			itemImport, _ := json.Marshal(map[string]any{
+				"foundryUuid": "Compendium." + side.dmSecret + ".equipment-srd.Item.abcdefghij123456", "name": "Boots " + side.dmSecret,
+				"description": "Quick " + side.dmSecret, "priceGold": 12, "compendiumUuid": testHarness.plantedCompendiumUUID(side.campaign),
+			})
 			if _, err := testHarness.core.RecordBridgeEvents(testHarness.context, caller, core.BridgeEventsInput{Events: []core.BridgeInboundEvent{
 				{ID: uuid.New(), Kind: core.BridgeEventKindStatus, OccurredAt: time.Now().UTC(), Payload: status},
 				{ID: uuid.New(), Kind: core.BridgeEventKindTimeAdvanced, OccurredAt: time.Now().UTC(), Payload: json.RawMessage(`{"days":3}`)},
+				{ID: uuid.New(), Kind: core.BridgeEventKindCoinDeposit, OccurredAt: time.Now().UTC(), Payload: deposit(plantedDepositGold)},
+				{ID: uuid.New(), Kind: core.BridgeEventKindCoinDeposit, OccurredAt: time.Now().UTC(), Payload: deposit(plantedDepositGold + 1)},
+				{ID: uuid.New(), Kind: core.BridgeEventKindNpcImport, OccurredAt: time.Now().UTC(), Payload: npcImport},
+				{ID: uuid.New(), Kind: core.BridgeEventKindItemImport, OccurredAt: time.Now().UTC(), Payload: itemImport},
 			}}); err != nil {
 				t.Fatalf("record bridge events in %s: %v", side.campaign.name, err)
 			}
 			bridge, err := testHarness.core.GetBridgeStatus(testHarness.context, testHarness.enter(side.dm, side.campaign.id))
-			if err != nil || len(bridge.Inbox) != 1 {
+			if err != nil || len(bridge.Inbox) != 5 {
 				t.Fatalf("read the bridge of %s: %+v, %v", side.campaign.name, bridge, err)
 			}
-			eventID := bridge.Inbox[0].ID.String()
-			side.campaign.pathIDs["eventId"] = eventID
-			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, eventID)
+			for _, item := range bridge.Inbox {
+				side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, item.ID.String())
+				if item.Deposit != nil && item.Deposit.Gold == plantedDepositGold {
+					side.campaign.pathIDs["eventId"] = item.ID.String()
+				}
+			}
 			// An open code too, so the Settings card shows one.
 			code, err := testHarness.core.CreateBridgePairingCode(testHarness.context, testHarness.enter(side.dm, side.campaign.id))
 			if err != nil {
@@ -887,6 +908,18 @@ func (testHarness *harness) pairBridge(campaign *campaignFixture, dm account) st
 		testHarness.t.Fatalf("pair %s: %v", campaign.name, err)
 	}
 	return pairing.Token
+}
+
+// plantedDepositGold is the {eventId} deposit's amount; the second planted deposit is one more.
+const plantedDepositGold = 40
+
+// plantedActorName is the paying actor named on the campaign's planted deposits, its DM-only canary: Foundry's
+// text, which only the inbox and the deposit's own refund and undo rows carry.
+func (testHarness *harness) plantedActorName(campaign *campaignFixture) string {
+	if campaign == testHarness.campaignB {
+		return "Wayfarers " + canaryBdm
+	}
+	return "Wayfarers " + canaryA
 }
 
 // plantedCompendiumUUID is the shown special item's DM-only Foundry item, its package the campaign's

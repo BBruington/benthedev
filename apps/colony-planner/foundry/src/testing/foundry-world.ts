@@ -1,4 +1,5 @@
-import type { Pf2eAdapterDependencies } from "../adapters/pf2e";
+import type { AdapterDependencies } from "../adapters/adapter";
+import { createDepositLedger } from "../deposits";
 import type {
 	DocumentOwnership,
 	FoundryChatMessage,
@@ -245,11 +246,26 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		items: collection<FakeDocument>(partyItems),
 		name: "The <Wardens>",
 	};
-	const actors: { party: FoundryPartyActor | null } = {
+	const actorsById = new Map<string, unknown>();
+	const actors = {
+		get: (id: string) => actorsById.get(id),
 		party: options.party === false ? null : party,
 	};
+	// The world setting's value, which only the GM's writes change unless a test says a player wrote last.
+	const ledgerSetting: { lastWriterIsGm: boolean; value: unknown } = {
+		lastWriterIsGm: true,
+		value: { entries: {} },
+	};
+	const depositLedger = createDepositLedger({
+		lastWriterIsGm: () => ledgerSetting.lastWriterIsGm,
+		load: () => ledgerSetting.value,
+		save: (value) => {
+			ledgerSetting.value = structuredClone(value);
+			return Promise.resolve();
+		},
+	});
 
-	const dependencies: Pf2eAdapterDependencies = {
+	const dependencies: AdapterDependencies = {
 		chatMessage: {
 			create: (data, writeOptions) =>
 				createDocument(
@@ -260,6 +276,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 					messages,
 				),
 		},
+		depositLedger,
 		folder: {
 			create: (data, writeOptions) =>
 				createDocument(
@@ -311,6 +328,7 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 
 	return {
 		actors,
+		actorsById,
 		addCompendiumItem(uuid: string, name: string, itemOptions: CompendiumItemOptions = {}) {
 			const source = {
 				_id: uuid.slice(-16),
@@ -352,11 +370,13 @@ export function createFoundryWorld(options: { party?: boolean; users?: FoundryUs
 		},
 		cancelNext,
 		dependencies,
+		depositLedger,
 		entries,
 		entryFor: (externalId: string) =>
 			entries.find((entry) => entry.getFlag("colony-bridge", "externalId") === externalId),
 		failNext,
 		folders,
+		ledgerSetting,
 		messages,
 		partyItems,
 		writes,

@@ -38,6 +38,7 @@ var bridgeOneShotKinds = []string{
 	string(BridgeOutboxKindDeliveryUndone),
 	string(BridgeOutboxKindPollPosted),
 	string(BridgeOutboxKindPollClosed),
+	string(BridgeOutboxKindDepositUndone),
 }
 
 // bridgeBackfilledKinds are the state kinds pairing sends again whole, so an earlier link's waiting

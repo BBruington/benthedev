@@ -2,7 +2,7 @@
 
 **Status:** approved by the author on 2026-11-12, after answering §9's questions (eight defaults, plus a
 deposit action for question 7). Phase 1 is built to §12's wire format; Phase 2's wire format is in §13
-(2026-11-14). **Date:** 2026-11-12.
+and Phase 3's in §14 (both 2026-11-14). **Date:** 2026-11-12.
 **Builds after:** the Market and Polls (merged). Phase 1's Forge check needs the M6 cutover, since a Forge
 game can't reach the author's Mac. **Builds before:** nothing depends on it.
 **Changes:** SPEC.md §2.2 (the `token` level gains a header-carried secret), §8.8 (a second kind of stream)
@@ -21,7 +21,7 @@ data mapping). The key sources are in §11.
 | B3 | **One bridge link per campaign**, made like Beny Bot's `/link`: the DM presses **Connect Foundry** on Settings, gets a one-time code that lasts 10 minutes, and types it into the module's settings in Foundry. The module trades the code for a bridge token. |
 | B4 | **The bridge token is a bearer header, never a cookie or a URL.** Opaque random bytes, stored only as a SHA-256 hash, scoped to one campaign, revoked by the DM or by unlinking. In Foundry it lives in a `client`-scope setting (that browser's local storage), because world settings reach every player's browser. |
 | B5 | **Bridge routes live under `/api/bridge/` at the `token` level** and never read the session cookie. The token picks the campaign, as the ICS token does. Core builds a `BridgeCaller` from it, which only bridge operations accept. |
-| B6 | **Colony to Foundry is an outbox.** Core writes outbox rows in the same transaction as the change they describe, built from the **player projection**. The module reads them in order and acknowledges them, so nothing is lost while no GM is online or across a redeploy. |
+| B6 | **Colony to Foundry is an outbox.** Core writes outbox rows in the same transaction as the change they describe, built from the **player projection** (a deposit's refund and undo note repeat only what Foundry sent, §14.6). The module reads them in order and acknowledges them, so nothing is lost while no GM is online or across a redeploy. |
 | B7 | **The bridge stream stays invalidate-only**, like the site's: it tells the module "the outbox grew" and the module fetches the rows. The stream reads the database only on connect and when the broker publishes, so no timer polls it. |
 | B8 | **Foundry to Colony never changes the books by itself.** Events from Foundry arrive as items in a DM inbox (for example "Foundry moved 3 days: advance the colony?"), and the DM confirms them with the existing sheets. The app still invents no game consequences. |
 | B9 | **System-agnostic core, thin PF2e adapter.** Journals, chat messages, actors, items, scenes, notes and world time work in any system. The PF2e adapter adds coins and party inventory. Anything else falls back to journal and chat only. |
@@ -206,7 +206,7 @@ The `bridge` topic joins `AllTopics()`, and like every publish it carries no dat
 | Paid shipment | `DELIVERY` | A chat message listing the goods | Physical items on the party actor, from compendium UUIDs the DM set on catalog items | 2 |
 | Poll posted or closed | `POLL_POSTED` / `POLL_CLOSED` | A chat message with the question and, on close, the counts | Same | 2 |
 | Next game night | `SESSION_UPSERT` | Part of the summary page | Same | 2 |
-| A dismissed coin deposit (§5) | `DEPOSIT_REFUND` | Nothing without a coin adapter | The coins added back to the party actor | 3 |
+| A dismissed coin deposit (§5) | `DEPOSIT_REFUND` | Nothing without a coin adapter | The coins added back to the actor that paid | 3 |
 
 The hex map isn't bridged: Foundry has no core hex state, and Paizo's paid Kingmaker module owns that in
 PF2e. Withdraw kinds (an NPC hidden again) hide the Foundry document rather than delete it, so the GM keeps
@@ -231,17 +231,17 @@ Each event becomes one of two things:
 | Foundry | Detected by | Becomes | Phase |
 |---|---|---|---|
 | World time moved forward N whole days | `updateWorldTime` (GM client only; the module keeps the last whole day it reported) | Inbox: "Foundry moved N days." **Advance** opens the Advance sheet pre-filled with N | 1 |
-| GM deposits party coins into colony gold (a **Deposit to colony** button on the party sheet) | An explicit GM action | Inbox: "The party deposited 40 gp." **Accept** adds it to colony gold; **Dismiss** returns the coins | 3 |
-| GM sends an NPC actor to Colony Planner (a button on the actor sheet) | An explicit GM action | Inbox: **Import as NPC** opens the NPC sheet pre-filled, hidden | 3 |
-| GM sends a compendium item to the catalog | An explicit GM action | Inbox: **Add to Shipments** opens the item sheet pre-filled | 3 |
+| GM deposits party coins into colony gold (**Deposit to colony…** in a PF2e party's or character's context menu, §14.1) | An explicit GM action | Inbox: "The party deposited 40 gp." **Accept** adds it to colony gold; **Dismiss** returns the coins | 3 |
+| GM sends an actor to Colony Planner (**Send to Colony Planner** in its context menu, in the sidebar or a compendium) | An explicit GM action | Inbox: **Import as NPC** opens the NPC sheet pre-filled, hidden | 3 |
+| GM sends an item to the catalog (**Send to Colony Planner** in its context menu, in the sidebar or a compendium) | An explicit GM action | Inbox: **Add to Shipments** opens the item sheet pre-filled | 3 |
 
 A deposit holds the coins in escrow so neither side can lose them. The module removes them from the party
 actor first (`removeCoins`, which refuses when the party is short, so no event is sent), then sends the
-event. **Accept** is an ordinary colony change: the colony lock, a STRICT gold grant capped at its max, a
-timeline entry and undo. **Dismiss** enqueues a `DEPOSIT_REFUND` row that adds the coins back. Undoing an
+event. **Accept** is an ordinary colony change: the colony lock, a STRICT gold grant (refused, not capped,
+when it would pass gold's max, §14.5), a timeline entry and undo. **Dismiss** enqueues a `DEPOSIT_REFUND` row that adds the coins back. Undoing an
 accepted deposit takes the gold back out of the colony only, with a GM-only chat note, as for an undone
-shipment (§9, question 6). Deposits are in whole gold pieces at 1 gp to 1 colony gold, and only where an
-adapter can move coins (PF2e, or Item Piles once its API is checked).
+shipment (§9, question 6), and the deposit waits in the inbox again. Deposits are in whole gold pieces at
+1 gp to 1 colony gold, and only in PF2e worlds (§14).
 
 Payloads from Foundry are untrusted: every player can run code in their own browser, and other modules can
 read the GM's local storage. Core validates every field as it does a request body (lengths through
@@ -282,7 +282,7 @@ board DTO, so view as player strips it) and a list on Settings.
 ## 7. Privacy and secrecy
 
 - `/privacy` gains the Foundry bridge: the Forge address and the last contact day, the Foundry document
-  IDs and names of what the GM sends (Phase 3), and that Colony Planner sends the colony's player-visible
+  IDs and names of what the GM sends and the text sent with them (Phase 3, §14.13), and that Colony Planner sends the colony's player-visible
   data to that Foundry world. Same change as the migration, per CLAUDE.md.
 - **The secrecy sweep** gains bridge callers: campaign A's token against every bridge route must never
   return B's values, and B's token must never see A's. Every outbox payload is replayed against the
@@ -313,7 +313,8 @@ agents test against a local Foundry only if the author installs one, otherwise w
    advances a day on each side, and watches both show up, including after closing Foundry and reopening it.
 2. **Colony to Foundry content.** NPCs, places and pins, quests, deliveries (with the PF2e adapter and the
    catalog's optional compendium UUID field), polls, sessions.
-3. **Foundry to Colony content.** Coin deposits with their refunds, NPC import, catalog import.
+3. **Foundry to Colony content.** Coin deposits with their refunds (PF2e only), NPC import and catalog
+   import, each started from a Foundry context menu (§14).
 
 ---
 
@@ -787,3 +788,489 @@ changed by that day's security review (below).
    name that is now a secret. So a withdraw also sets every non-GM user's own level to None, renames the
    entry "Hidden on Colony Planner" and blanks the bridge's page, whatever §9.1 finds (§13.7). The GM's own
    pages stay, and the next upsert restores the name and page.
+
+---
+
+## 14. Phase 3 wire format
+
+Fixed on 2026-11-14 so the server, the site and the module are built side by side, under §12's conventions
+(camelCase keys, RFC 3339 UTC instants, lists `[]` and never null). It replaces §5's Phase 3 rows with the
+author's 2026-11-14 decisions: the GM starts every action from a Foundry context menu (no sheet buttons);
+an NPC or catalog import is text only (no portrait); coin deposits are PF2e only and in whole gold, paid by
+the party or a character. Foundry still changes nothing by itself (B8): each event is a DM inbox item, and
+only the DM's own Accept, or a save of a sheet the item opened, changes Colony Planner. A leaked token can
+still only add inbox items (at most `BridgeInboxLimit`, 100, pending) and status.
+
+### 14.1 Where the GM starts each action
+
+Verified on 2026-11-14 against the Foundry 13.351 client source (the local install) and the v13 and v14
+API pages, and against the pf2e 7.12.2 and dnd5e 5.2.5 sources at their tags:
+
+- **Hooks.** v13's `DocumentDirectory#_createContextMenus` builds each entry's menu with the hook
+  `get${documentName}ContextOptions`, so `getActorContextOptions(application, menuItems)` and
+  `getItemContextOptions(application, menuItems)`. `ApplicationV2#_doEvent` runs it with `Hooks.callAll`,
+  so a module adds entries by pushing onto `menuItems`. The Compendium window
+  (`foundry.applications.sidebar.apps.Compendium`) extends `DocumentDirectory` without overriding that,
+  so an Actor or Item pack fires the same hooks; `application instanceof
+  foundry.applications.sidebar.apps.Compendium` tells the two apart. v12's
+  `getActorDirectoryEntryContext` and `getCompendiumEntryContext` no longer fire at all, not even
+  deprecated. The menu is built once, at the app's first render, so the module registers its hooks in
+  `init` and decides per entry at click time.
+- **Entries.** v13's `ContextMenuEntry` is `{name, icon, condition, callback}`, and with `jQuery: false`
+  `condition(li)` and `callback(li)` get the `li` as an `HTMLElement`. Directory and compendium entries
+  both carry `data-entry-id` (a pack's is the index `_id`). The document is
+  `application.collection.get(li.dataset.entryId)` in the sidebar and `await
+  application.collection.getDocument(li.dataset.entryId)` in a pack, as core itself does. v14 renames the
+  fields to `{label, icon, visible, onClick}`, with `onClick(event, target)`, and keeps the hook names. The
+  module builds each entry in one helper that picks the field names by `game.release.generation` (a v13
+  `ReleaseData` field), so it never relies on v14's deprecated aliases, which only a third party's notes
+  describe.
+- **PF2e's party.** pf2e's actor directory overrides `_createContextMenus` with the same selector and hook
+  and renders the party as `<li class="directory-item folder" data-party data-entry-id="<partyId>">`, so
+  `getActorContextOptions` fires for it. Its "Other parties" row (`data-entry-id="otherParties"`) and an
+  empty party's placeholder (`data-entry-id=""`) match the selector too, so every lookup null-checks the
+  actor. pf2e 7.12.2's manifest says maximum 13, so PF2e deposits are v13 only until a pf2e release runs
+  on v14.
+- **PF2e's characters.** A character (`type` `character`) is an ordinary directory entry, and pays and is
+  refunded through the same `inventory.currency`, `removeCurrency` and `addCurrency` as the party (pf2e's
+  `ActorInventory`, which the party shares; not re-checked in pf2e's source for characters, so Phase 3's
+  checklist confirms it). The module checks those three before it offers the entry. NPCs (`npc`) never
+  deposit.
+
+The module adds three entries. Each is visible only while the bridge runs in this browser (the active GM,
+linked, bridge on: `condition()` is `running`), so players' menus and other GMs' menus are unchanged, and
+each callback checks that again before it reads anything.
+
+| Entry | Where | Visible for | Does |
+|---|---|---|---|
+| **Send to Colony Planner** (`fa-solid fa-paper-plane`) | Actors directory, Actor compendium windows | any actor but a PF2e `party`; in a pack every entry, and the callback refuses a party | queues an `NPC_IMPORT` (§14.2) |
+| **Send to Colony Planner** | Items directory, Item compendium windows | any item | queues an `ITEM_IMPORT` |
+| **Deposit to colony…** (`fa-solid fa-coins`) | Actors directory, PF2e worlds only | an actor whose `type` is `party` or `character` (never `npc`) | asks for the gold, then runs §14.10's escrow from that actor's own coins |
+
+The deposit asks with `foundry.applications.api.DialogV2.input` (v13; it resolves to the form's values as
+an object, or null when dismissed): one number field, "Gold pieces to deposit", with the hint "Paid
+with any coins worth exactly this much." Anything but a whole number from 1 to 1,000,000 is a warning
+and nothing happens. Each send ends with a notification ("Queued Brother Aldo for Colony Planner's inbox.").
+
+### 14.2 Inbound kinds and payloads
+
+`bridge_event_kind` gains three kinds. Every field is checked as a request body is: text through
+`cleanText` or `cleanMultilineText` with the target form's own limit, IDs by pattern, numbers by range.
+A field that fails is 422 for the whole batch, as §12.3 says, so the module trims and cleans first
+(§14.11) and a refusal means a module bug or a forged event. Unknown fields are ignored, as STATUS's are.
+
+`COIN_DEPOSIT`, a PENDING inbox item:
+
+| Field | Type | Rule |
+|---|---|---|
+| `gold` | int | 1 to 1,000,000 (`BridgeDepositMaxGold`) |
+| `actorId` | string | the paying actor's `id` (the party or a character), `^[A-Za-z0-9]{16}$` |
+| `actorName` | string | the paying actor's name: `cleanText`, 1 to 100 characters |
+
+`NPC_IMPORT`, a PENDING inbox item. Field names are `NpcInput`'s, so the sheet fills from them directly:
+
+| Field | Type | Rule |
+|---|---|---|
+| `foundryUuid` | string | at most 200, `^(Compendium\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)?Actor\.[A-Za-z0-9]{16}$` (a world or pack actor, never an embedded one) |
+| `name` | string | the true name: `cleanText`, 1 to 80 (`npcNameMaxLength`) |
+| `level` | int or null | 0 to 100 (`npcLevelMax`) |
+| `race`, `characterClass` | string | `cleanText`, at most 80; may be `""` |
+| `appearance`, `dmNotes` | string, may hold line breaks | `cleanMultilineText`, at most 4,000; may be `""` |
+
+`ITEM_IMPORT`, a PENDING inbox item. Field names are `MarketItemInput`'s:
+
+| Field | Type | Rule |
+|---|---|---|
+| `foundryUuid` | string | at most 200, `^(Compendium\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.)?Item\.[A-Za-z0-9]{16}$` |
+| `name` | string | `cleanText`, 1 to 80 (`marketItemNameMaxLength`) |
+| `description` | string, may hold line breaks | `cleanMultilineText`, at most 4,000; may be `""` |
+| `priceGold` | int or null | 0 to `game.MaxStored`; null when Foundry's price isn't a whole number of gold (§14.11) |
+| `compendiumUuid` | string or null | `cleanCompendiumUUID`, §13.6's pattern; `""` becomes null |
+
+Core stores the cleaned values, never the raw bytes: `gold` in its own column and the rest of each payload,
+re-encoded, in `content` (§14.12). The board and Settings already read the inbox only for the DM, but a
+full inbox of imports is about 100 times 9 KB on the DM's board, the bound a leaked token can reach.
+
+### 14.3 Inbox items on the site
+
+`BridgeInboxItem` becomes `{"id", "kind", "receivedAt", "days", "deposit", "npc", "item"}`:
+
+- `days` stays an int, `0` unless the kind is `TIME_ADVANCED`, so the Phase 1 web keeps working.
+- `deposit`: null, or `{"gold": int, "actorName": string}` for `COIN_DEPOSIT`.
+- `npc`: null, or `{"foundryUuid", "name", "level", "race", "characterClass", "appearance", "dmNotes"}`
+  for `NPC_IMPORT`.
+- `item`: null, or `{"foundryUuid", "name", "description", "priceGold", "compendiumUuid"}` for
+  `ITEM_IMPORT`.
+
+The inbox reaches only the DM: on the board it is `dm.bridgeInbox`, which the Transformer strips for players
+and View as player, and `GET .../bridge` is dm level, which `requireDm` refuses in View as player. That is
+what lets an import carry a true name and DM notes outside a `dm` object.
+
+`web/src/colony/foundry-inbox.tsx` renders each kind with its own text and buttons, and keeps today's
+focus rules:
+
+| Kind | Text | Buttons |
+|---|---|---|
+| `TIME_ADVANCED` | "Foundry moved 3 days." | **Advance**, **Dismiss** (as today) |
+| `COIN_DEPOSIT` | "The Wayfarers deposited 40 gp." | **Accept** (toast "40 gold added to the colony.", with Undo as every colony change), **Dismiss** ("Dismissed. Foundry returns the coins to whoever paid them.") |
+| `NPC_IMPORT` | "Foundry sent an NPC: Brother Aldo." | **Import as NPC**, **Dismiss** ("Dismissed. Nothing was added.") |
+| `ITEM_IMPORT` | "Foundry sent an item: Boots of Striding." | **Add to Shipments**, **Dismiss** ("Dismissed. Nothing was added.") |
+
+- **Import as NPC** opens `NpcSheet` in create mode with two new props, `prefill` (the `npc` object: the
+  draft takes its seven fields over `toDraft(null)`'s defaults) and `bridgeEventId`. The visibility switch
+  starts off as it always does, so the NPC arrives hidden unless the DM turns it on. Saving posts the
+  create with `bridgeEventId`.
+- **Add to Shipments** opens `ItemSheet` in create mode with `prefill` (the `item` object) and
+  `bridgeEventId`. A null `priceGold` leaves the price blank with the hint "Foundry's price wasn't a whole
+  number of gold. Type one.", and the sheet's existing check keeps Save off until it holds a number. The
+  compendium UUID lands in the DM-only "Foundry item UUID" field (§13.6).
+- A 409 from either save, or from Accept, is handled as Advance's is: refetch the board, and when the item
+  is no longer pending, toast "That Foundry inbox item was already handled." and close.
+- Settings' Disconnect confirmation adds "N deposits wait in the inbox; dismissing one needs a connected
+  world." while any do.
+
+### 14.4 Site routes and input changes
+
+| Route | Level | Body | Answer |
+|---|---|---|---|
+| `POST /api/campaigns/{campaignId}/bridge/inbox/{eventId}/accept-deposit` | dm | `{}` | 200 `ColonyChange` (§14.5); a missing item is 404; an item that isn't a PENDING `COIN_DEPOSIT` is 409 "That Foundry inbox item was already handled."; gold missing, archived or over its max is 409 with §14.5's message and changes nothing |
+| `POST /api/campaigns/{campaignId}/bridge/inbox/{eventId}/dismiss` | dm | `{}` | 204, any PENDING kind, as today. It takes the colony lock first (every kind, since the kind is known only once the item is decided), and for a `COIN_DEPOSIT` writes `DEPOSIT_REFUND` in the same transaction; with no active link it is 409 "Connect Foundry first, so the coins can go back to the actor that paid." and the item stays PENDING |
+| `POST /api/campaigns/{campaignId}/npcs` | dm | `NewNpcInput` plus optional `bridgeEventId` | as today; with `bridgeEventId`, the same transaction marks that PENDING `NPC_IMPORT` item ACCEPTED |
+| `POST /api/campaigns/{campaignId}/market/items` | dm | `NewMarketItemInput`: `MarketItemInput` plus optional `bridgeEventId` | as today; with `bridgeEventId`, the same transaction marks that PENDING `ITEM_IMPORT` item ACCEPTED |
+
+- `bridgeEventId` goes on the create inputs only (`NewNpcInput`, and a new `NewMarketItemInput` that embeds
+  `MarketItemInput` as `NewNpcInput` embeds `NpcInput`), never on a PUT, so an edit can't accept anything.
+  `CreateMarketItem` takes `NewMarketItemInput`; `UpdateMarketItem` keeps `MarketItemInput`.
+- Each accept is `decideBridgeEvent` with the kind its form answers (`DecideBridgeEvent` gains `@kinds`, a
+  list, since Dismiss answers every inbox kind):
+  a missing ID is the field error "That Foundry inbox item doesn't exist." on `bridgeEventId` (Invariant
+  11), a decided item is 409 "That Foundry inbox item was already handled.", and an item of another kind is
+  the field error "That Foundry inbox item isn't one this form answers." The form's own validation runs
+  first, so a refused save leaves the item PENDING.
+- Creating an NPC or a market item is not a colony change and has no undo, so these acceptances are final:
+  deleting the NPC or archiving the item later leaves the inbox item ACCEPTED.
+- Nothing checks that the saved record matches the import: the DM may change every field first, which is
+  the point of opening the sheet.
+
+### 14.5 Accepting and undoing a deposit
+
+`AcceptBridgeDeposit(viewer, eventID)` is a colony change on `mutateColonyGuardedByStatus`: the PENDING
+status is its guard, as a quest decision's is, so the body carries no `expectedVersion`.
+
+1. Under the colony lock, `DecideBridgeEvent` moves the PENDING `COIN_DEPOSIT` to ACCEPTED and returns its
+   `gold` (one statement, so two Accepts can't both pass).
+2. `game.Deposit(state, gold)`, a new rule in `internal/game/deposit.go` with table tests, adds the gold
+   like a STRICT grant that **refuses rather than caps**: it is an error when the colony has no gold
+   resource ("This colony has no gold to deposit into."), when gold is archived ("Gold is archived."), or
+   when the new amount would pass gold's max ("Colony gold would pass its max of 500. Raise the max on
+   Settings, or dismiss the deposit to return the coins.") or `game.MaxStored` ("Colony gold can't store
+   that much. Dismiss the deposit to return the coins."). The messages use gold's own label. The coins left
+   the paying actor already, so capping would lose them (open question 1). Core maps the error to 409, and
+   the transaction rolls back with the item still PENDING.
+3. One PUBLIC timeline entry, new kind `COIN_DEPOSITED` (core's `TimelineKind` list; the column is text, so
+   no migration): title "Coins deposited · 40 gold", the gold delta as its deltas, data `{bridgeEventId}`.
+   It names no actor: `actorName` is Foundry's text and stays in the DM's inbox.
+4. The undo snapshot's existing `bridgeEventId` names the item; COLONY_SUMMARY is written as for every colony
+   change; topics colony, timeline, resources, people and bridge.
+
+**Undo** restores gold from the snapshot, as every undo does, so it takes the gold back out of the colony
+only. `ReopenAcceptedBridgeEvent` covers `COIN_DEPOSIT` as well as `TIME_ADVANCED` and returns the kind and
+the stored deposit; for a deposit it puts the item back to PENDING and writes `DEPOSIT_UNDONE` (§14.6). The
+coins stay in escrow, and the DM may Accept again or Dismiss, which returns them (open question 2). So that
+an undo can always reopen it, `PruneBridgeEvents` and `TrimBridgeEvents` skip the one item the colony's undo
+slot names (`colony.last_change -> 'before' ->> 'bridgeEventId'`); once a later change replaces the slot,
+the item ages out as any decided item does, except a deposit.
+
+Neither ever deletes a `COIN_DEPOSIT`, decided or not, so its module event ID stays a duplicate for as long
+as the campaign lasts. A forgotten deposit's replay (a leaked token flooding STATUS events to trim it, or
+waiting out the 30 days) would otherwise arrive as a new PENDING item: Dismiss would refund coins the colony
+already holds while the Foundry entry stays `SENT`, and Accept would add the gold twice. Deposits are rare
+and at most `BridgeInboxLimit` wait at once, so keeping them costs little.
+
+### 14.6 Outbox kinds
+
+| Kind | Target key | Shape | Payload |
+|---|---|---|---|
+| `DEPOSIT_REFUND` | `deposit-refund:<depositId>` | one-shot, never trimmed | `{"depositId": string, "gold": int, "actorId": string, "actorName": string}` |
+| `DEPOSIT_UNDONE` | `deposit-undone:<groupId>` | one-shot | `{"depositId": string, "gold": int, "actorName": string}` |
+
+- `<depositId>` is the deposit event's module-made ID (`module_event_id`), which keys the module's escrow
+  ledger (§14.10); `<groupId>` is the undone Accept's timeline group, so Accept, Undo, Accept and Undo again
+  is two whispers, as §13.1 keys DELIVERY_UNDONE by its paid group.
+- These two payloads don't come from the player projection: they repeat only what Foundry itself sent and
+  core validated (the amount, the paying actor's ID and name), and name nothing of Colony Planner's, so B10
+  and Invariant 21 hold. The build updates Invariant 21's wording to say so.
+- `DEPOSIT_REFUND` is not in `bridgeOneShotKinds`, so the trim never drops it (a trimmed refund would lose
+  the coins) and the trim counts it with the state rows. Only a DM's Dismiss of a PENDING deposit writes one,
+  and DISMISSED never reopens, so a campaign holds at most one per deposit. `DEPOSIT_UNDONE` joins
+  `bridgeOneShotKinds` like DELIVERY_UNDONE: a trimmed whisper loses no coins.
+- Neither is in `bridgeBackfilledKinds`, so pairing again keeps a waiting refund for the world that holds the
+  deposit.
+
+### 14.7 What enqueues what
+
+| Operation | Rows |
+|---|---|
+| `RecordBridgeEvents` | none; inbox items only |
+| `AcceptBridgeDeposit` | COLONY_SUMMARY |
+| `UndoLastChange` of an accepted deposit | COLONY_SUMMARY, then DEPOSIT_UNDONE |
+| `DismissBridgeInboxItem` of a `COIN_DEPOSIT` | DEPOSIT_REFUND (refused without an active link, §14.4) |
+| `DismissBridgeInboxItem` of any other kind | none |
+| `CreateNpc` with `bridgeEventId` | as `CreateNpc`: NPC_UPSERT only when the DM saved it revealed |
+| `CreateMarketItem` with `bridgeEventId` | none (catalog edits write no rows, §13.4) |
+
+### 14.8 Idempotency and replay
+
+Server:
+
+- A repeated module event ID is a duplicate for 30 days after its decision (§5), and a `COIN_DEPOSIT`'s for
+  good (§14.5), so a batch sent twice makes one inbox item.
+- Every decision moves a PENDING item once (`status = 'PENDING'` in the statement), so a double click or a
+  second tab gets 409, and one deposit is accepted once, dismissed once, or neither.
+- A refund row is written only by the Dismiss that moved its item to DISMISSED, in that transaction, so at
+  most one `deposit-refund:<depositId>` row exists, and a rolled-back Dismiss leaves none.
+
+Module (§14.10 has the ledger):
+
+- **A refund never adds coins twice.** Before it adds anything, the refund applier records the deposit as
+  RETURNING in the escrow ledger and waits for that write; it then adds the coins and records RETURNED. A
+  replayed row (a lost acknowledgement, a second GM browser) finds RETURNED and adds nothing; one that finds
+  RETURNING (the browser closed between the two writes) can't know whether the coins went back, so it adds
+  nothing and fails with "This deposit's return was interrupted. Check the paying actor's coins and fix
+  them by hand." This is §13.7's one-shot rule with the ledger as the flag.
+- The refund's GM whisper is flagged `deposit-refund:<depositId>` and posts only when no GM message has
+  that flag, so a replay after the coins went back posts it at most once and then succeeds.
+- `DEPOSIT_UNDONE` posts its whisper only when the ledger holds that deposit and no GM message carries its
+  target key, as DELIVERY_UNDONE does (§13.7).
+
+### 14.9 Trust
+
+- Server: §5's rules. A forged `COIN_DEPOSIT` adds only an inbox item; the DM's Accept is the DM's own
+  call, so the inbox names the paying actor and the amount for the DM to check in Foundry. A forged deposit that
+  the DM dismisses writes a refund the module refuses, since no ledger entry backs it (§14.10), so a leaked
+  token can't put coins into any actor.
+- Module: the escrow ledger is a world setting. Foundry lets only users with `SETTINGS_MODIFY` (default role
+  Assistant) or GMs write a world setting (v13 `BaseSetting`'s `#canModify`), so a player can't plant or
+  change an entry, though every player's browser can read it, which reveals only amounts and IDs the players
+  already see. A refund applies only when its `gold` and `actorId` equal its entry's, so it goes back to the
+  actor that paid.
+- A GM may grant `SETTINGS_MODIFY` to Trusted Players, who could then plant a `HELD` entry under the link's
+  `linkId` (which the ledger shows). v13's `Setting` carries `_stats` (a `DocumentStatsField`), whose
+  `lastModifiedBy` the server sets on every create and update (`tagModelStats` in `ServerDocument`'s
+  `_preCreate` and `_preUpdate`; it is a managed field, ignored in a client's data). So when the ledger's
+  setting was last written by a user who isn't a GM (`game.settings.get(..., {document: true})`), the
+  module resends nothing at session start and adds no coins for a refund or a refusal, with a GM error.
+  The check (`isWrittenByGameMaster`) fails closed: a stored Setting without a string writer is refused,
+  and only an unstored one (no `_id`, holding the registered default) passes without a writer. The limit: it sees only the last writer, so
+  a planted entry the GM's own later ledger write covers (a new deposit, a send's `SENT`) goes unnoticed.
+  Granting players `SETTINGS_MODIFY` stays the GM's risk.
+- PF2e gives a new party actor `ownership.default` Observer, so a member player can't change the party's
+  coins directly; pf2e moves items for players through its own GM socket. A player who owns the party
+  could still spend between the module's check and the removal; `removeCurrency` then refuses (§14.10). A
+  character is its player's to change, so the same holds for a character's deposit.
+
+### 14.10 The escrow
+
+The module keeps every deposit in a world setting, `colony-bridge.deposits` (`scope: "world"`, `config:
+false`, default `{"entries": {}}`), keyed by deposit ID: `{"event": InboundEvent, "actorId", "gold",
+"state", "updatedAt"}`. The ledger, not the client-scope event queue, is a deposit's durable record: a new
+link's `saveLink` clears the queue (§13's settings), but not the ledger. Each write reads the setting
+afresh and changes one entry, since only the active GM writes it.
+
+| State | Means |
+|---|---|
+| `REMOVING` | written, with the event, before the coins are touched |
+| `HELD` | the coins left the paying actor; the event waits for Colony Planner's 2xx |
+| `SENT` | Colony Planner recorded it (accepted or duplicate) |
+| `RETURNING` | coins are being added back (a refund, or a refused event) |
+| `RETURNED` | the coins are back with the actor that paid (`actorId`; `returnedBy`: `REFUND` or `REFUSED`) |
+| `INTERRUPTED` | a step stopped part way; the GM fixes the coins by hand |
+
+The deposit itself, after the dialog (§14.1):
+
+1. When the paying actor's `inventory.currency.copperValue` (pf2e's `Coins`, cp 1, sp 10, gp 100, pp 1000)
+   is under `gold * 100`: warn with the actor's name, "The Wayfarers has only 23 gp worth of coins." Nothing
+   else happens and no event is made.
+2. Write the entry, `REMOVING`, with the whole event (a fresh UUID, `COIN_DEPOSIT`, `{gold, actorId,
+   actorName}`).
+3. `await actor.inventory.removeCurrency({gp: gold}, {byValue: true})`. pf2e's `removeCurrency` returns
+   false and changes nothing when the actor's coins are worth less, takes any denominations that add up,
+   and puts the change back as smaller coins, so the actor pays exactly that many gold pieces' worth.
+   - false (the actor spent meanwhile): delete the entry and warn as in step 1.
+   - it throws: it isn't one update (it adds the change first, then up to four document writes), so the
+     coins are in an unknown state. Mark the entry `INTERRUPTED`, send nothing, and show a GM error.
+   - true: mark it `HELD` and enqueue the event.
+4. A 2xx marks it `SENT`.
+
+The failure cases:
+
+| Case | What happens |
+|---|---|
+| Actor short | nothing removed, nothing sent (step 1 or 3) |
+| `removeCurrency` throws | `INTERRUPTED`, GM error, nothing sent |
+| Browser closes during step 3 | `REMOVING` left behind; the next session start marks any `REMOVING` or `RETURNING` entry older than 10 minutes `INTERRUPTED`, with a GM error, and never retries it |
+| Browser closes after `HELD`, or the network is down | at every session start the module enqueues each `HELD` entry's event that the queue doesn't hold, under its own ID, so a reload sends it under the same link (each entry records the link's random client-scope `linkId`, never the token; a link saved before 0.3.0, whose `linkId` is `""`, gets a random one at `ready`, before any entry can be written; a deposit reads the `linkId` again just before it is queued, and one whose link changed since its entry was written is marked `INTERRUPTED` with a GM error instead); an entry of another link is marked `INTERRUPTED` with a GM error, since its campaign may already hold it; the server's de-duplication makes a resend harmless. Before a deposit leaves the queue, the queue drops it unsent unless its entry is still `HELD` under the session's `linkId`, so one marked `INTERRUPTED` or returned in another browser never goes from this browser's stored queue |
+| The answer to a sent batch is lost | the retry is a duplicate, answered 2xx, then `SENT` |
+| Colony Planner refuses it with 409 or 422 | the event went in a batch alone (§14.11), and a lone repeat is a duplicate, never a 409 or 422, so nothing was stored: the module returns the coins itself (`RETURNING`, `addCurrency({gp: gold})`, `RETURNED` by `REFUSED`) and warns "Colony Planner refused the deposit (reason). Its 40 gp went back to The Wayfarers." (the paying actor's name) |
+| Any other 4xx but 401, 408, 429 (an edge's 404 during a bad deploy) | it may answer the retry of a first send that was stored and whose answer was lost, so the coins stay: the event leaves the queue, the entry stays `HELD`, and the GM sees one error; the next session start sends it again |
+| The link ended (401) | the entry stays `HELD`; the next link marks it `INTERRUPTED`, and the GM checks the old campaign's inbox and fixes the coins by hand |
+| A refund for a deposit this world doesn't hold (another world, or a forged deposit) | the row fails: "This world has no record of that deposit, so no coins were added." The DM reads it on Settings |
+| A refund whose paying actor is gone | the row fails: "The actor that paid this deposit is gone. Add 40 gp by hand." The entry stays as it was |
+| A refund that throws while adding | `INTERRUPTED`, the row fails with Foundry's reason; never retried |
+
+The refund adds the amount back as gold pieces, not as the coins that paid it: `removeCurrency` reports no
+breakdown (open question 5). The module's settings menu lists `INTERRUPTED` entries, each with its amount,
+its paying actor and a **Forget** button for once the GM has fixed the coins. `RETURNED` entries are deleted
+30 days after they return; `SENT` entries stay, a few bytes each, so a dismiss months later still refunds.
+
+### 14.11 The module
+
+Version 0.3.0 in `foundry/package.json`. `wire.ts` gains the three event payload types, their limits
+(mirroring §14.2) and guards for `DEPOSIT_REFUND` and `DEPOSIT_UNDONE`; `isInboundEvent` accepts the new
+kinds, or a reload would drop them from the stored queue. `foundry-types.ts` gains the context menu entry
+and hook shapes, `game.release`, `DialogV2.input`, an actor's `system`, `type`, `uuid`, `pack` and
+`_stats.compendiumSource`, `game.actors.get`, and pf2e's `inventory.currency`, `removeCurrency` and
+`addCurrency`. A new `foundry/src/deposits.ts` holds the ledger and §14.10's steps, and a new
+`foundry/src/imports.ts` the context menu entries and the readers below.
+
+**Event queue.** A `COIN_DEPOSIT`, `NPC_IMPORT` or `ITEM_IMPORT` event goes in a batch of its own, so a
+refusal never takes another event with it, and a deposit refused with 409 or 422 is known never to have been
+stored (a lone repeat is a duplicate, never a 409 or 422). `onDropped` gets the dropped events and the
+status, so `deposits.ts` can return a refused deposit's coins (§14.10). `maySend` drops a deposit unsent
+whose ledger entry isn't `HELD` under the session's `linkId`.
+
+**HTML to plain text** (`htmlToPlainText` in `html.ts`). Foundry's rich text fields are HTML, and v13 has no
+helper that strips it (`TextEditor.decodeHTML` decodes entities only), so the module parses with the
+browser's `DOMParser` (`text/html`, which runs no scripts and loads no images) and walks the tree:
+
+1. In a field that becomes player-visible (an NPC's appearance, an item's description), each `section.secret`
+   (Foundry's GM secret blocks, which only `enrichHTML` hides) and each element with pf2e's
+   `data-visibility="gm"` or `"owner"` is left out, and so is each enricher or inline roll with no label
+   (step 3); an NPC's
+   are appended to its DM notes instead, so nothing the GM wrote is lost.
+2. Block elements (`p`, `div`, `li`, `h1` to `h6`, `blockquote`, `tr`, `section`) and `br` end a line; text is
+   decoded by the parser.
+3. Enricher links `@Kind[target]{Label}` and labelled inline rolls `[[/r 1d4]]{Label}` become `Label`. One
+   with no label, such as `@Check[fortitude|dc:25|showDC:gm]` or `[[/gmr 1d20+12]]` (any `[[...]]`), would
+   show its target, which may hold a DC or a roll the GM hides, so in a player-visible field it is left out
+   as a secret block is (step 1); elsewhere it stays as written, as does anything else.
+4. Tabs and other control characters but line breaks become spaces, runs of spaces become one, more than one
+   blank line becomes one, and the result is trimmed and clipped to the field's limit in code points, ending
+   in "…" when clipped.
+
+Core then checks it again through `cleanText`, `cleanMultilineText` and the lengths (§14.2), so the module's
+cleaning is a convenience and never the check.
+
+**NPC readers** (`name` is always `actor.name`, the true name, and `foundryUuid` is `actor.uuid`):
+
+| Field | PF2e (pf2e 7.12.2) | dnd5e (5.2.5) | Other systems |
+|---|---|---|---|
+| `level` | `system.details.level.value` when a whole number from 0 to 100, else null (a level -1 creature arrives blank) | a character's `system.details.level` (the sum of its class levels) when 1 to 100; an NPC's null, since its `system.details.cr` is a challenge rating, not a level | null |
+| `race` | a character's `actor.ancestry?.name`; an NPC's `""` (NPCs have only traits, and the module doesn't guess from them) | `system.details.race`: the item's `name`, or the text when it is a string | `""` |
+| `characterClass` | a character's `actor.class?.name`; an NPC's `""` | the names in `actor.classes`, joined with ", " | `""` |
+| `appearance` | an NPC's `system.details.publicNotes`; a character's `system.details.biography.appearance` | `system.details.biography.public` (the Public Biography) | `""` |
+| `dmNotes` | an NPC's `system.details.privateNotes`; a character's `""` (characters have no GM notes field) | `system.details.biography.value`, the full biography (Foundry shows it to observers, but it is the GM's fuller text, and DM notes only narrows who reads it) | `""` |
+
+**Item readers** (`name` is `item.name`, `foundryUuid` is `item.uuid`):
+
+- `description`: `system.description.value` in PF2e and dnd5e, through `htmlToPlainText` with secret blocks
+  left out, since a catalog description is player-visible; `""` elsewhere. PF2e's GM-only
+  `system.description.gm` is never read. This path was not checked in the systems' sources; Phase 3's
+  checklist confirms it.
+- `priceGold`, computed in whole copper (pp 1000, gp 100, sp 10, cp 1) and sent only when that is a whole
+  number of gold, else null:
+  - PF2e: `system.price.value`'s `pp`, `gp`, `sp` and `cp`; null when `system.price.per` is over 1 (the
+    price covers a bundle) or a Starfinder `credits` or `upb` amount is set.
+  - dnd5e: `system.price.value` times its `system.price.denomination`'s copper; null for `ep` (open question
+    3), for an unknown denomination and for a value that isn't a whole number of copper.
+  - Other systems: null.
+- `compendiumUuid`: `item.uuid` when `item.pack` is set (opened from a pack), else `_stats.compendiumSource`
+  when it starts with `Compendium.` (v13 also sets it on dropped world items, as `Item.<id>`); either only
+  when it matches §13.6's pattern, else null.
+
+**Appliers per adapter:**
+
+| Kind | Core adapter (every system) | PF2e adapter |
+|---|---|---|
+| `DEPOSIT_REFUND` | fails: "This world's system can't move coins, and only a PF2e world makes deposits." | §14.8 and §14.10: checks the ledger entry and the payload, `RETURNING`, `game.actors.get(actorId).inventory.addCurrency({gp: gold})`, `RETURNED`, then a GM whisper "Colony Planner returned the 40 gp the Wayfarers deposited." |
+| `DEPOSIT_UNDONE` | a GM whisper when the ledger holds the deposit: "Colony Planner undid accepting the Wayfarers' 40 gp deposit. The gold left the colony, and the deposit waits in the DM's inbox again: dismissing it there returns the coins." Otherwise it succeeds with no message | same |
+
+Whispers go to the users with `isGM` and carry only the target key flag, as §13.7's do. The readers are per
+system (`pf2e`, `dnd5e`, everything else), chosen at `ready` beside the appliers; dnd5e gets readers only,
+since it moves no coins.
+
+### 14.12 Enums and migration
+
+Migration `0010_bridge_imports.sql`:
+
+- `bridge_event_kind` gains `COIN_DEPOSIT`, `NPC_IMPORT` and `ITEM_IMPORT`; `bridge_outbox_kind` gains
+  `DEPOSIT_REFUND` and `DEPOSIT_UNDONE`, with `ALTER TYPE ... ADD VALUE`. Postgres refuses a new value in the
+  transaction that adds it, so every CHECK below compares `kind::text`, which never casts a literal to the
+  enum.
+- `bridge_event` gains `gold integer CHECK (gold BETWEEN 1 AND 1000000)` and `content jsonb CHECK
+  (length(content::text) <= 32768)`, with `CHECK ((kind::text = 'COIN_DEPOSIT') = (gold IS NOT NULL))` and
+  `CHECK ((kind::text IN ('COIN_DEPOSIT', 'NPC_IMPORT', 'ITEM_IMPORT')) = (content IS NOT NULL))`.
+- `bridge_event_status_never_pending` becomes `CHECK (kind::text <> 'STATUS' OR status = 'ACCEPTED')`, since
+  every inbox kind starts PENDING.
+- Queries: `CreateBridgeEvent` takes `gold` and `content`; `ListPendingBridgeEvents` returns them;
+  `DecideBridgeEvent` takes `@kinds` and returns the kind, `gold`, `content` and `module_event_id` (Accept
+  reads the gold, Dismiss the kind and the refund's fields); `ReopenAcceptedBridgeEvent` takes the
+  kinds an undo reopens and returns the kind, `gold`, `content` and `module_event_id`; `PruneBridgeEvents`
+  and `TrimBridgeEvents` skip the undo slot's item and every `COIN_DEPOSIT` (§14.5).
+- Each new value gets a constant in `internal/core/bridge_enums.go` and a name in `allowedDataReferences`;
+  both types are already in `enumTypes`. `COIN_DEPOSITED` joins `AllTimelineKinds`.
+- The down migration deletes the new kinds' rows from `bridge_event` and `bridge_outbox`, drops the two
+  columns, restores the old CHECK and rebuilds both enums without the new values, as 0009's does.
+
+### 14.13 The secrecy sweep and /privacy
+
+The sweep:
+
+- The bridge fixture records, through each campaign's own token, a `COIN_DEPOSIT`, an `NPC_IMPORT` and an
+  `ITEM_IMPORT` whose every text field carries canaryA in A and canaryBdm in B (the whole inbox is DM-only),
+  plus a second deposit for Dismiss. Players and View as player never read them (the board's `dm` object,
+  and Settings' 403); A's DM never reads B's.
+- On each side the test accepts a deposit (its `COIN_DEPOSITED` entry is PUBLIC and must carry no actor name
+  canary), undoes it (DEPOSIT_UNDONE), dismisses the other (DEPOSIT_REFUND), and creates an NPC and a market
+  item with `bridgeEventId`. The outbox replay lets only DEPOSIT_REFUND and DEPOSIT_UNDONE carry the
+  campaign's own actor name canary, as DELIVERY alone may carry its own UUID.
+- `bridgeEventId` is already in `mixedIDFields`, so the sweep now also sends B's item IDs in A's NPC and item
+  create bodies (field errors); the `{eventId}` paths of `accept-deposit` and `dismiss` take real items and
+  run late, as DELETE routes do, so they can't use up an item a later GET needs. As built, `{eventId}` is the
+  first deposit (pass 3 accepts it), the fixture's `TIME_ADVANCED` item stays PENDING, and pass 4's
+  Advance picks the 1-day item it records itself. Every inbox item's ID is DM-only (`hiddenIDs`).
+- In its own tests: Dismiss of a deposit while unlinked is 409 and leaves it PENDING; Accept over gold's max
+  is 409 and changes nothing; an undone Accept's item is PENDING again, and its Dismiss refunds it; the
+  prune and the trim keep the undo slot's item; a pruned and trimmed campaign still refuses a decided
+  deposit's replay as a duplicate.
+
+`/privacy` (`web/src/routes/privacy.tsx`, "The Foundry bridge"), in the same change as the migration: when
+the GM sends an NPC, an item or a deposit from Foundry, the site keeps what was sent in the DM's inbox until
+about 30 days after the DM accepts or dismisses it, or longer while accepting it is the colony's last
+undoable change, and a deposit's record until the campaign is deleted (§14.5): the Foundry document's ID (its UUID) and name, an NPC's
+level, ancestry, class, description and the GM's notes, an item's description, price and compendium item,
+and a deposit's amount and the paying actor's ID and name (the party or a character). Only the DM sees it.
+What the DM saves from it becomes an ordinary NPC, catalog item or colony gold, and a dismissed or undone
+deposit sends its amount and that actor's name back to Foundry.
+
+### 14.14 Open questions
+
+The author accepted proposals 1, 2 and 5 on 2026-11-14 (refuse past the max, Undo reopens the item,
+refunds in gold pieces); 3 and 4 are built as proposed.
+
+1. **A deposit over gold's max.** §5 said "capped at its max", which would keep the coins in escrow but
+   credit less gold, losing the rest. Proposed: Accept refuses with 409 and changes nothing (§14.5); the DM
+   raises the max or dismisses, which returns every coin. The alternative accepts up to the max and refunds
+   the rest, which needs a partial DEPOSIT_REFUND.
+2. **What Undo leaves.** Proposed: Undo takes the gold back out of the colony and puts the item back in the
+   inbox, so the coins stay in escrow until the DM accepts again or dismisses (which returns them), and the
+   GM whisper says so. Read strictly, "the colony only" could also mean the item stays ACCEPTED and the GM
+   returns the coins by hand, which loses them from the books.
+3. **Electrum.** The decision names pp, sp and cp rates but not dnd5e's ep. Proposed: an ep price arrives
+   blank. The alternative uses dnd5e's own `CONFIG.DND5E.currencies.ep.conversion` (2 per gp).
+4. **Testing the HTML conversion.** The module uses the browser's `DOMParser`, which Bun lacks, so its tests
+   need a DOM. Proposed: `happy-dom` at an exact version as a dev dependency, used only by `html.test.ts`.
+   The alternative is a string-only converter, which is harder to get right.
+5. **Which coins a refund returns.** Proposed: the amount as gold pieces, since `removeCurrency` makes change
+   and reports no breakdown. The alternative records the party's coins before and after the removal and
+   returns exactly those denominations.

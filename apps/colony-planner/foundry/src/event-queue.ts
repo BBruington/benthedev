@@ -4,15 +4,16 @@ import type { Schedule } from "./schedule";
 import {
 	type InboundEvent,
 	type InboundEventKind,
+	type InboundPayloads,
 	maximumEventsPerBatch,
-	type StatusPayload,
-	type TimeAdvancedPayload,
 } from "./wire";
 
 export interface EventQueue {
-	enqueue(kind: "STATUS", payload: StatusPayload): void;
-	enqueue(kind: "TIME_ADVANCED", payload: TimeAdvancedPayload): void;
+	/** Queues an event made elsewhere (a deposit's, kept in its ledger), unless the queue holds it. */
+	add(event: InboundEvent): void;
+	enqueue<Kind extends InboundEventKind>(kind: Kind, payload: InboundPayloads[Kind]): void;
 	flush(): void;
+	holds(eventId: string): boolean;
 	/** Sends now, cancelling a waiting retry: for when the connection has just come back. */
 	retryNow(): void;
 	/** Ends this queue for good; anything it still holds stays in storage for the next one. */
@@ -22,9 +23,13 @@ export interface EventQueue {
 export interface EventQueueOptions {
 	createId?: () => string;
 	now?: () => Date;
+	/** False for an event that may no longer leave (a deposit its ledger stopped holding): dropped unsent. */
+	maySend?: (event: InboundEvent) => boolean;
 	/** A batch Colony Planner refused for good (a 4xx other than 401, 408 or 429), dropped from the queue. */
-	onDropped: (reason: string) => void;
+	onDropped: (reason: string, events: InboundEvent[], status: number) => void;
 	onError: (error: unknown) => void;
+	/** A batch Colony Planner answered with a 2xx: recorded, or already recorded. */
+	onSent?: (events: InboundEvent[]) => void;
 	schedule: Schedule;
 	send: (events: InboundEvent[]) => Promise<void>;
 	storage: { load(): InboundEvent[]; save(events: InboundEvent[]): Promise<unknown> };
@@ -51,19 +56,25 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
 		options.storage.save(events).catch(options.onError);
 	}
 
-	function removeSent(batch: InboundEvent[]) {
-		const sentIds = new Set(batch.map((event) => event.id));
-		events = events.filter((event) => !sentIds.has(event.id));
+	function remove(batch: InboundEvent[]) {
+		const removedIds = new Set(batch.map((event) => event.id));
+		events = events.filter((event) => !removedIds.has(event.id));
 		persist();
 	}
 
 	/** Sends the oldest batch; true when it left the queue, so the next one may go. */
 	async function sendNextBatch(): Promise<boolean> {
-		const batch = events.slice(0, maximumEventsPerBatch);
+		const batch = nextBatch(events);
+		const unsendable = batch.filter((event) => options.maySend?.(event) === false);
+		if (unsendable.length > 0) {
+			remove(unsendable);
+			return true;
+		}
 		try {
 			await options.send(batch);
 			failedAttempts = 0;
-			removeSent(batch);
+			remove(batch);
+			options.onSent?.(batch);
 			return true;
 		} catch (error) {
 			if (error instanceof UnauthorizedError) {
@@ -74,8 +85,8 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
 				scheduleRetry();
 				return false;
 			}
-			removeSent(batch);
-			options.onDropped(error.message);
+			remove(batch);
+			options.onDropped(error.message, batch, error.status);
 			return true;
 		}
 	}
@@ -111,13 +122,22 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
 		);
 	}
 
+	function add(event: InboundEvent) {
+		if (events.some((queued) => queued.id === event.id)) {
+			return;
+		}
+		events = [...events, event];
+		persist();
+		flush();
+	}
+
 	return {
-		enqueue(kind: InboundEventKind, payload: StatusPayload | TimeAdvancedPayload) {
-			events = [...events, { id: createId(), kind, occurredAt: now().toISOString(), payload }];
-			persist();
-			flush();
+		add,
+		enqueue(kind, payload) {
+			add({ id: createId(), kind, occurredAt: now().toISOString(), payload });
 		},
 		flush,
+		holds: (eventId) => events.some((event) => event.id === eventId),
 		retryNow() {
 			cancelRetry?.();
 			cancelRetry = undefined;
@@ -130,6 +150,26 @@ export function createEventQueue(options: EventQueueOptions): EventQueue {
 			cancelRetry = undefined;
 		},
 	};
+}
+
+const loneKinds: ReadonlySet<InboundEventKind> = new Set([
+	"COIN_DEPOSIT",
+	"NPC_IMPORT",
+	"ITEM_IMPORT",
+]);
+
+/**
+ * A deposit or an import goes alone, so a refusal never takes another event with it, and a refused
+ * deposit is known never to have been stored (design §14.11). Other events go up to 100 at a time.
+ */
+function nextBatch(events: InboundEvent[]): InboundEvent[] {
+	const [first] = events;
+	if (first && loneKinds.has(first.kind)) {
+		return [first];
+	}
+	const loneIndex = events.findIndex((event) => loneKinds.has(event.kind));
+	const end = loneIndex === -1 ? events.length : loneIndex;
+	return events.slice(0, Math.min(end, maximumEventsPerBatch));
 }
 
 function isPermanentRefusal(error: unknown): error is BridgeHttpError {
