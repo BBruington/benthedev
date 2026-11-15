@@ -60,6 +60,7 @@ ignore `railway.toml`; each app's runbook lists them.
 | Host | App | Railway |
 |---|---|---|
 | colony.benthedev.com | colony-planner | root directory `apps/colony-planner`, watch path `/apps/colony-planner/**` |
+| colony-staging.benthedev.com | colony-planner's staging deploy, for trying a change (a Forge world included) before the live site | its settings are in its Railway dashboard |
 | benthedev.com, www.benthedev.com | about-me | root directory `apps/about-me`, watch path `/apps/about-me/**` |
 | potions (later, subdomain not chosen) | alembic | root directory `apps/alembic`, watch path `/apps/alembic/**`; project not created yet, the standalone copy still runs on Vercel |
 
