@@ -8,6 +8,7 @@ import {
 	calendarLinkQuery,
 	campaignMeQuery,
 	colonyBoardQuery,
+	constructionQuery,
 	discordChannelsQuery,
 	hexesQuery,
 	inviteLinkQuery,
@@ -68,6 +69,7 @@ export function topicQueryKeys(campaignId: string): Record<Topic, readonly Query
 			// The market page carries gold on hand and whether the ship has docked, both colony state.
 			marketQuery(campaignId).queryKey,
 		],
+		construction: [constructionQuery(campaignId).queryKey],
 		hexes: [hexesQuery(campaignId).queryKey],
 		// A map's page carries its pins, and a place's page names the map it is pinned on.
 		maps: [

@@ -234,7 +234,8 @@ The **site owner** (F8) has a third column: nothing inside a campaign they aren'
 
 ### 3.2 Next (the architecture is ready; the rules are not invented)
 
-- **Buildings, sickness and events** (decision 10). Each one starts from the author's own rules write-up. If those rules need them, these seams are ready (§8.6):
+- **Buildings** are designed (`docs/design/construction.md`, approved 2026-11-15, built in two phases): DM blueprints with costs keyed on resources and labor keyed on roles, crews, finishes during Advance, and opt-in output. That design is authoritative for buildings.
+- **Sickness and events** (decision 10). Each one starts from the author's own rules write-up. If those rules need them, these seams are ready (§8.6):
   - the `Effects` type;
   - the ordered daily-step pipeline;
   - open-ended timeline kinds;
@@ -487,6 +488,7 @@ Every **colony mutation** follows the same path. The colony mutations are:
 - workforce changes, and named colonists joining and leaving;
 - quest complete, fail and reopen;
 - request approve and "use action now";
+- construction: start, set crews, cancel, demolish, Idle and Active, and add building (`docs/design/construction.md` §8.1, K19);
 - favor adjust;
 - undo.
 
@@ -527,7 +529,7 @@ commit → stream.Publish(topics…) → best-effort Discord post
 **Daily-step pipeline.** Steps run in a fixed order each day, and that order is a rule:
 
 ```go
-var DailySteps = []Step{Upkeep{}, Shipments{}} // future steps are appended only if their rules need one
+var DailySteps = []Step{BuildingOutput{}, Upkeep{}, Shipments{}, Construction{}} // construction design §4.1
 
 type Step interface {
     // Apply this step to every day in (from, to], given that no other step changes
@@ -590,7 +592,7 @@ type Step interface {
 ### 5.4 Effects, adjustments and favor
 
 - **CLAMP** applies to quest rewards, DM adjustments and cargo.
-  - Each resource becomes `clamp(old + Δ, min, max)`.
+  - Each resource becomes `clamp(old + Δ, min, max)`, where max is the effective max (the resource's own plus every Active building's storage bonus, construction design §4). A positive Δ never lowers an amount: stock left above a cap that fell stays, and gains add nothing until it is back under (K13).
   - **Only the applied delta is logged.** There is no requested-versus-applied record.
   - The preview shows a cap before the DM confirms, e.g. "Morale 98 → 100 (capped)".
 - **STRICT** applies to what a player's request spends:
@@ -725,6 +727,9 @@ type Step interface {
 | `MARKET_ORDER_DOCKED` | Advance across an order's arrival day | `arrives_day` | PUBLIC |
 | `MARKET_ORDER_PAID` | Pay (§3.3) | current | PUBLIC |
 | `MARKET_ORDER_CANCELLED` | Cancel order (DM) | current | PUBLIC |
+| `BUILDING_STARTED` / `BUILDING_CREWS_CHANGED` / `BUILDING_CANCELLED` / `BUILDING_DEMOLISHED` / `BUILDING_IDLED` / `BUILDING_ACTIVATED` | Construction (construction design §8.1) | current | DM |
+| `BUILDING_FINISHED` | Advance across a building's finish day | finish day | PUBLIC while its blueprint is revealed, else hidden from players |
+| `BUILDING_ADDED` | Add building (DM, free and instant, construction design K19) | current | PUBLIC while its blueprint is revealed, else hidden from players |
 | `UNDO` | Undo | current | PUBLIC if any undone entry was PUBLIC, else DM |
 | `CUSTOM` | DM | any day (past or future) | chosen by the DM |
 
@@ -1377,7 +1382,7 @@ On the web, Biome allows the server transports (fetch, EventSource, XMLHttpReque
 
 | Future feature | Seams it may use, if its rules call for them | Existing tables changed |
 |---|---|---|
-| Buildings | New tables; `BUILDING_*` timeline kinds; `Effects` for anything that changes stock; a `Step` if buildings act over days | none expected |
+| Buildings | Designed in `docs/design/construction.md`: blueprint and building tables, `BUILDING_*` kinds, `Effects` for costs, refunds and completion, the `Construction` step (Phase 2 adds `BuildingOutput`) | `settings.construction_role_key` and `timeline_event.building_id` (additive); `resource`'s CHECK keeps only `amount >= min_amount`, since a cap that fell may leave stock above it |
 | Sickness | NPC `health` (already has SICK); DM-defined resources or roles; a `Step` if it changes over days; `SICKNESS_*` kinds. If per-colonist state is needed, `game.Colonists` is the one function to revisit. | none expected |
 | Events | `EVENT_*` kinds; `Effects` for outcomes; a `Step` if events trigger on their own | none expected |
 | Store | Built as the Market (§3.3): its own catalog, cart and order tables, not `request` | `settings` gained `market_voyage_days` and `market_ship_limit` (additive) |

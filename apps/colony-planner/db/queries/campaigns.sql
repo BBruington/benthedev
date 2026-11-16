@@ -87,6 +87,12 @@ FROM (VALUES
     ('UNASSIGNED', 'Unassigned', 'Users', 90, true)
 ) AS defaults (key, label, icon, sort_order, is_system);
 
+-- New blueprints start with a line for this role (docs/design/construction.md §2); it is data the DM changes.
+-- name: SetDefaultConstructionRole :exec
+UPDATE settings SET construction_role_key = 'BUILDER'
+WHERE settings.campaign_id = @campaign_id
+  AND EXISTS (SELECT 1 FROM role WHERE role.campaign_id = @campaign_id AND role.key = 'BUILDER' AND NOT role.archived);
+
 -- campaign_request is a directory table: an account asks, the owner decides.
 
 -- name: CreateCampaignRequest :one

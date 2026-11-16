@@ -51,6 +51,10 @@ const (
 	HexCoordinateLimit = 100000
 	// MapLimit is a technical bound of the same kind as PlaceLimit.
 	MapLimit = 200
+	// BlueprintLimit is a technical bound of the same kind; blueprints are never deleted, so it counts
+	// archived ones too. UnfinishedBuildingLimit counts buildings under construction.
+	BlueprintLimit          = 200
+	UnfinishedBuildingLimit = 100
 
 	campaignNameMaxLength = 80
 	slugMinLength         = 3

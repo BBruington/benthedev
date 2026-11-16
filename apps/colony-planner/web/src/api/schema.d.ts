@@ -532,6 +532,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/construction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Blueprints, buildings and idle colonists per labor role, in the viewer's projection */
+        get: operations["listConstruction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/blueprints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a blueprint, hidden unless asked otherwise */
+        post: operations["createBlueprint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a blueprint's record (visibility and archiving each have their own operation); started buildings keep their snapshot */
+        put: operations["updateBlueprint"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/archived": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Archive a blueprint (gone from players' Start list, its buildings stand) or bring it back */
+        put: operations["setBlueprintArchived"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/buildings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a finished, Active building of a blueprint at once and for free: no cost, labor or completion Effects; the DM may undo it */
+        post: operations["addBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/revealed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reveal a blueprint and its buildings to the players, or hide them again */
+        put: operations["setBlueprintRevealed"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a building: takes its cost in full and sets its first crews; the DM may undo it */
+        post: operations["startBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set an Idle building Active again: its storage bonus counts at once and its output runs from the next day */
+        post: operations["activateBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a building under construction, giving back what the DM typed (capped) */
+        post: operations["cancelBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/crews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a building's crews; a role left out gets none */
+        put: operations["setBuildingCrews"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/demolish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Demolish a finished building, giving back what the DM typed (capped) */
+        post: operations["demolishBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/idle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a finished building Idle: its daily output and storage bonus stop, and stock above a cap that falls stays */
+        post: operations["idleBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/delete": {
         parameters: {
             query?: never;
@@ -2440,6 +2644,10 @@ export interface components {
             isSiteOwner: boolean;
             viewAsPlayer: boolean;
         };
+        AddBuildingInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+        };
         AdjustInput: {
             /**
              * Format: uuid
@@ -2509,6 +2717,13 @@ export interface components {
         AdminCampaignRequestList: {
             requests: components["schemas"]["AdminCampaignRequest"][];
         };
+        AdvanceFinish: {
+            /** Format: uuid */
+            buildingId: string;
+            /** Format: int64 */
+            day: number;
+            name: string;
+        };
         AdvanceInput: {
             /**
              * Format: uuid
@@ -2535,6 +2750,8 @@ export interface components {
             colonists: number;
             /** Format: int64 */
             days: number;
+            /** @description The buildings this advance finishes, in finish order; for players only those of revealed blueprints */
+            finishes: components["schemas"]["AdvanceFinish"][];
             /** Format: int64 */
             fromDay: number;
             /** @description The days open market orders dock during this advance, soonest first; empty when none does */
@@ -2571,6 +2788,63 @@ export interface components {
             first: number;
             /** Format: int64 */
             last: number;
+        };
+        BlueprintInput: {
+            completionEffects: components["schemas"]["Effects"];
+            /** @description Resource key to an amount of 1 or more; {} for none */
+            cost: {
+                [key: string]: number;
+            };
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description Role key to its work; 1 to 10 roles */
+            labor: {
+                [key: string]: components["schemas"]["BlueprintLaborInput"];
+            };
+            /** @description 1 to 80 characters, unique in the campaign */
+            name: string;
+            /** @description Resource key to its daily change and storage bonus (0 or more), not both 0; {} for none. Required, since a full-record edit without it would clear the output */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
+            /** Format: int64 */
+            sortOrder: number;
+        };
+        BlueprintLabor: {
+            /** Format: int64 */
+            effort: number;
+            /**
+             * Format: int64
+             * @description null for no cap
+             */
+            maxCrew: number | null;
+            roleKey: string;
+        };
+        BlueprintLaborInput: {
+            /**
+             * Format: int64
+             * @description 1 or more role-days
+             */
+            effort: number;
+            /**
+             * Format: int64
+             * @description 1 or more; null for no cap
+             */
+            maxCrew: number | null;
+        };
+        BlueprintOutput: {
+            /**
+             * Format: int64
+             * @description Added each day, capped at the effective max; negative is upkeep, floored at the minimum
+             */
+            dailyDelta: number;
+            /**
+             * Format: int64
+             * @description 0 or more, added to the resource's max; nothing for a resource with no max
+             */
+            storageBonus: number;
         };
         BridgeAckFailure: {
             /** @description At most 300 characters */
@@ -2731,6 +3005,114 @@ export interface components {
             /** @description What the DM pastes into Foundry's Install From Manifest */
             moduleManifestUrl: string;
         };
+        Building: {
+            /** @description Meaningful only while FINISHED: an Idle building (false) gives no output and no storage bonus */
+            active: boolean;
+            /** @description The DM placed it with Add building, for free, rather than building it */
+            added: boolean;
+            /** Format: uuid */
+            blueprintId: string;
+            completionEffects: components["schemas"]["Effects"];
+            /** @description Resource key to the amount Start took */
+            cost: {
+                [key: string]: number;
+            };
+            /**
+             * Format: int64
+             * @description The day it was cancelled or demolished; null otherwise
+             */
+            endedDay: number | null;
+            /**
+             * Format: int64
+             * @description null until it finishes
+             */
+            finishedDay: number | null;
+            /** Format: uuid */
+            id: string;
+            /** @description By role key */
+            labor: components["schemas"]["BuildingLabor"][];
+            name: string;
+            /** @description Its blueprint's live output, which it gives while it stands Active */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
+            /**
+             * Format: int64
+             * @description The finish day with the current crews; null when it isn't under construction or a line with work left has no crew
+             */
+            projectedFinishDay: number | null;
+            /** @description What cancelling or demolishing gave back; null otherwise */
+            refund: {
+                [key: string]: number;
+            } | null;
+            /** Format: int64 */
+            startedDay: number;
+            status: components["schemas"]["BuildingStatus"];
+        };
+        BuildingBlueprint: {
+            archived: boolean;
+            /** @description Applied once, capped at each maximum, on the day a building of it finishes */
+            completionEffects: components["schemas"]["Effects"];
+            /** @description Resource key to the amount Start takes */
+            cost: {
+                [key: string]: number;
+            };
+            description: string;
+            dm?: components["schemas"]["BuildingBlueprintDm"];
+            /** Format: uuid */
+            id: string;
+            /** @description By role key */
+            labor: components["schemas"]["BlueprintLabor"][];
+            name: string;
+            /** @description Resource key to what each Active standing building of it does for that resource; live, so an edit changes standing buildings from the next day */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
+            /** Format: int64 */
+            sortOrder: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        BuildingBlueprintDm: {
+            dmNotes: string;
+            revealed: boolean;
+        };
+        BuildingCrewsInput: {
+            /** @description Role key to crew */
+            crews: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            expectedVersion: number;
+        };
+        BuildingLabor: {
+            /** Format: int64 */
+            crew: number;
+            /** Format: int64 */
+            effort: number;
+            /**
+             * Format: int64
+             * @description null for no cap
+             */
+            maxCrew: number | null;
+            /** Format: int64 */
+            progress: number;
+            roleKey: string;
+        };
+        BuildingRefundInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+            /** @description Resource key to an amount of 0 or more; {} for nothing */
+            refund: {
+                [key: string]: number;
+            };
+        };
+        /** @enum {string} */
+        BuildingStatus: "CONSTRUCTING" | "FINISHED" | "CANCELLED" | "DEMOLISHED";
+        BuildingVersionInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+        };
         CalendarLink: {
             /** @description /calendar/{token}.ics on this site */
             path: string;
@@ -2856,7 +3238,7 @@ export interface components {
             label: string;
             /**
              * Format: int64
-             * @description null when unbounded
+             * @description The effective max: the resource's own plus every Active standing building's storage bonus; null when unbounded. The amount may sit above it after a bonus ends
              */
             maxAmount: number | null;
             /** Format: int64 */
@@ -2867,6 +3249,37 @@ export interface components {
             key: string;
             label: string;
         } | null;
+        ConstructionPage: {
+            /** @description Unarchived first, then by position and name */
+            blueprints: components["schemas"]["BuildingBlueprint"][];
+            /** @description Every status, oldest first */
+            buildings: components["schemas"]["Building"][];
+            /** Format: int64 */
+            day: number;
+            /** @description The construction role and every role a listed blueprint or building needs, in display order */
+            roles: components["schemas"]["ConstructionRole"][];
+            /**
+             * Format: int64
+             * @description The colony version this read saw; Start and Set crews send it as expectedVersion
+             */
+            version: number;
+        };
+        ConstructionRole: {
+            /**
+             * Format: int64
+             * @description On the projects this page lists
+             */
+            crewed: number;
+            /** Format: int64 */
+            headcount: number;
+            /**
+             * Format: int64
+             * @description Headcount minus every crew
+             */
+            idle: number;
+            label: string;
+            roleKey: string;
+        };
         CorrectDayInput: {
             /**
              * Format: int64
@@ -3336,6 +3749,31 @@ export interface components {
         };
         MyCampaigns: {
             campaigns: components["schemas"]["MyCampaign"][];
+        };
+        NewBlueprintInput: {
+            completionEffects: components["schemas"]["Effects"];
+            /** @description Resource key to an amount of 1 or more; {} for none */
+            cost: {
+                [key: string]: number;
+            };
+            /** @description At most 4000 characters */
+            description: string;
+            /** @description At most 4000 characters */
+            dmNotes: string;
+            /** @description Role key to its work; 1 to 10 roles */
+            labor: {
+                [key: string]: components["schemas"]["BlueprintLaborInput"];
+            };
+            /** @description 1 to 80 characters, unique in the campaign */
+            name: string;
+            /** @description Resource key to its daily change and storage bonus (0 or more), not both 0; {} for none. Required, since a full-record edit without it would clear the output */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
+            /** @description Visible to players; the create form starts it off */
+            revealed: boolean;
+            /** Format: int64 */
+            sortOrder: number;
         };
         NewMapInput: {
             /** @description An https address, at most 2000 characters; blank to use imageId */
@@ -4140,13 +4578,18 @@ export interface components {
             label: string;
             /**
              * Format: int64
-             * @description null when unbounded
+             * @description The DM's own max; null when unbounded
              */
             maxAmount: number | null;
             /** Format: int64 */
             minAmount: number;
             /** Format: int64 */
             sortOrder: number;
+            /**
+             * Format: int64
+             * @description What every Active standing building adds to maxAmount (0 while maxAmount is null)
+             */
+            storageBonus: number;
         };
         RevealInput: {
             revealed: boolean;
@@ -4344,6 +4787,8 @@ export interface components {
             botInviteUrl: string | null;
             campaignName: string;
             colonyName: string;
+            /** @description The role a new blueprint's first labor line uses; null for none */
+            constructionRoleKey: string | null;
             discordAnnounceChannelId: string | null;
             discordDmChannelId: string | null;
             /** @description The text location of Beny Bot's Discord events */
@@ -4359,6 +4804,8 @@ export interface components {
             campaignName: string;
             /** @description 1 to 80 characters after trimming */
             colonyName: string;
+            /** @description An unarchived role; null for none */
+            constructionRoleKey: string | null;
             /** @description A text channel of the linked Discord server */
             discordAnnounceChannelId: string | null;
             /** @description A text channel of the linked Discord server */
@@ -4395,6 +4842,21 @@ export interface components {
              */
             nextDay: number | null;
         };
+        StartBuildingInput: {
+            /** Format: uuid */
+            blueprintId: string;
+            /**
+             * Format: date-time
+             * @description The blueprint's updatedAt as the Start sheet showed it; a newer blueprint is a 409
+             */
+            blueprintUpdatedAt: string;
+            /** @description Role key to crew; a labor role left out starts with none */
+            crews: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            expectedVersion: number;
+        };
         SupplyOfferInput: {
             /**
              * Format: int64
@@ -4418,6 +4880,11 @@ export interface components {
             /** @description SHIPMENT_ARRIVED only; absent otherwise */
             arrivals?: components["schemas"]["ArrivalRun"];
             body: string;
+            /**
+             * Format: uuid
+             * @description The building this entry is about; null for none, or once an undone Start deleted it
+             */
+            buildingId: string | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: int64 */
@@ -4480,7 +4947,7 @@ export interface components {
             visibility: components["schemas"]["TimelineVisibility"];
         };
         /** @enum {string} */
-        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED" | "POLL_CLOSED" | "COIN_DEPOSITED";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED" | "POLL_CLOSED" | "COIN_DEPOSITED" | "BUILDING_STARTED" | "BUILDING_CREWS_CHANGED" | "BUILDING_CANCELLED" | "BUILDING_DEMOLISHED" | "BUILDING_FINISHED" | "BUILDING_IDLED" | "BUILDING_ACTIVATED" | "BUILDING_ADDED";
         TimelinePage: {
             /**
              * Format: int64
@@ -4507,7 +4974,7 @@ export interface components {
         /** @enum {string} */
         TimelineVisibility: "PUBLIC" | "DM";
         /** @enum {string} */
-        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions" | "market" | "polls" | "bridge";
+        Topic: "me" | "members" | "settings" | "colony" | "timeline" | "resources" | "people" | "npcs" | "places" | "quests" | "patrons" | "requests" | "maps" | "hexes" | "sessions" | "market" | "polls" | "bridge" | "construction";
         TransferInput: {
             /**
              * Format: int64
@@ -5655,6 +6122,443 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UndoInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listConstruction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConstructionPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createBlueprint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewBlueprintInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingBlueprint"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateBlueprint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                blueprintId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BlueprintInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingBlueprint"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setBlueprintArchived: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                blueprintId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingBlueprint"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    addBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                blueprintId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddBuildingInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setBlueprintRevealed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                blueprintId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildingBlueprint"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    startBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartBuildingInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    activateBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                buildingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingVersionInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    cancelBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                buildingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingRefundInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    setBuildingCrews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                buildingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingCrewsInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    demolishBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                buildingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingRefundInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    idleBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                buildingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingVersionInput"];
             };
         };
         responses: {

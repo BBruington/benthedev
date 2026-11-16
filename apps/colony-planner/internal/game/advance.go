@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"maps"
+	"math"
 )
 
 // MaxUnfoldedArrivals is the most SHIPMENT_ARRIVED entries one advance writes one by one; past it the
@@ -21,8 +22,9 @@ type Step interface {
 	NextBoundary(state State, after int64) (day int64, ok bool)
 }
 
-// DailySteps is the pipeline, in order. A future step is appended only if its rules need one.
-var DailySteps = []Step{Upkeep{}, Shipments{}}
+// DailySteps is the pipeline, in order (docs/design/construction.md §4.1). A future step is appended
+// only if its rules need one.
+var DailySteps = []Step{BuildingOutput{}, Upkeep{}, Shipments{}, Construction{}}
 
 // ArrivalRun is the arithmetic run of shipment arrival days First, First+Every, … (Count of them).
 // Its JSON is the `data` of a folded SHIPMENT_ARRIVED entry: {first, every, count}.
@@ -40,7 +42,11 @@ func (run ArrivalRun) Last() int64 {
 // Log collects what the steps did across every span of one advance.
 type Log struct {
 	resourceDeltas map[string]int64
-	arrivalRuns    []ArrivalRun
+	// requestedDeltas is what output, upkeep and completion Effects asked of each resource before bounds
+	// cut it.
+	requestedDeltas map[string]int64
+	arrivalRuns     []ArrivalRun
+	finishes        []BuildingFinish
 }
 
 // RecordResourceDelta adds an applied change to a resource.
@@ -55,6 +61,28 @@ func (log *Log) RecordResourceDelta(key string, delta int64) {
 	if log.resourceDeltas[key] == 0 {
 		delete(log.resourceDeltas, key)
 	}
+}
+
+// RecordRequested adds what a step asked of a resource, saturating rather than overflowing for a huge N.
+func (log *Log) RecordRequested(key string, delta int64) {
+	if delta == 0 {
+		return
+	}
+	if log.requestedDeltas == nil {
+		log.requestedDeltas = map[string]int64{}
+	}
+	log.requestedDeltas[key] = saturatingAdd(log.requestedDeltas[key], delta)
+}
+
+func saturatingAdd(left int64, right int64) int64 {
+	sum := left + right
+	switch {
+	case left > 0 && right > 0 && sum < 0:
+		return math.MaxInt64
+	case left < 0 && right < 0 && sum >= 0:
+		return math.MinInt64
+	}
+	return sum
 }
 
 // RecordArrivals adds shipment arrivals, extending the previous run when it continues it, so one
@@ -74,31 +102,27 @@ func (log *Log) RecordArrivals(run ArrivalRun) {
 }
 
 // Upkeep eats FoodPerColonistPerDay food per colonist per day, floored at food's minimum. Nothing
-// else happens at the floor (spec §5.2, decisions 4 and 5).
+// else happens at the floor (spec §5.2, decisions 4 and 5). Food's building output lands first each
+// day (K14), so this step applies both: they meet in one day map, which no span may split.
 type Upkeep struct{}
 
 func (upkeep Upkeep) Span(state *State, from int64, to int64, log *Log) {
 	food, found := state.Resources[FoodResourceKey]
-	if !found {
+	days := to - from
+	if !found || days <= 0 {
 		return
 	}
 	eaters := Colonists(state.Roles) * FoodPerColonistPerDay
-	days := to - from
-	spare := food.Amount - food.MinAmount
-	if eaters <= 0 || days <= 0 || spare <= 0 {
-		return
-	}
-	newAmount := food.MinAmount
-	// Dividing first keeps eaters × days from overflowing int64 for any N.
-	if days <= spare/eaters {
-		newAmount = food.Amount - eaters*days
-	}
+	output := dailyOutputs(*state)[FoodResourceKey]
+	log.RecordRequested(FoodResourceKey, saturatingProduct(output, days))
+	log.RecordRequested(FoodResourceKey, saturatingProduct(-eaters, days))
+	newAmount := amountAfterDays(food.Amount, output, eaters, food.MinAmount, ceiling(*state, FoodResourceKey), days)
 	log.RecordResourceDelta(FoodResourceKey, newAmount-food.Amount)
 	food.Amount = newAmount
 	state.Resources[FoodResourceKey] = food
 }
 
-// Colonists are constant during an advance, so upkeep changes nothing another step reads.
+// Upkeep changes only food, which no other step reads but a finish's completion Effects at a span's end.
 func (upkeep Upkeep) NextBoundary(State, int64) (int64, bool) {
 	return 0, false
 }
@@ -142,16 +166,24 @@ type AdvanceResult struct {
 	// snapshot: the day, the schedule and every resource After changed.
 	Before State
 	After  State
-	// Colonists is the headcount upkeep used.
+	// Colonists is the headcount upkeep started with; a finish's completion Effects may add to it.
 	Colonists int64
-	// Applied holds the applied resource deltas only (zero ones omitted): the DAYS_ADVANCED deltas.
+	// Applied holds the applied resource deltas only (zero ones omitted), building output included: the
+	// DAYS_ADVANCED deltas.
 	Applied Effects
+	// Requested is what building output, upkeep and every finish's completion Effects asked of each
+	// resource, before bounds cut it, so the preview marks a resource clamped only when a bound stopped
+	// a change.
+	Requested map[string]int64
 	// Arrivals are every arrival in (Before.Day, After.Day], as runs; ArrivalCount is their total.
 	Arrivals     []ArrivalRun
 	ArrivalCount int64
 	// ArrivalEntries are the SHIPMENT_ARRIVED entries to write: one per arrival day when there are
 	// MaxUnfoldedArrivals or fewer, otherwise one folded entry per run.
 	ArrivalEntries []ArrivalEntry
+	// Finishes are the projects finished in (Before.Day, After.Day], in the order they finished. Their
+	// completion Effects are in their own Applied, not in this result's.
+	Finishes []BuildingFinish
 }
 
 // Advance moves the colony forward `days` days (spec §5.2). The preview calls it too and saves nothing.
@@ -205,8 +237,10 @@ func advance(state State, days int64, steps []Step) (AdvanceResult, error) {
 		After:          after,
 		Colonists:      Colonists(state.Roles),
 		Applied:        Effects{Resources: maps.Clone(log.resourceDeltas)},
+		Requested:      maps.Clone(log.requestedDeltas),
 		Arrivals:       append([]ArrivalRun{}, log.arrivalRuns...),
 		ArrivalEntries: []ArrivalEntry{},
+		Finishes:       append([]BuildingFinish{}, log.finishes...),
 	}
 	if result.Applied.Resources == nil {
 		result.Applied.Resources = map[string]int64{}

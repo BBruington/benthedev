@@ -52,6 +52,8 @@ const (
 	TopicPolls Topic = "polls"
 	// TopicBridge is the DM's Foundry bridge status on Settings, and the only topic a bridge stream hears.
 	TopicBridge Topic = "bridge"
+	// TopicConstruction is the Buildings page: blueprints, buildings, crews and idle colonists.
+	TopicConstruction Topic = "construction"
 )
 
 // InvalidateMessage is the data of every `event: invalidate` message on a campaign stream.
@@ -62,7 +64,7 @@ type InvalidateMessage struct {
 // AllTopics lists every topic; it feeds the Topic enum in the OpenAPI document, reconnect catch-up
 // and view as player. TestAllTopicsListsEveryTopicConstant fails when a Topic constant is missing here.
 func AllTopics() []Topic {
-	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces, TopicQuests, TopicPatrons, TopicRequests, TopicMaps, TopicHexes, TopicSessions, TopicMarket, TopicPolls, TopicBridge}
+	return []Topic{TopicMe, TopicMembers, TopicSettings, TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicPlaces, TopicQuests, TopicPatrons, TopicRequests, TopicMaps, TopicHexes, TopicSessions, TopicMarket, TopicPolls, TopicBridge, TopicConstruction}
 }
 
 // StreamMessage is one `event: invalidate` message, with its `<bootId>-<seq>` id.

@@ -221,4 +221,22 @@ describe("colony change paths", () => {
 			expect(isColonyChangePath(path)).toBe(false);
 		}
 	});
+
+	test("starting, crewing, cancelling and demolishing a building are colony changes; blueprints are not", () => {
+		for (const path of [
+			"/api/campaigns/{campaignId}/construction/buildings",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/crews",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/cancel",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/demolish",
+		]) {
+			expect(isColonyChangePath(path)).toBe(true);
+		}
+		for (const path of [
+			"/api/campaigns/{campaignId}/construction",
+			"/api/campaigns/{campaignId}/construction/blueprints",
+			"/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/revealed",
+		]) {
+			expect(isColonyChangePath(path)).toBe(false);
+		}
+	});
 });

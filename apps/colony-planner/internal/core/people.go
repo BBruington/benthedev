@@ -460,6 +460,13 @@ func (service *Service) UpdateRole(requestContext context.Context, viewer Viewer
 		if headcount := int64(current.Role.UnnamedCount) + current.NamedCount; input.Archived && !current.Role.Archived && headcount > 0 {
 			fieldErrors = append(fieldErrors, FieldError{Field: "archived", Message: current.Role.Label + " still has " + colonistCount(headcount) + ". Move them to another role first."})
 		}
+		if input.Archived && !current.Role.Archived {
+			constructionErrors, err := roleArchiveConstructionErrors(requestContext, queries, viewer.campaignID, current.Role)
+			if err != nil {
+				return err
+			}
+			fieldErrors = append(fieldErrors, constructionErrors...)
+		}
 		if len(fieldErrors) > 0 {
 			return Invalid("The role needs fixing.", fieldErrors...)
 		}
@@ -481,8 +488,29 @@ func (service *Service) UpdateRole(requestContext context.Context, viewer Viewer
 	if err != nil {
 		return RoleSettings{}, err
 	}
-	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicPeople, TopicColony, TopicNpcs)...)
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicPeople, TopicColony, TopicNpcs, TopicConstruction)...)
 	return updated, nil
+}
+
+// roleArchiveConstructionErrors keeps a role an unfinished building's labor names, or the construction
+// role on Settings, from being archived, so Advance never meets an archived role.
+func roleArchiveConstructionErrors(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, role store.Role) ([]FieldError, error) {
+	var fieldErrors []FieldError
+	named, err := queries.RoleHasUnfinishedLabor(requestContext, store.RoleHasUnfinishedLaborParams{CampaignID: campaignID, RoleKey: role.Key})
+	if err != nil {
+		return nil, err
+	}
+	if named {
+		fieldErrors = append(fieldErrors, FieldError{Field: "archived", Message: "A building under construction needs " + role.Label + " work. Finish or cancel it first."})
+	}
+	settings, err := queries.GetSettings(requestContext, campaignID)
+	if err != nil {
+		return nil, campaignGone(err)
+	}
+	if settings.ConstructionRoleKey != nil && *settings.ConstructionRoleKey == role.Key {
+		fieldErrors = append(fieldErrors, FieldError{Field: "archived", Message: role.Label + " is the construction role on Settings. Pick another there first."})
+	}
+	return fieldErrors, nil
 }
 
 func checkRoleSettings(rawLabel string, icon ColonyIcon) (string, []FieldError) {

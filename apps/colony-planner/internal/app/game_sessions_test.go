@@ -173,7 +173,7 @@ func TestSettingsKeepTheEventLocationABodyLeavesOut(t *testing.T) {
 	if got := location(); got != "Online" {
 		t.Fatalf("a new campaign's event location = %q, want Online", got)
 	}
-	const withoutLocation = `{"campaignName":"Campaign Alpha","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null`
+	const withoutLocation = `{"campaignName":"Campaign Alpha","colonyName":"Port Alpha","timezone":"UTC","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null,"constructionRoleKey":null`
 	testHarness.expectStatus(testHarness.do(http.MethodPut, settingsPath, requestOptions{token: dmToken, body: withoutLocation + `,"discordEventLocation":"Foundry, table 2"}`}), http.StatusOK)
 	testHarness.expectStatus(testHarness.do(http.MethodPut, settingsPath, requestOptions{token: dmToken, body: withoutLocation + `}`}), http.StatusUnprocessableEntity)
 	if got := location(); got != "Foundry, table 2" {
@@ -190,7 +190,7 @@ func TestSettingsKeepTheEventLocationABodyLeavesOut(t *testing.T) {
 func TestPlayersReadTheTablesTimeZoneOnTheBoard(t *testing.T) {
 	testHarness := newHarness(t)
 	settingsPath := campaignPathOf(testHarness.campaignA, "/settings")
-	body := `{"campaignName":"Campaign Alpha","colonyName":"Port Alpha","timezone":"America/New_York","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null,"discordEventLocation":"Online"}`
+	body := `{"campaignName":"Campaign Alpha","colonyName":"Port Alpha","timezone":"America/New_York","discordAnnounceChannelId":null,"discordReminderChannelId":null,"discordDmChannelId":null,"constructionRoleKey":null,"discordEventLocation":"Online"}`
 	testHarness.expectStatus(testHarness.do(http.MethodPut, settingsPath, requestOptions{token: testHarness.signIn(testHarness.dmA), body: body}), http.StatusOK)
 	response := testHarness.do(http.MethodGet, campaignPathOf(testHarness.campaignA, "/colony"), requestOptions{token: testHarness.signIn(testHarness.ana)})
 	testHarness.expectStatus(response, http.StatusOK)

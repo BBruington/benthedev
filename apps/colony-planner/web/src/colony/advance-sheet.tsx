@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ShipIcon, StoreIcon, SunriseIcon, UsersIcon } from "lucide-react";
+import { HouseIcon, ShipIcon, StoreIcon, SunriseIcon, UsersIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import type { Schemas } from "@/api/client";
 import { problemMessage } from "@/api/problem";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { formatNumber, needsRetype, parseWholeNumber, retypeAboveDays } from "@/lib/colony";
+import { finishLine } from "@/lib/construction";
 import { ResourceChangeList } from "./resource-change-list";
 import { type ColonyChanges, isConflict } from "./use-colony-changes";
 
@@ -98,7 +99,7 @@ export function AdvanceSheet({
 
 	return (
 		<BottomSheet
-			description="Upkeep is taken for every day and ships arrive on schedule. Nothing else happens."
+			description="For every day, Active buildings make and use resources, upkeep is taken, ships arrive on schedule and crewed buildings make progress, finishing on their day. Nothing else happens."
 			onOpenChange={onOpenChange}
 			open={open}
 			title="Advance the clock"
@@ -237,6 +238,19 @@ function AdvancePreviewPanel({
 						.
 					</span>
 				</p>
+			)}
+			{preview.finishes.length === 0 ? null : (
+				<ul className="grid gap-1.5">
+					{preview.finishes.map((finish) => (
+						<li
+							className="flex items-start gap-2 rounded-lg border border-moss/35 bg-moss/10 px-3 py-2 text-sm"
+							key={finish.buildingId}
+						>
+							<HouseIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-moss-ink" />
+							<span className="font-semibold [overflow-wrap:anywhere]">{finishLine(finish)}</span>
+						</li>
+					))}
+				</ul>
 			)}
 			<p className="font-flavor text-muted-foreground italic">{preview.summary}</p>
 		</section>

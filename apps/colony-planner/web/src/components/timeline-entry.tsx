@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import {
 	BadgeCheckIcon,
+	BanIcon,
+	BrickWallIcon,
 	CalendarClockIcon,
 	CircleXIcon,
 	CoinsIcon,
@@ -8,10 +10,16 @@ import {
 	DicesIcon,
 	EyeOffIcon,
 	FeatherIcon,
+	HammerIcon,
 	HandCoinsIcon,
+	HardHatIcon,
 	HourglassIcon,
+	HouseIcon,
+	HousePlusIcon,
 	type LucideIcon,
 	PackageOpenIcon,
+	PauseIcon,
+	PlayIcon,
 	RotateCcwIcon,
 	ScaleIcon,
 	ScrollTextIcon,
@@ -38,6 +46,46 @@ type Glyph = { icon: LucideIcon; label: string; tone: string };
 
 /** Each kind's typed glyph (spec §6.6); the Record fails typechecking when a kind is added. */
 export const timelineKinds: Record<TimelineKind, Glyph> = {
+	BUILDING_ACTIVATED: {
+		icon: PlayIcon,
+		label: "Building active",
+		tone: "bg-moss/14 text-moss-ink",
+	},
+	BUILDING_ADDED: {
+		icon: HousePlusIcon,
+		label: "Building added",
+		tone: "bg-moss/14 text-moss-ink",
+	},
+	BUILDING_CANCELLED: {
+		icon: BanIcon,
+		label: "Building cancelled",
+		tone: "bg-muted text-muted-foreground",
+	},
+	BUILDING_CREWS_CHANGED: {
+		icon: HardHatIcon,
+		label: "Crews",
+		tone: "bg-verdigris/14 text-verdigris-ink",
+	},
+	BUILDING_DEMOLISHED: {
+		icon: BrickWallIcon,
+		label: "Building demolished",
+		tone: "bg-ember/12 text-ember-ink",
+	},
+	BUILDING_FINISHED: {
+		icon: HouseIcon,
+		label: "Building finished",
+		tone: "bg-moss/14 text-moss-ink",
+	},
+	BUILDING_IDLED: {
+		icon: PauseIcon,
+		label: "Building idle",
+		tone: "bg-muted text-muted-foreground",
+	},
+	BUILDING_STARTED: {
+		icon: HammerIcon,
+		label: "Building started",
+		tone: "bg-gilt/12 text-gilt-ink",
+	},
 	CARGO_RECORDED: { icon: PackageOpenIcon, label: "Cargo", tone: "bg-moss/14 text-moss-ink" },
 	COIN_DEPOSITED: { icon: CoinsIcon, label: "Coins deposited", tone: "bg-moss/14 text-moss-ink" },
 	COLONIST_JOINED: {

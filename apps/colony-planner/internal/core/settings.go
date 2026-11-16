@@ -28,6 +28,7 @@ type Settings struct {
 	DiscordReminderChannelID *string `json:"discordReminderChannelId"`
 	DiscordDmChannelID       *string `json:"discordDmChannelId"`
 	DiscordEventLocation     string  `json:"discordEventLocation" doc:"The text location of Beny Bot's Discord events"`
+	ConstructionRoleKey      *string `json:"constructionRoleKey" doc:"The role a new blueprint's first labor line uses; null for none"`
 	// BotInviteURL is not stored: it comes from DISCORD_CLIENT_ID, and inputs never carry it.
 	BotInviteURL *string `json:"botInviteUrl" doc:"Adds Beny Bot to a Discord server; null until DISCORD_CLIENT_ID is set"`
 	// DiscordServer is the linked Discord server, or null when none is linked.
@@ -48,6 +49,8 @@ type SettingsInput struct {
 	// Required like every other field (full-record PUT), so a body that leaves it out is refused rather
 	// than resetting the location the DM set.
 	DiscordEventLocation string `json:"discordEventLocation" doc:"At most 100 characters after trimming; blank means Online"`
+	// Required too: null clears it, so a body that leaves it out is refused rather than clearing it.
+	ConstructionRoleKey *string `json:"constructionRoleKey" nullable:"true" doc:"An unarchived role; null for none"`
 }
 
 // DefaultDiscordEventLocation is the migration's default, which a blank location goes back to.
@@ -70,6 +73,7 @@ func (service *Service) toSettings(row store.Settings, campaignName string, colo
 		DiscordReminderChannelID: row.DiscordReminderChannelID,
 		DiscordDmChannelID:       row.DiscordDmChannelID,
 		DiscordEventLocation:     row.DiscordEventLocation,
+		ConstructionRoleKey:      row.ConstructionRoleKey,
 	}
 	if service.botInviteURL != "" {
 		inviteURL := service.botInviteURL
@@ -196,6 +200,12 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 		if channelErrors := service.checkChannels(requestContext, link, channels, stored); len(channelErrors) > 0 {
 			return Invalid("Some settings need fixing.", channelErrors...)
 		}
+		if fieldError, err := checkConstructionRole(requestContext, queries, viewer.campaignID, input.ConstructionRoleKey); err != nil || fieldError != nil {
+			if err != nil {
+				return err
+			}
+			return Invalid("Some settings need fixing.", *fieldError)
+		}
 		if _, err := queries.UpdateSettings(requestContext, store.UpdateSettingsParams{
 			CampaignID:               viewer.campaignID,
 			Timezone:                 timezone,
@@ -203,6 +213,7 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 			DiscordAnnounceChannelID: announceChannelID,
 			DiscordReminderChannelID: reminderChannelID,
 			DiscordDmChannelID:       dmChannelID,
+			ConstructionRoleKey:      input.ConstructionRoleKey,
 		}); err != nil {
 			return err
 		}
@@ -230,14 +241,34 @@ func (service *Service) UpdateSettings(requestContext context.Context, viewer Vi
 	if err != nil {
 		return Settings{}, err
 	}
-	// The board carries both names, so every member's top bar refreshes too.
-	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicSettings, TopicColony, TopicMe)...)
+	// The board carries both names for every member's top bar; the Buildings page lists the construction role.
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicSettings, TopicColony, TopicMe, TopicConstruction)...)
 	if timezoneChanged {
 		// Every date's instant moved with the zone.
 		service.broker.Publish(viewer.campaignID, TopicSessions)
 	}
 	service.sessionPlanner.SessionsChanged(viewer.campaignID)
 	return settings, nil
+}
+
+// checkConstructionRole accepts null or one of this campaign's unarchived roles; the key is loaded with
+// the campaign, so another campaign's role is simply not found.
+func checkConstructionRole(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, roleKey *string) (*FieldError, error) {
+	if roleKey == nil {
+		return nil, nil
+	}
+	roles, err := queries.ListRoles(requestContext, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	index := slices.IndexFunc(roles, func(row store.ListRolesRow) bool { return row.Role.Key == *roleKey })
+	switch {
+	case index < 0:
+		return &FieldError{Field: "constructionRoleKey", Message: `There is no role "` + *roleKey + `".`}, nil
+	case roles[index].Role.Archived:
+		return &FieldError{Field: "constructionRoleKey", Message: roles[index].Role.Label + " is archived."}, nil
+	}
+	return nil, nil
 }
 
 // checkChannels accepts a channel only from the linked server's text channels, so a DM can never make

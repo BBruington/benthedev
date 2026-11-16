@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
 	CalendarClockIcon,
+	HammerIcon,
 	MegaphoneIcon,
 	RotateCcwIcon,
 	SaveIcon,
@@ -23,11 +24,13 @@ import {
 	myCampaignRequestQuery,
 	myCampaignsQuery,
 	resourcesQuery,
+	rolesQuery,
 	settingsQuery,
 } from "@/api/queries";
 import { FoundryInbox } from "@/colony/foundry-inbox";
 import { ResourceSettingsCard } from "@/colony/resource-settings";
 import { Field, fieldInputProps, fieldMessageIds } from "@/components/field";
+import { NativeSelect } from "@/components/form-controls";
 import { PageHeader } from "@/components/page-header";
 import { ChannelSelect } from "@/components/settings/channel-select";
 import { DangerZone } from "@/components/settings/danger-zone";
@@ -64,6 +67,7 @@ type SettingsDraft = {
 	campaignName: string;
 	colonyName: string;
 	timezone: string;
+	constructionRoleKey: string;
 	discordAnnounceChannelId: string;
 	discordReminderChannelId: string;
 	discordDmChannelId: string;
@@ -82,6 +86,7 @@ export const Route = createFileRoute("/_signedIn/c/$campaignSlug/_shell/settings
 		if (me && canUseDmTools(me)) {
 			queryClient.prefetchQuery(settingsQuery(campaignId));
 			queryClient.prefetchQuery(resourcesQuery(campaignId));
+			queryClient.prefetchQuery(rolesQuery(campaignId));
 			queryClient.prefetchQuery(inviteLinkQuery(campaignId));
 			queryClient.prefetchQuery(calendarLinkQuery(campaignId));
 			queryClient.prefetchQuery(bridgeStatusQuery(campaignId));
@@ -105,7 +110,7 @@ function SettingsPage() {
 	return (
 		<div className="flex flex-col gap-8 md:gap-10">
 			<PageHeader
-				description="The campaign's and colony's names, the time zone, who can join, the calendar link, the colony's resources, Beny Bot's Discord server, and your Foundry world."
+				description="The campaign's and colony's names, the time zone, the construction role, who can join, the calendar link, the colony's resources, Beny Bot's Discord server, and your Foundry world."
 				eyebrow="Dungeon Master"
 				title="Settings"
 			/>
@@ -349,6 +354,7 @@ function toDraft(settings: Settings): SettingsDraft {
 	return {
 		campaignName: settings.campaignName,
 		colonyName: settings.colonyName,
+		constructionRoleKey: settings.constructionRoleKey ?? "",
 		discordAnnounceChannelId: settings.discordAnnounceChannelId ?? "",
 		discordDmChannelId: settings.discordDmChannelId ?? "",
 		discordEventLocation: settings.discordEventLocation,
@@ -366,6 +372,7 @@ function toInput(draft: SettingsDraft): SettingsInput {
 	return {
 		campaignName: draft.campaignName.trim(),
 		colonyName: draft.colonyName.trim(),
+		constructionRoleKey: optionalText(draft.constructionRoleKey),
 		discordAnnounceChannelId: optionalText(draft.discordAnnounceChannelId),
 		discordDmChannelId: optionalText(draft.discordDmChannelId),
 		// Always sent: the server reads a missing location as a reset to the default.
@@ -508,6 +515,20 @@ function SettingsForm({ settings }: { settings: Settings }) {
 				</Field>
 			</SettingsCard>
 
+			<SettingsCard
+				description="The work new buildings need, on the Buildings page."
+				icon={HammerIcon}
+				title="Construction"
+			>
+				<ConstructionRoleSelect
+					error={errors.constructionRoleKey}
+					onChange={(roleKey) => {
+						update("constructionRoleKey", roleKey);
+					}}
+					value={draft.constructionRoleKey}
+				/>
+			</SettingsCard>
+
 			<DiscordServerCard
 				botInviteUrl={settings.botInviteUrl}
 				isGettingCode={discord.isGettingCode}
@@ -564,6 +585,49 @@ function SettingsForm({ settings }: { settings: Settings }) {
 				onDiscard={discard}
 			/>
 		</form>
+	);
+}
+
+const constructionRoleId = "settings-construction-role";
+
+/** Unarchived roles only: the server refuses an archived one, and archiving refuses this role. */
+function ConstructionRoleSelect({
+	value,
+	error,
+	onChange,
+}: {
+	value: string;
+	error: string | undefined;
+	onChange: (roleKey: string) => void;
+}) {
+	const roles = useQuery(rolesQuery(useCampaign().campaignId));
+	const choices = (roles.data?.roles ?? []).filter((role) => !role.archived || role.key === value);
+	const isListed = value === "" || choices.some((role) => role.key === value);
+	return (
+		<Field
+			description="New blueprints start with this role's labor."
+			error={error}
+			id={constructionRoleId}
+			label="Construction role"
+			optional
+		>
+			<NativeSelect
+				{...fieldInputProps(constructionRoleId, error, true)}
+				disabled={roles.isPending}
+				onChange={(event) => {
+					onChange(event.target.value);
+				}}
+				value={value}
+			>
+				<option value="">None</option>
+				{choices.map((role) => (
+					<option key={role.key} value={role.key}>
+						{role.label}
+					</option>
+				))}
+				{isListed ? null : <option value={value}>{value}</option>}
+			</NativeSelect>
+		</Field>
 	);
 }
 

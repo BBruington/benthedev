@@ -106,7 +106,7 @@ type roleBodyInput[Body any] struct {
 	Body       Body
 }
 
-// RevealInput is the body of the reveal switches on NPCs, places, patrons and patron actions.
+// RevealInput is the body of the reveal switches on NPCs, places, patrons, patron actions and blueprints.
 type RevealInput struct {
 	Revealed bool `json:"revealed"`
 }
@@ -167,6 +167,18 @@ type marketOrderBodyInput[Body any] struct {
 	Body       Body
 }
 
+type blueprintBodyInput[Body any] struct {
+	CampaignID  uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	BlueprintID uuid.UUID `path:"blueprintId" format:"uuid"`
+	Body        Body
+}
+
+type buildingBodyInput[Body any] struct {
+	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
+	BuildingID uuid.UUID `path:"buildingId" format:"uuid"`
+	Body       Body
+}
+
 type pollPath struct {
 	CampaignID uuid.UUID `path:"campaignId" format:"uuid" doc:"The campaign's ID (GET /api/campaigns lists the caller's)"`
 	PollID     uuid.UUID `path:"pollId" format:"uuid"`
@@ -183,7 +195,7 @@ type PollVoteInput struct {
 	OptionIDs []uuid.UUID `json:"optionIds" format:"uuid" maxItems:"10" doc:"Every option the player picks; empty withdraws the vote"`
 }
 
-// ArchiveInput is the body of the archive switches on patrons, their actions and market items.
+// ArchiveInput is the body of the archive switches on patrons, their actions, market items and blueprints.
 type ArchiveInput struct {
 	Archived bool `json:"archived"`
 }

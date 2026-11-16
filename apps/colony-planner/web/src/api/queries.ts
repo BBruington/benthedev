@@ -309,6 +309,15 @@ export function marketQuery(campaignId: string) {
 	return api.queryOptions("get", "/api/campaigns/{campaignId}/market", inCampaign(campaignId));
 }
 
+/** The Buildings page: blueprints, every building, and idle colonists per labor role. */
+export function constructionQuery(campaignId: string) {
+	return api.queryOptions(
+		"get",
+		"/api/campaigns/{campaignId}/construction",
+		inCampaign(campaignId),
+	);
+}
+
 /** Open polls and the 50 most recently closed, each with its counts, voters and the viewer's vote. */
 export function pollsQuery(campaignId: string) {
 	return api.queryOptions("get", "/api/campaigns/{campaignId}/polls", inCampaign(campaignId));

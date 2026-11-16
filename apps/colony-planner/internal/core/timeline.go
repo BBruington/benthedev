@@ -46,9 +46,12 @@ type TimelineEntry struct {
 	PatronID  *uuid.UUID `json:"patronId" format:"uuid" nullable:"true" doc:"The patron this entry names; null for none"`
 	RequestID *uuid.UUID `json:"requestId" format:"uuid" nullable:"true" doc:"The request this entry granted; null for none"`
 	// SessionID links SESSION_PLAYED to its session; sessions have no secrets.
-	SessionID *uuid.UUID       `json:"sessionId" format:"uuid" nullable:"true" doc:"The session this entry is about; null for none"`
-	CreatedAt time.Time        `json:"createdAt"`
-	Dm        *TimelineEntryDm `json:"dm,omitempty"`
+	SessionID *uuid.UUID `json:"sessionId" format:"uuid" nullable:"true" doc:"The session this entry is about; null for none"`
+	// BuildingID links a construction entry to its building. Players only get entries whose building's
+	// blueprint is revealed, so it never names a hidden one to them.
+	BuildingID *uuid.UUID       `json:"buildingId" format:"uuid" nullable:"true" doc:"The building this entry is about; null for none, or once an undone Start deleted it"`
+	CreatedAt  time.Time        `json:"createdAt"`
+	Dm         *TimelineEntryDm `json:"dm,omitempty"`
 }
 
 // TimelineEntryDm is what only the DM sees about an entry: its visibility (eye-slash when DM),
@@ -290,6 +293,11 @@ func (service *Service) UpdateTimelineEntry(requestContext context.Context, view
 				return err
 			}
 		}
+		if cleaned.Visibility == TimelineVisibilityPublic && goingPublic && existing.BuildingID != nil {
+			if err := checkBuildingEntryCanGoPublic(requestContext, queries, viewer.campaignID, *existing.BuildingID); err != nil {
+				return err
+			}
+		}
 		row, err = queries.UpdateTimelineEvent(requestContext, store.UpdateTimelineEventParams{
 			CampaignID: viewer.campaignID,
 			ID:         timelineEntryID,
@@ -327,6 +335,20 @@ func (service *Service) DeleteCustomEntry(requestContext context.Context, viewer
 	}
 	service.broker.Publish(viewer.campaignID, TopicTimeline)
 	return nil
+}
+
+// checkBuildingEntryCanGoPublic refuses to show players an entry about a building while its blueprint
+// is hidden (docs/design/construction.md §8.1).
+func checkBuildingEntryCanGoPublic(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, buildingID uuid.UUID) error {
+	building, err := queries.GetBuilding(requestContext, store.GetBuildingParams{CampaignID: campaignID, ID: buildingID})
+	if err != nil {
+		return err
+	}
+	if building.BlueprintRevealed {
+		return nil
+	}
+	message := "The " + building.BlueprintName + " blueprint is hidden from players. Reveal it first."
+	return Invalid(message, FieldError{Field: "visibility", Message: message})
 }
 
 // npcEntry is what decides whether an entry about an NPC may be PUBLIC: its link, the display name
@@ -482,18 +504,19 @@ func toTimelineEntries(rows []store.TimelineEvent) ([]TimelineEntry, error) {
 func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 	kind := TimelineKind(row.Kind)
 	entry := TimelineEntry{
-		ID:        row.ID,
-		GroupID:   row.GroupID,
-		Day:       int64(row.Day),
-		Kind:      kind,
-		Title:     row.Title,
-		Body:      row.Body,
-		NpcID:     row.NpcID,
-		QuestID:   row.QuestID,
-		PatronID:  row.PatronID,
-		RequestID: row.RequestID,
-		SessionID: row.SessionID,
-		CreatedAt: row.CreatedAt.UTC(),
+		ID:         row.ID,
+		GroupID:    row.GroupID,
+		Day:        int64(row.Day),
+		Kind:       kind,
+		Title:      row.Title,
+		Body:       row.Body,
+		NpcID:      row.NpcID,
+		QuestID:    row.QuestID,
+		PatronID:   row.PatronID,
+		RequestID:  row.RequestID,
+		SessionID:  row.SessionID,
+		BuildingID: row.BuildingID,
+		CreatedAt:  row.CreatedAt.UTC(),
 		Dm: &TimelineEntryDm{
 			Visibility:     row.Visibility,
 			UndoneAt:       utcPointer(row.UndoneAt),
@@ -522,7 +545,7 @@ func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 			arrivalEntryID := data.ArrivalEntryID
 			entry.ArrivalEntryID = &arrivalEntryID
 		}
-	case TimelineKindQuestCompleted, TimelineKindQuestFailed:
+	case TimelineKindQuestCompleted, TimelineKindQuestFailed, TimelineKindBuildingFinished:
 		var data dmNoteData
 		if err := json.Unmarshal(row.Data, &data); err != nil {
 			return TimelineEntry{}, fmt.Errorf("core: decode timeline_event %s data: %w", row.ID, err)

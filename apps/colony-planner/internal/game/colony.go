@@ -27,7 +27,7 @@ const (
 	FoodPerColonistPerDay = 1
 )
 
-// State is everything the M1 rules read and change. Handlers load it from the colony, resource and
+// State is everything the colony rules read and change. Handlers load it from the colony, resource and
 // role rows, call a rule and save what comes back; no rule mutates the State it is given.
 type State struct {
 	Day int64
@@ -38,6 +38,10 @@ type State struct {
 	Resources map[string]Resource
 	// Roles is keyed by role key and must include UNASSIGNED.
 	Roles map[string]Role
+	// Projects are the unfinished buildings, sorted by building ID (docs/design/construction.md §3).
+	Projects []Project
+	// Buildings are the standing (finished) buildings, Idle ones included, sorted by building ID (§4).
+	Buildings []StandingBuilding
 }
 
 // Schedule is the shipment cadence (spec §5.3): interval I ≥ 1 and next arrival day D > Day.
@@ -46,7 +50,8 @@ type Schedule struct {
 	NextDay      int64
 }
 
-// Resource is one stockpile row. MaxAmount is nil when the resource has no upper bound.
+// Resource is one stockpile row. MaxAmount is nil when the resource has no upper bound; it is the
+// DM's own max, which rules read only through EffectiveMax, and Amount may sit above it (K13).
 type Resource struct {
 	// Label names the resource in shortfall messages ("Not enough food: …"); it is lowercased there.
 	Label     string
@@ -96,6 +101,8 @@ func (state State) Clone() State {
 	if clone.Roles == nil {
 		clone.Roles = map[string]Role{}
 	}
+	clone.Projects = cloneProjects(state.Projects)
+	clone.Buildings = cloneBuildings(state.Buildings)
 	return clone
 }
 
@@ -114,13 +121,21 @@ func checkStoredState(state State) error {
 		}
 	}
 	for key, resource := range state.Resources {
-		if resource.Amount < resource.MinAmount || (resource.MaxAmount != nil && resource.Amount > *resource.MaxAmount) {
+		if resource.Amount < resource.MinAmount || resource.Amount > MaxStored || (resource.MaxAmount != nil && *resource.MaxAmount < resource.MinAmount) {
 			return fmt.Errorf("game: resource %q amount %d is outside its bounds", key, resource.Amount)
 		}
 	}
 	for key, role := range state.Roles {
 		if role.UnnamedCount < 0 || role.NamedCount < 0 {
 			return fmt.Errorf("game: role %q has a negative headcount", key)
+		}
+	}
+	if !checkStoredProjects(state.Projects) {
+		return fmt.Errorf("game: a project's labor or output is out of range")
+	}
+	for _, building := range state.Buildings {
+		if !checkStoredOutputs(building.Output) {
+			return fmt.Errorf("game: building %s's output is out of range", building.BuildingID)
 		}
 	}
 	return nil

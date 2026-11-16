@@ -54,6 +54,7 @@ var enumTypes = []enumType{
 	newEnumType("Terrain", core.AllTerrainValues),
 	newEnumType("SessionStatus", core.AllSessionStatusValues),
 	newEnumType("MarketOrderStatus", core.AllMarketOrderStatusValues),
+	newEnumType("BuildingStatus", core.AllBuildingStatusValues),
 	newEnumType("PollVoting", core.AllPollVotingValues),
 	newEnumType("BridgeOutboxKind", core.AllBridgeOutboxKindValues),
 	newEnumType("BridgeEventKind", core.AllBridgeEventKindValues),

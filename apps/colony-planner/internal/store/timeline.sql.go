@@ -13,10 +13,10 @@ import (
 
 const createTimelineEvent = `-- name: CreateTimelineEvent :one
 INSERT INTO timeline_event (campaign_id, group_id, day, kind, title, body, visibility, deltas, data, created_by, npc_id, npc_name,
-    quest_id, patron_id, request_id, session_id, created_at)
+    quest_id, patron_id, request_id, session_id, building_id, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-    $13, $14, $15, $16, clock_timestamp())
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id
+    $13, $14, $15, $16, $17, clock_timestamp())
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id, building_id
 `
 
 type CreateTimelineEventParams struct {
@@ -36,6 +36,7 @@ type CreateTimelineEventParams struct {
 	PatronID   *uuid.UUID
 	RequestID  *uuid.UUID
 	SessionID  *uuid.UUID
+	BuildingID *uuid.UUID
 }
 
 // created_at is read when the row is written, not when its transaction began (now()). Every insert
@@ -59,6 +60,7 @@ func (q *Queries) CreateTimelineEvent(ctx context.Context, arg CreateTimelineEve
 		arg.PatronID,
 		arg.RequestID,
 		arg.SessionID,
+		arg.BuildingID,
 	)
 	var i TimelineEvent
 	err := row.Scan(
@@ -83,6 +85,7 @@ func (q *Queries) CreateTimelineEvent(ctx context.Context, arg CreateTimelineEve
 		&i.PatronID,
 		&i.RequestID,
 		&i.SessionID,
+		&i.BuildingID,
 	)
 	return i, err
 }
@@ -106,7 +109,7 @@ func (q *Queries) DeleteCustomTimelineEvent(ctx context.Context, arg DeleteCusto
 }
 
 const getTimelineEvent = `-- name: GetTimelineEvent :one
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event WHERE campaign_id = $1 AND id = $2
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id, building_id FROM timeline_event WHERE campaign_id = $1 AND id = $2
 `
 
 type GetTimelineEventParams struct {
@@ -141,6 +144,7 @@ func (q *Queries) GetTimelineEvent(ctx context.Context, arg GetTimelineEventPara
 		&i.PatronID,
 		&i.RequestID,
 		&i.SessionID,
+		&i.BuildingID,
 	)
 	return i, err
 }
@@ -176,7 +180,7 @@ func (q *Queries) HideTimelineEvent(ctx context.Context, arg HideTimelineEventPa
 }
 
 const listPublicNpcTimelineEvents = `-- name: ListPublicNpcTimelineEvents :many
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id, building_id FROM timeline_event
 WHERE campaign_id = $1 AND npc_id = $2 AND visibility = 'PUBLIC'
 ORDER BY sequence
 `
@@ -218,6 +222,7 @@ func (q *Queries) ListPublicNpcTimelineEvents(ctx context.Context, arg ListPubli
 			&i.PatronID,
 			&i.RequestID,
 			&i.SessionID,
+			&i.BuildingID,
 		); err != nil {
 			return nil, err
 		}
@@ -230,7 +235,7 @@ func (q *Queries) ListPublicNpcTimelineEvents(ctx context.Context, arg ListPubli
 }
 
 const listRecentTimelineEvents = `-- name: ListRecentTimelineEvents :many
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id, building_id FROM timeline_event
 WHERE timeline_event.campaign_id = $1
   AND ($2::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
        AND (npc_id IS NULL OR EXISTS (SELECT 1 FROM npc WHERE npc.campaign_id = $1 AND npc.id = timeline_event.npc_id AND npc.revealed))
@@ -239,7 +244,11 @@ WHERE timeline_event.campaign_id = $1
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = $1 AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = $1 AND building_blueprint.campaign_id = $1
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY sequence DESC
 LIMIT $3
 `
@@ -282,6 +291,7 @@ func (q *Queries) ListRecentTimelineEvents(ctx context.Context, arg ListRecentTi
 			&i.PatronID,
 			&i.RequestID,
 			&i.SessionID,
+			&i.BuildingID,
 		); err != nil {
 			return nil, err
 		}
@@ -295,7 +305,7 @@ func (q *Queries) ListRecentTimelineEvents(ctx context.Context, arg ListRecentTi
 
 const listTimelineEvents = `-- name: ListTimelineEvents :many
 
-SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id FROM timeline_event
+SELECT id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id, building_id FROM timeline_event
 WHERE timeline_event.campaign_id = $1
   AND day BETWEEN $2 AND $3
   AND ($4::boolean OR (visibility = 'PUBLIC' AND undone_at IS NULL
@@ -305,7 +315,11 @@ WHERE timeline_event.campaign_id = $1
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = $1 AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = $1 AND building_blueprint.campaign_id = $1
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY day, created_at, sequence
 `
 
@@ -318,8 +332,8 @@ type ListTimelineEventsParams struct {
 
 // Player projection: PUBLIC entries that have not been undone, about no NPC or a revealed one, so an
 // entry follows its NPC when the DM hides them later (Invariant 15). The same holds for an entry's
-// quest, patron and request (whose action may be hidden since, or was hidden when it was made), so a
-// link ID reaches players only for a row they can see. core passes viewer.SeesDmFields() as
+// quest, patron and request (whose action may be hidden since, or was hidden when it was made), and
+// for a building's blueprint, so a link ID reaches players only for a row they can see. core passes viewer.SeesDmFields() as
 // dm_projection (never IsDM), so the DM viewing as player gets the player projection (spec §2.2).
 func (q *Queries) ListTimelineEvents(ctx context.Context, arg ListTimelineEventsParams) ([]TimelineEvent, error) {
 	rows, err := q.db.Query(ctx, listTimelineEvents,
@@ -357,6 +371,7 @@ func (q *Queries) ListTimelineEvents(ctx context.Context, arg ListTimelineEvents
 			&i.PatronID,
 			&i.RequestID,
 			&i.SessionID,
+			&i.BuildingID,
 		); err != nil {
 			return nil, err
 		}
@@ -372,7 +387,7 @@ const markTimelineGroupUndone = `-- name: MarkTimelineGroupUndone :many
 UPDATE timeline_event
 SET undone_at = now()
 WHERE campaign_id = $1 AND group_id = $2::uuid AND undone_at IS NULL
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id, building_id
 `
 
 type MarkTimelineGroupUndoneParams struct {
@@ -412,6 +427,7 @@ func (q *Queries) MarkTimelineGroupUndone(ctx context.Context, arg MarkTimelineG
 			&i.PatronID,
 			&i.RequestID,
 			&i.SessionID,
+			&i.BuildingID,
 		); err != nil {
 			return nil, err
 		}
@@ -434,7 +450,11 @@ WHERE timeline_event.campaign_id = $1
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = $1 AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = $1 AND building_blueprint.campaign_id = $1
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY day
 LIMIT 1
 `
@@ -489,7 +509,11 @@ WHERE timeline_event.campaign_id = $1
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = $1 AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = $1 AND building_blueprint.campaign_id = $1
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY day DESC
 LIMIT 1
 `
@@ -516,7 +540,7 @@ SET day = $1,
     visibility = $4,
     edited_at = now()
 WHERE campaign_id = $5 AND id = $6
-RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id
+RETURNING id, group_id, sequence, day, kind, title, body, visibility, deltas, data, undone_at, created_by, created_at, edited_at, campaign_id, npc_id, npc_name, quest_id, patron_id, request_id, session_id, building_id
 `
 
 type UpdateTimelineEventParams struct {
@@ -562,6 +586,7 @@ func (q *Queries) UpdateTimelineEvent(ctx context.Context, arg UpdateTimelineEve
 		&i.PatronID,
 		&i.RequestID,
 		&i.SessionID,
+		&i.BuildingID,
 	)
 	return i, err
 }

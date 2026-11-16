@@ -48,7 +48,7 @@ func (q *Queries) GetBoardHeader(ctx context.Context, campaignID uuid.UUID) (Get
 }
 
 const getSettings = `-- name: GetSettings :one
-SELECT timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days, market_ship_limit FROM settings WHERE campaign_id = $1
+SELECT timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days, market_ship_limit, construction_role_key FROM settings WHERE campaign_id = $1
 `
 
 func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settings, error) {
@@ -64,6 +64,7 @@ func (q *Queries) GetSettings(ctx context.Context, campaignID uuid.UUID) (Settin
 		&i.IcsToken,
 		&i.MarketVoyageDays,
 		&i.MarketShipLimit,
+		&i.ConstructionRoleKey,
 	)
 	return i, err
 }
@@ -74,9 +75,10 @@ SET timezone = $1,
     discord_event_location = $2,
     discord_announce_channel_id = $3,
     discord_reminder_channel_id = $4,
-    discord_dm_channel_id = $5
-WHERE campaign_id = $6
-RETURNING timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days, market_ship_limit
+    discord_dm_channel_id = $5,
+    construction_role_key = $6
+WHERE campaign_id = $7
+RETURNING timezone, discord_announce_channel_id, discord_reminder_channel_id, discord_dm_channel_id, campaign_id, discord_event_location, ics_token, market_voyage_days, market_ship_limit, construction_role_key
 `
 
 type UpdateSettingsParams struct {
@@ -85,6 +87,7 @@ type UpdateSettingsParams struct {
 	DiscordAnnounceChannelID *string
 	DiscordReminderChannelID *string
 	DiscordDmChannelID       *string
+	ConstructionRoleKey      *string
 	CampaignID               uuid.UUID
 }
 
@@ -95,6 +98,7 @@ func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) 
 		arg.DiscordAnnounceChannelID,
 		arg.DiscordReminderChannelID,
 		arg.DiscordDmChannelID,
+		arg.ConstructionRoleKey,
 		arg.CampaignID,
 	)
 	var i Settings
@@ -108,6 +112,7 @@ func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) 
 		&i.IcsToken,
 		&i.MarketVoyageDays,
 		&i.MarketShipLimit,
+		&i.ConstructionRoleKey,
 	)
 	return i, err
 }

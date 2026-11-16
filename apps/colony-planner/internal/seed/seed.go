@@ -154,10 +154,12 @@ func Run(requestContext context.Context, options Options) error {
 	if err != nil {
 		return err
 	}
+	constructionRole := "BUILDER"
 	if _, err := options.Core.UpdateSettings(requestContext, dm, core.SettingsInput{
-		CampaignName: "Sample Colony",
-		ColonyName:   "Port Eldari",
-		Timezone:     "America/New_York",
+		CampaignName:        "Sample Colony",
+		ColonyName:          "Port Eldari",
+		Timezone:            "America/New_York",
+		ConstructionRoleKey: &constructionRole,
 	}); err != nil {
 		return fmt.Errorf("seed settings: %w", err)
 	}
@@ -293,9 +295,9 @@ var sampleHeadcounts = map[string]int32{
 }
 
 // seedColony plays a colony some weeks in through the same core operations the API uses: founding
-// stores, a 7-day shipment schedule, three weeks of advances, cargo recorded on the first arrival and a
-// DM-only adjustment. It ends on Day 22 with 63 food for 19 colonists, the next ship on Day 28, a market
-// order out until Day 36 and the last advance still in the undo slot. The weekly game's last three
+// stores, a 7-day shipment schedule, three weeks of advances, cargo recorded on the first arrival, a
+// DM-only adjustment and the Palisade under way. It ends on Day 22 with 63 food for 19 colonists, the
+// next ship on Day 28, a market order out until Day 36 and the Palisade's crews in the undo slot. The weekly game's last three
 // Fridays are played between the advances, so their bands cover Days 0–7, 14–19 and 19–22.
 func seedColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs, now time.Time) error {
 	for key, count := range sampleHeadcounts {
@@ -365,6 +367,10 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 	if arrival.Kind != core.TimelineKindShipmentArrived {
 		return fmt.Errorf("the first week logged %s first, not a shipment arrival", arrival.Kind)
 	}
+	construction, err := newSampleConstruction(requestContext, service, dm, enter)
+	if err != nil {
+		return err
+	}
 	later := []struct {
 		name string
 		run  func(expectedVersion int64) (core.ColonyChange, error)
@@ -384,6 +390,7 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 			"The founders came ashore and raised the first storehouse. Brannoc staked out the fields by the river, and the first ship from the mainland brought grain, timber and three more settlers.")},
 		{"second week", advanceBy(requestContext, service, dm, 7)},
 		{"the second session", table.play(requestContext, dates.second)},
+		{"the palisade", construction.startPalisade(requestContext)},
 		{"five days", advanceBy(requestContext, service, dm, 5)},
 		{"the second session ends", table.end(requestContext, dates.second, "Wolves on the Coast Road",
 			"The party scouted the coast road and counted wolves near the den. Thorin marked the way on the map.")},
@@ -398,10 +405,12 @@ func seedColony(requestContext context.Context, service *core.Service, queries *
 				SetTo:           map[string]int64{},
 			})
 		}},
+		{"the builders join the survey", construction.crewPalisade(requestContext, 0)},
 		{"the third session", table.play(requestContext, dates.third)},
 		{"three days", advanceBy(requestContext, service, dm, 3)},
 		{"the third session ends", table.end(requestContext, dates.third, "The Saltmarsh Survey",
 			"The party mapped the saltmarsh and haggled with Lady Vex's factor at the docks.")},
+		{"the builders back on the palisade", construction.crewPalisade(requestContext, 3)},
 		{"the market", func(int64) (core.ColonyChange, error) {
 			return core.ColonyChange{}, seedMarket(requestContext, service, dm, enter)
 		}},
@@ -450,10 +459,12 @@ var secondSampleHeadcounts = map[string]int32{
 // seedSecondColony gives Second Sample its own short history on different numbers, so isolation is
 // easy to see: Ridgehold, Day 9, Food 140, an extra Timber resource and one DM-only adjustment.
 func seedSecondColony(requestContext context.Context, service *core.Service, queries *store.Queries, dm core.Viewer, enter enterAs, now time.Time) error {
+	constructionRole := "BUILDER"
 	if _, err := service.UpdateSettings(requestContext, dm, core.SettingsInput{
-		CampaignName: "Second Sample",
-		ColonyName:   "Ridgehold",
-		Timezone:     "Europe/London",
+		CampaignName:        "Second Sample",
+		ColonyName:          "Ridgehold",
+		Timezone:            "Europe/London",
+		ConstructionRoleKey: &constructionRole,
 	}); err != nil {
 		return fmt.Errorf("settings: %w", err)
 	}
@@ -518,6 +529,9 @@ func seedSecondColony(requestContext context.Context, service *core.Service, que
 		if _, err := step.run(board.Version); err != nil {
 			return fmt.Errorf("%s: %w", step.name, err)
 		}
+	}
+	if err := seedSecondConstruction(requestContext, service, dm); err != nil {
+		return err
 	}
 	return seedSecondQuestsAndPatrons(requestContext, service, dm, enter)
 }

@@ -7,7 +7,8 @@ SET timezone = @timezone,
     discord_event_location = @discord_event_location,
     discord_announce_channel_id = sqlc.narg(discord_announce_channel_id),
     discord_reminder_channel_id = sqlc.narg(discord_reminder_channel_id),
-    discord_dm_channel_id = sqlc.narg(discord_dm_channel_id)
+    discord_dm_channel_id = sqlc.narg(discord_dm_channel_id),
+    construction_role_key = sqlc.narg(construction_role_key)
 WHERE campaign_id = @campaign_id
 RETURNING *;
 
