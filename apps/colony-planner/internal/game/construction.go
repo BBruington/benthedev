@@ -79,6 +79,11 @@ func (construction Construction) Span(state *State, from int64, to int64, log *L
 		}
 		// NextBoundary ends every span on a finish day, so finishDay is to and upkeep has already run.
 		applied, skipped := applyCompletion(state, project.CompletionEffects)
+		for key, delta := range project.CompletionEffects.Resources {
+			if !slices.Contains(skipped, key) {
+				log.RecordRequested(key, delta)
+			}
+		}
 		log.finishes = append(log.finishes, BuildingFinish{
 			BuildingID: project.BuildingID,
 			Day:        finishDay,
@@ -249,6 +254,8 @@ func SetCrews(state State, buildingID uuid.UUID, crews map[string]int64) (State,
 		switch {
 		case crew < 0:
 			return State{}, invalid("crews", "A crew can't be negative")
+		case crew > MaxStored:
+			return State{}, invalid("crews", "That crew can't be stored")
 		case crew > 0 && line.done():
 			return State{}, invalid("crews", roleLabel(state, line.RoleKey)+" work on this project is done")
 		case line.MaxCrew != nil && crew > *line.MaxCrew:

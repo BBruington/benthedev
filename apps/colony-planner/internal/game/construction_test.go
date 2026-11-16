@@ -219,3 +219,24 @@ func TestAdvanceRefusesImpossibleLabor(t *testing.T) {
 		t.Fatal("progress past the effort must be refused")
 	}
 }
+
+func TestSetCrewsRefusesACrewPastWhatCanBeStored(t *testing.T) {
+	state := colony(1, 0, map[string]Role{
+		"BUILDER":         {Label: "Builder", UnnamedCount: MaxStored, NamedCount: 1},
+		UnassignedRoleKey: {Label: "Unassigned"},
+	}, nil)
+	state.Projects = []Project{{BuildingID: buildingID(1), Lines: []LaborLine{{RoleKey: "BUILDER", Effort: 10}}}}
+	_, err := SetCrews(state, buildingID(1), map[string]int64{"BUILDER": MaxStored + 1})
+	assertInvalid(t, err, "crews", "That crew can't be stored")
+}
+
+func TestRequestedCountsUpkeepAfterAFinishAndItsCompletionEffects(t *testing.T) {
+	state := constructionExample()
+	state.Projects[0].CompletionEffects = Effects{Resources: map[string]int64{"food": 10, "morale": 5}, Colonists: 2}
+	result := mustAdvance(t, state, 7)
+	// Days 41 to 45 feed 5 colonists, Days 46 and 47 feed 7, and the finish on Day 45 brings 10 food.
+	want := map[string]int64{"food": -5*5 - 7*2 + 10, "morale": 5}
+	if !reflect.DeepEqual(result.Requested, want) {
+		t.Fatalf("requested %v, want %v", result.Requested, want)
+	}
+}

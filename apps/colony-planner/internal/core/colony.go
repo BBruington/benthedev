@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"strings"
 	"time"
@@ -1291,10 +1290,7 @@ func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDock
 	for _, key := range colony.order {
 		before := result.Before.Resources[key].Amount
 		after := result.After.Resources[key].Amount
-		requested := after - before
-		if key == game.FoodResourceKey {
-			requested = -upkeepNeeded(result.Colonists, result.Days)
-		}
+		requested := result.Requested[key]
 		if requested == 0 && after == before {
 			continue
 		}
@@ -1331,18 +1327,6 @@ func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDock
 	}
 	preview.Summary = joinParts(parts...)
 	return preview
-}
-
-// upkeepNeeded is the food N days of upkeep ask for, saturating rather than overflowing for a huge N.
-func upkeepNeeded(colonists int64, days int64) int64 {
-	perDay := colonists * game.FoodPerColonistPerDay
-	if perDay <= 0 || days <= 0 {
-		return 0
-	}
-	if days > math.MaxInt64/perDay {
-		return math.MaxInt64
-	}
-	return perDay * days
 }
 
 // changeText is one preview line: "Food +30", or "Morale 98 → 100 (capped)" when a bound cut it.

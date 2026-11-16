@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"maps"
+	"math"
 )
 
 // MaxUnfoldedArrivals is the most SHIPMENT_ARRIVED entries one advance writes one by one; past it the
@@ -41,8 +42,10 @@ func (run ArrivalRun) Last() int64 {
 // Log collects what the steps did across every span of one advance.
 type Log struct {
 	resourceDeltas map[string]int64
-	arrivalRuns    []ArrivalRun
-	finishes       []BuildingFinish
+	// requestedDeltas is what upkeep and completion Effects asked of each resource before bounds cut it.
+	requestedDeltas map[string]int64
+	arrivalRuns     []ArrivalRun
+	finishes        []BuildingFinish
 }
 
 // RecordResourceDelta adds an applied change to a resource.
@@ -57,6 +60,28 @@ func (log *Log) RecordResourceDelta(key string, delta int64) {
 	if log.resourceDeltas[key] == 0 {
 		delete(log.resourceDeltas, key)
 	}
+}
+
+// RecordRequested adds what a step asked of a resource, saturating rather than overflowing for a huge N.
+func (log *Log) RecordRequested(key string, delta int64) {
+	if delta == 0 {
+		return
+	}
+	if log.requestedDeltas == nil {
+		log.requestedDeltas = map[string]int64{}
+	}
+	log.requestedDeltas[key] = saturatingAdd(log.requestedDeltas[key], delta)
+}
+
+func saturatingAdd(left int64, right int64) int64 {
+	sum := left + right
+	switch {
+	case left > 0 && right > 0 && sum < 0:
+		return math.MaxInt64
+	case left < 0 && right < 0 && sum >= 0:
+		return math.MinInt64
+	}
+	return sum
 }
 
 // RecordArrivals adds shipment arrivals, extending the previous run when it continues it, so one
@@ -86,6 +111,13 @@ func (upkeep Upkeep) Span(state *State, from int64, to int64, log *Log) {
 	}
 	eaters := Colonists(state.Roles) * FoodPerColonistPerDay
 	days := to - from
+	if eaters > 0 && days > 0 {
+		if days > math.MaxInt64/eaters {
+			log.RecordRequested(FoodResourceKey, -math.MaxInt64)
+		} else {
+			log.RecordRequested(FoodResourceKey, -eaters*days)
+		}
+	}
 	spare := food.Amount - food.MinAmount
 	if eaters <= 0 || days <= 0 || spare <= 0 {
 		return
@@ -148,6 +180,9 @@ type AdvanceResult struct {
 	Colonists int64
 	// Applied holds the applied resource deltas only (zero ones omitted): the DAYS_ADVANCED deltas.
 	Applied Effects
+	// Requested is what upkeep and every finish's completion Effects asked of each resource, before
+	// bounds cut it, so the preview marks a resource clamped only when a bound stopped a change.
+	Requested map[string]int64
 	// Arrivals are every arrival in (Before.Day, After.Day], as runs; ArrivalCount is their total.
 	Arrivals     []ArrivalRun
 	ArrivalCount int64
@@ -210,6 +245,7 @@ func advance(state State, days int64, steps []Step) (AdvanceResult, error) {
 		After:          after,
 		Colonists:      Colonists(state.Roles),
 		Applied:        Effects{Resources: maps.Clone(log.resourceDeltas)},
+		Requested:      maps.Clone(log.requestedDeltas),
 		Arrivals:       append([]ArrivalRun{}, log.arrivalRuns...),
 		ArrivalEntries: []ArrivalEntry{},
 		Finishes:       append([]BuildingFinish{}, log.finishes...),
