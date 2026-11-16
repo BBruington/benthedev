@@ -20,6 +20,7 @@ import {
 	parseAmounts,
 	parseLabor,
 } from "@/lib/construction";
+import { focusFirstVisible } from "@/lib/focus";
 import { forgetFailedSaves } from "@/lib/forms";
 import {
 	draftToEffects,
@@ -362,6 +363,8 @@ export function BlueprintSheet({
 	);
 }
 
+const laborAddId = "blueprint-labor-add";
+
 /** One line per role: its work in role-days and an optional crew cap. */
 function LaborEditor({
 	drafts,
@@ -428,7 +431,15 @@ function LaborEditor({
 								<Button
 									aria-label={`Remove line ${position + 1}`}
 									onClick={() => {
-										onChange(drafts.filter((_, index) => index !== position));
+										const remaining = drafts.filter((_, index) => index !== position);
+										onChange(remaining);
+										const neighbour = remaining[Math.min(position, remaining.length - 1)];
+										requestAnimationFrame(() => {
+											focusFirstVisible(
+												...(neighbour ? [`blueprint-labor-${neighbour.rowKey}-role`] : []),
+												laborAddId,
+											);
+										});
 									}}
 									size="icon"
 									type="button"
@@ -480,8 +491,13 @@ function LaborEditor({
 			{nextRole ? (
 				<Button
 					className="justify-self-start"
+					id={laborAddId}
 					onClick={() => {
-						onChange([...drafts, newLaborDraft(nextRole.key)]);
+						const added = newLaborDraft(nextRole.key);
+						onChange([...drafts, added]);
+						requestAnimationFrame(() => {
+							focusFirstVisible(`blueprint-labor-${added.rowKey}-effort`);
+						});
 					}}
 					type="button"
 					variant="outline"

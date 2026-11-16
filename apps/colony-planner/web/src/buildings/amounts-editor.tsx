@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { labelFromResourceKey } from "@/lib/colony";
 import type { NumberDraft } from "@/lib/construction";
+import { focusFirstVisible } from "@/lib/focus";
 
 type ColonyResource = Schemas["ColonyResource"];
 
@@ -58,6 +59,9 @@ export function AmountsEditor({
 										Object.entries(draft).filter(([draftKey]) => draftKey !== key),
 									),
 								);
+								requestAnimationFrame(() => {
+									focusFirstVisible(...resources.map((resource) => `${idPrefix}-${resource.key}`));
+								});
 							}}
 							size="sm"
 							type="button"
