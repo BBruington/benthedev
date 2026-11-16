@@ -48,7 +48,11 @@ The steps build on each other, so do them in order. A private window counts as a
      sheet: it names the shortfall and Start stays off. Put the cost back.
    - As Sample DM, press **Undo** on the board: the Granary project disappears, the stock comes back, and the
      UNDO entry reads "The DM rewound a change to the colony". Start the Granary again.
-6. **A finish.** As Sample DM, open **Advance** and type enough days for the Granary to finish (its card
+6. **Cancel.** As Sample DM, press **Cancel** on the Palisade. The refund sheet starts at its full cost
+   (materials 40); change it to 25 and confirm. Materials rise by 25, the Palisade moves to **Past**, its
+   Builders are idle, and the timeline has a DM-only "Construction cancelled: Palisade" entry. It comes before
+   the next step because that Advance would finish the Palisade too.
+7. **A finish.** As Sample DM, open **Advance** and type enough days for the Granary to finish (its card
    shows the day).
    - The preview has a line "The Granary is finished on Day N." beside the other lines.
    - Confirm. The Granary moves to **Standing** with its finish day, its Builders are idle again, morale rises
@@ -56,9 +60,6 @@ The steps build on each other, so do them in order. A private window counts as a
      Ana also sees.
    - Press **Undo**: the Granary is under construction again with its old progress and crew, and morale goes
      back. Advance again to finish it.
-7. **Cancel.** As Sample DM, press **Cancel** on the Palisade. The refund sheet starts at its full cost
-   (materials 40); change it to 25 and confirm. Materials rise by 25, the Palisade moves to **Past**, its
-   Builders are idle, and the timeline has a DM-only "Construction cancelled: Palisade" entry.
 8. **Demolish.** As Sample DM, press **Demolish** on the standing Granary. The refund sheet starts empty;
    confirm with nothing. It moves to **Past** and the timeline has a DM-only "Granary demolished" entry.
 9. **Blueprints.** As Sample DM, press **New blueprint**.
