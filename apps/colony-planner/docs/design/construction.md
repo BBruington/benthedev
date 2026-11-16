@@ -37,6 +37,7 @@ code.
 | K16 | **Blueprints start hidden**, with a reveal switch, like patron actions. A hidden blueprint, and every project and building of it, is a hidden row for players. The DM may build a hidden blueprint. |
 | K17 | **Players' timeline shows only finishes** ("The Granary is finished"). Every other construction change still writes an entry, DM-only, so each stock change is explained and Undo has a label. |
 | K18 | **A started build is a snapshot; ongoing output is live.** Cost, labor, max crews and completion Effects are copied when a project starts. Daily output and storage bonuses are read from the blueprint, so rebalancing the Mill changes every standing Mill from the next Advance. |
+| K19 | **The DM can add a building instantly, for free** (decided 2026-11-15): Add building on a blueprint places a FINISHED, Active building on today's day with no cost, no labor and no completion Effects. It is a colony change the DM can undo, writing a `BUILDING_ADDED` entry that players see while the blueprint is revealed. A colony may hold any number of buildings of one blueprint, built or added. |
 
 ## 1. Costs
 
@@ -177,12 +178,12 @@ patrons' are.
   `allowedDataReferences`, per the Add an entity recipe.
 - **The one existing-table change:** `resource`'s `CHECK (amount >= min_amount AND (max_amount IS NULL OR
   amount <= max_amount))` loses its max half, because K13 lets an amount sit above a cap that fell. The max is
-  enforced in `internal/game` (effective max = `max_amount` + Active bonuses), which core folds into
-  `game.Resource.MaxAmount` when it builds the State.
+  enforced in `internal/game` (effective max = `max_amount` + Active bonuses), computed there from the standing
+  buildings in `game.State` (§11, Phase 2).
 - `game.State` gains the construction state: unfinished lines (role, effort, progress, crew) per building, and
-  standing Active buildings' daily output and storage bonuses. Core loads them with the colony (`readColony`).
-- Archiving guards, so Advance never meets an archived key: a resource can't be archived while an Active
-  standing building's blueprint output names it; a role can't be archived while an unfinished project's labor
+  standing buildings (Active or Idle) with their blueprints' daily output and storage bonuses. Core loads them with the colony (`readColony`).
+- Archiving guards, so Advance never meets an archived key: a resource can't be archived while a standing
+  building's blueprint output names it, Idle ones included; a role can't be archived while an unfinished project's labor
   names it (crews are already 0, since its headcount must be 0) or while it is `construction_role_key`.
 - A new topic `TopicConstruction` in `internal/core/broker.go`; colony changes also publish the colony topic.
 - Screens: `/c/{slug}/buildings` ("Buildings" in the Colony nav group after Shipments): Standing buildings,
@@ -256,8 +257,7 @@ can't overwrite each other.
 
 ## 10. Open questions
 
-1. **Limits per blueprint.** May a colony have any number of the same building? *Default: unlimited; an
-   optional "most built" field later if needed.*
+1. **Limits per blueprint.** **Resolved (2026-11-15):** unlimited, built or added (K19).
 2. **Prerequisites and upgrades.** Does a blueprint ever need another building standing first, or replace
    one (Hut → House)? *Default: neither; the DM reveals blueprints when the party may build them.*
 3. **Staffed output.** Should a building's output ever scale with workers in a role ("+2 food per Farmer, up
@@ -292,6 +292,30 @@ then stops for the author's check-in.
 - undo, the timeline kinds of §8.1 but Idle and Active, secrecy (§7) and its fixture, the seed;
 - the Buildings page with idle colonists per labor role (People is unchanged in Phase 1).
 
-**Phase 2, output** (migration `0012`): `building_blueprint_output`, `building.active`, the `BuildingOutput`
-step ahead of Upkeep, Idle and Active, storage bonuses, the `resource` CHECK change and K13's
-never-lower rule in `ApplyEffects`, and the resource archive guard.
+**Phase 2, output** (migration `0012_construction_output.sql`): `building_blueprint_output`, `building.active`,
+the `BuildingOutput` step ahead of Upkeep, Idle and Active, storage bonuses, the `resource` CHECK change and
+K13's never-lower rule in `ApplyEffects`, and the resource archive guard. Details settled when it started
+(2026-11-15):
+
+- **Food's output runs inside Upkeep.** As built, `BuildingOutput` handles every resource but food, and
+  `Upkeep` applies food's output then its eating as one day map, which keeps K14's order and lets one closed
+  form cover both once a cap or floor engages.
+- **One net change per resource per day.** BuildingOutput sums every Active standing building's daily delta
+  for a resource and applies that sum once a day, CLAMP with K13's never-lower rule, so two buildings never
+  depend on which one runs first.
+- **Effective caps live in `internal/game`.** `game.State` carries the standing buildings (ID, Active, their
+  blueprint's live daily deltas and storage bonuses); a resource's effective max is its `/settings` max plus
+  every Active standing building's bonus, or none when the `/settings` max is none. Every rule that reads a
+  max (ApplyEffects, completion Effects, BuildingOutput, the Market's grants) uses the effective one, and a
+  project finishing mid-advance raises the cap from its finish day.
+- **The board shows effective caps** ("out of 300"); `/settings` shows the DM's own max and the building
+  bonus beside it. Changing a resource on `/settings` checks the current amount against the effective max,
+  not the DM's own, so a Granary's stock never blocks renaming food.
+- **The resource archive guard covers every standing building**, Idle ones too: a resource can't be archived
+  while a FINISHED building's blueprint output names it. A blueprint's output, like its cost, names only
+  unarchived resources when saved.
+- **Idle and Active** are DM colony changes with DM-only `BUILDING_IDLED` and `BUILDING_ACTIVATED` entries;
+  undo restores `active`. Demolish ends output and bonus at once.
+- **Players see the numbers move** (open question 5): a hidden blueprint's output still changes stock and a
+  hidden Granary's bonus still shows in the cap, as a hidden Start's cost does. The building itself stays
+  hidden.
