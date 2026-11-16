@@ -3,6 +3,7 @@ import {
 	CastleIcon,
 	CrownIcon,
 	DramaIcon,
+	HammerIcon,
 	HexagonIcon,
 	InboxIcon,
 	ListChecksIcon,
@@ -21,6 +22,7 @@ export type NavigationItemId =
 	| "colony"
 	| "people"
 	| "market"
+	| "buildings"
 	| "polls"
 	| "timeline"
 	| "quests"
@@ -41,6 +43,7 @@ export type NavigationItem = {
 		| "/c/$campaignSlug"
 		| "/c/$campaignSlug/people"
 		| "/c/$campaignSlug/shipments"
+		| "/c/$campaignSlug/buildings"
 		| "/c/$campaignSlug/polls"
 		| "/c/$campaignSlug/timeline"
 		| "/c/$campaignSlug/quests"
@@ -59,6 +62,12 @@ export type NavigationItem = {
 };
 
 export const navigationItems: Record<NavigationItemId, NavigationItem> = {
+	buildings: {
+		icon: HammerIcon,
+		id: "buildings",
+		label: "Buildings",
+		to: "/c/$campaignSlug/buildings",
+	},
 	colony: {
 		icon: CastleIcon,
 		id: "colony",
@@ -155,7 +164,7 @@ export const navigationItems: Record<NavigationItemId, NavigationItem> = {
 
 /** The sidebar's sections (tablet and desktop). */
 export const navigationGroups: { label: string; items: NavigationItemId[]; dmOnly?: boolean }[] = [
-	{ items: ["colony", "people", "market", "polls", "timeline"], label: "Colony" },
+	{ items: ["colony", "people", "market", "buildings", "polls", "timeline"], label: "Colony" },
 	{ items: ["quests", "patrons", "requests"], label: "Ventures" },
 	{ items: ["explore", "mainland", "places", "npcs"], label: "World" },
 	{ items: ["sessions"], label: "Table" },

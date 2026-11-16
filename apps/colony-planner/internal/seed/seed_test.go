@@ -76,11 +76,11 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	for _, resource := range board.Resources {
 		amounts[resource.Key] = resource.Amount
 	}
-	if amounts["food"] != 63 || amounts["gold"] != 210 || amounts["materials"] != 160 || amounts["morale"] != 100 {
+	if amounts["food"] != 63 || amounts["gold"] != 210 || amounts["materials"] != 120 || amounts["morale"] != 100 {
 		t.Fatalf("stock = %v", amounts)
 	}
-	if board.Dm == nil || board.Dm.LastChange == nil || board.Dm.LastChange.Label != "3 days pass · Day 22" {
-		t.Fatalf("undo slot = %+v; want the last advance", board.Dm)
+	if board.Dm == nil || board.Dm.LastChange == nil || board.Dm.LastChange.Label != "Palisade crews: Builders 0 → 3" {
+		t.Fatalf("undo slot = %+v; want the Palisade's crews", board.Dm)
 	}
 	// The market: the default offers (Mages raised to 80 gp), the Boots the DM added, Thorin's order
 	// out until Day 36, and Sela's cart.
@@ -152,9 +152,26 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	playerTimeline, err := service.ListTimeline(testContext, player, core.TimelineRangeInput{FromDay: 0, ToDay: 30})
-	if err != nil || len(playerTimeline.Entries) != len(dmTimeline.Entries)-3 {
-		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment, the hidden colonist's joining and Lady Vex's favor adjustment (%v)",
+	if err != nil || len(playerTimeline.Entries) != len(dmTimeline.Entries)-6 {
+		t.Fatalf("the player sees %d of %d entries; want all but the DM-only adjustment, the hidden colonist's joining, Lady Vex's favor adjustment and the Palisade's start and two crew changes (%v)",
 			len(playerTimeline.Entries), len(dmTimeline.Entries), err)
+	}
+
+	// Construction: the Granary and Palisade revealed, the Warded Tower hidden, and the Palisade 10 of
+	// 60 Builder-days in with all 3 Builders on it.
+	for _, check := range []struct {
+		viewer     core.Viewer
+		blueprints int
+	}{{dm, 3}, {player, 2}} {
+		page, err := service.ListConstruction(testContext, check.viewer)
+		if err != nil || len(page.Blueprints) != check.blueprints || len(page.Buildings) != 1 {
+			t.Fatalf("construction = %+v (%v)", page, err)
+		}
+		palisade := page.Buildings[0]
+		if palisade.Name != "Palisade" || palisade.Status != core.BuildingStatusConstructing || palisade.StartedDay != 14 ||
+			palisade.Labor[0].Progress != 10 || palisade.Labor[0].Crew != 3 || palisade.ProjectedFinishDay == nil || *palisade.ProjectedFinishDay != 39 {
+			t.Fatalf("the Palisade = %+v", palisade)
+		}
 	}
 
 	// M2: the cast and places, some hidden, and three founders named in their roles.
@@ -269,6 +286,10 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 	}
 	if second.ColonyName != "Ridgehold" || second.Day != 9 || secondAmounts["food"] != 140 || secondAmounts["timber"] != 25 {
 		t.Fatalf("Second Sample = %+v, %v", second, secondAmounts)
+	}
+	secondConstruction, err := service.ListConstruction(testContext, secondDm)
+	if err != nil || len(secondConstruction.Blueprints) != 1 || secondConstruction.Blueprints[0].Name != "Mine Hoist" || len(secondConstruction.Buildings) != 0 {
+		t.Fatalf("Second Sample's construction = %+v, %v", secondConstruction, err)
 	}
 	secondPatrons, err := service.ListPatrons(testContext, secondDm)
 	if err != nil || len(secondPatrons.Patrons) != 1 || secondPatrons.Patrons[0].Favor != 3 {

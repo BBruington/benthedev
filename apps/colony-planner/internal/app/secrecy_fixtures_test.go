@@ -262,6 +262,89 @@ var secrecyFixtures = []secrecyFixture{
 		dmProof: []string{"/timeline?fromDay=0&toDay=30"},
 	},
 	{
+		feature: "construction",
+		// A revealed blueprint (the {blueprintId} row) whose DM notes are DM-only, building under
+		// construction (the {buildingId} row), and a hidden blueprint whose every value is DM-only, with
+		// buildings of it under construction (crewed again), finished by an advance (its BUILDING_FINISHED
+		// entry is PUBLIC, but players lose it with the blueprint), demolished, cancelled, and one whose
+		// Start was undone with the UNDO made PUBLIC. Every other construction entry is DM-only, and the
+		// hidden ones name the hidden blueprint. It plants before the cast, so the colony changes after
+		// it hold the undo slot and its advance's entries stay out of the players' recent ten.
+		plant: func(t *testing.T, testHarness *harness, side campaignSide) {
+			t.Helper()
+			dmViewer := testHarness.enter(side.dm, side.campaign.id)
+			secret, visible := side.dmSecret, side.playerVisible
+			version := func() int64 {
+				board, err := testHarness.core.GetColonyBoard(testHarness.context, dmViewer)
+				if err != nil {
+					t.Fatalf("read %s's board: %v", side.campaign.name, err)
+				}
+				return board.Version
+			}
+			check := func(what string, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("%s in %s: %v", what, side.campaign.name, err)
+				}
+			}
+			_, err := testHarness.core.SetRoleCount(testHarness.context, dmViewer, core.SetRoleCountInput{ExpectedVersion: version(), RoleKey: "BUILDER", Count: 8})
+			check("hire builders", err)
+			maxCrew := int64(4)
+			shown, err := testHarness.core.CreateBlueprint(testHarness.context, dmViewer, core.NewBlueprintInput{Revealed: true, BlueprintInput: core.BlueprintInput{
+				Name: "Granary" + visible, Description: "A raised store" + visible, DmNotes: secret + " rats come with it",
+				Cost: map[string]int64{}, Labor: map[string]core.BlueprintLaborInput{"BUILDER": {Effort: 40, MaxCrew: &maxCrew}},
+			}})
+			check("plant a blueprint", err)
+			hidden, err := testHarness.core.CreateBlueprint(testHarness.context, dmViewer, core.NewBlueprintInput{BlueprintInput: core.BlueprintInput{
+				Name: secret + " Warded Tower", Description: secret, DmNotes: secret,
+				Cost: map[string]int64{}, Labor: map[string]core.BlueprintLaborInput{"BUILDER": {Effort: 2}},
+			}})
+			check("plant a hidden blueprint", err)
+			start := func(blueprint core.BuildingBlueprint, crew int64) core.ColonyChange {
+				t.Helper()
+				change, err := testHarness.core.StartBuilding(testHarness.context, dmViewer, core.StartBuildingInput{
+					ExpectedVersion: version(), BlueprintID: blueprint.ID, BlueprintUpdatedAt: blueprint.UpdatedAt, Crews: map[string]int64{"BUILDER": crew},
+				})
+				check("start a building", err)
+				return change
+			}
+			buildingOf := func(change core.ColonyChange) uuid.UUID {
+				return *change.Entries[0].BuildingID
+			}
+			granary := buildingOf(start(shown, 3))
+			_, err = testHarness.core.SetBuildingCrews(testHarness.context, dmViewer, granary, core.BuildingCrewsInput{ExpectedVersion: version(), Crews: map[string]int64{"BUILDER": 2}})
+			check("crew the granary", err)
+			finished := buildingOf(start(hidden, 2))
+			demolished := buildingOf(start(hidden, 2))
+			constructing := buildingOf(start(hidden, 1))
+			cancelled := buildingOf(start(hidden, 0))
+			advanced, err := testHarness.core.Advance(testHarness.context, dmViewer, core.AdvanceInput{Days: 1, ExpectedVersion: version()})
+			check("finish the hidden buildings", err)
+			if !slices.ContainsFunc(advanced.Entries, func(entry core.TimelineEntry) bool { return entry.Kind == core.TimelineKindBuildingFinished }) {
+				t.Fatalf("advancing %s finished nothing: %+v", side.campaign.name, advanced.Entries)
+			}
+			_, err = testHarness.core.SetBuildingCrews(testHarness.context, dmViewer, constructing, core.BuildingCrewsInput{ExpectedVersion: version(), Crews: map[string]int64{"BUILDER": 2}})
+			check("crew the hidden building", err)
+			_, err = testHarness.core.DemolishBuilding(testHarness.context, dmViewer, demolished, core.BuildingRefundInput{ExpectedVersion: version(), Refund: map[string]int64{}})
+			check("demolish a hidden building", err)
+			_, err = testHarness.core.CancelBuilding(testHarness.context, dmViewer, cancelled, core.BuildingRefundInput{ExpectedVersion: version(), Refund: map[string]int64{}})
+			check("cancel a hidden building", err)
+			// An undone Start deletes its building, so its UNDO may go PUBLIC: its title must not name it.
+			undoneStart := start(hidden, 0)
+			undo, err := testHarness.core.UndoLastChange(testHarness.context, dmViewer, core.UndoInput{GroupID: undoneStart.GroupID})
+			check("undo a hidden Start", err)
+			_, err = testHarness.core.UpdateTimelineEntry(testHarness.context, dmViewer, undo.Entries[0].ID, core.TimelineEntryInput{
+				Day: undo.Entries[0].Day, Title: undo.Entries[0].Title, Body: undo.Entries[0].Body, Visibility: core.TimelineVisibilityPublic,
+			})
+			check("make the UNDO public", err)
+			side.campaign.pathIDs["blueprintId"] = shown.ID.String()
+			side.campaign.pathIDs["buildingId"] = granary.String()
+			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, hidden.ID.String(), finished.String(), demolished.String(),
+				constructing.String(), cancelled.String(), buildingOf(undoneStart).String())
+		},
+		dmProof: []string{"/construction", "/timeline?fromDay=0&toDay=30"},
+	},
+	{
 		feature: "people, NPCs and places",
 		// A revealed place (the {placeId} row) whose dm_notes are DM-only, and a hidden place whose every
 		// value is. A revealed NPC (the {npcId} row, a named colonist so no sweep can delete it) whose true

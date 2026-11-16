@@ -1,7 +1,7 @@
 -- Player projection: PUBLIC entries that have not been undone, about no NPC or a revealed one, so an
 -- entry follows its NPC when the DM hides them later (Invariant 15). The same holds for an entry's
--- quest, patron and request (whose action may be hidden since, or was hidden when it was made), so a
--- link ID reaches players only for a row they can see. core passes viewer.SeesDmFields() as
+-- quest, patron and request (whose action may be hidden since, or was hidden when it was made), and
+-- for a building's blueprint, so a link ID reaches players only for a row they can see. core passes viewer.SeesDmFields() as
 -- dm_projection (never IsDM), so the DM viewing as player gets the player projection (spec §2.2).
 
 -- name: ListTimelineEvents :many
@@ -15,7 +15,11 @@ WHERE timeline_event.campaign_id = @campaign_id
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = @campaign_id AND building_blueprint.campaign_id = @campaign_id
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY day, created_at, sequence;
 
 -- The newest entries in the order they were written, for the board and the live toasts.
@@ -29,7 +33,11 @@ WHERE timeline_event.campaign_id = @campaign_id
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = @campaign_id AND building_blueprint.campaign_id = @campaign_id
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY sequence DESC
 LIMIT @entry_limit;
 
@@ -45,7 +53,11 @@ WHERE timeline_event.campaign_id = @campaign_id
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = @campaign_id AND building_blueprint.campaign_id = @campaign_id
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY day DESC
 LIMIT 1;
 
@@ -60,7 +72,11 @@ WHERE timeline_event.campaign_id = @campaign_id
        AND (request_id IS NULL OR EXISTS (SELECT 1 FROM request
             LEFT JOIN patron_action ON patron_action.campaign_id = request.campaign_id AND patron_action.id = request.patron_action_id
             WHERE request.campaign_id = @campaign_id AND request.id = timeline_event.request_id AND request.made_while_revealed
-              AND (patron_action.id IS NULL OR patron_action.revealed)))))
+              AND (patron_action.id IS NULL OR patron_action.revealed)))
+       AND (building_id IS NULL OR EXISTS (SELECT 1 FROM building
+            JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+            WHERE building.campaign_id = @campaign_id AND building_blueprint.campaign_id = @campaign_id
+              AND building.id = timeline_event.building_id AND building_blueprint.revealed))))
 ORDER BY day
 LIMIT 1;
 
@@ -74,9 +90,9 @@ SELECT * FROM timeline_event WHERE campaign_id = @campaign_id AND id = @id;
 -- tell news from older entries that slid into the recent list (web/src/lib/colony.ts).
 -- name: CreateTimelineEvent :one
 INSERT INTO timeline_event (campaign_id, group_id, day, kind, title, body, visibility, deltas, data, created_by, npc_id, npc_name,
-    quest_id, patron_id, request_id, session_id, created_at)
+    quest_id, patron_id, request_id, session_id, building_id, created_at)
 VALUES (@campaign_id, sqlc.narg(group_id), @day, @kind, @title, @body, @visibility, @deltas, @data, sqlc.narg(created_by), sqlc.narg(npc_id), @npc_name,
-    sqlc.narg(quest_id), sqlc.narg(patron_id), sqlc.narg(request_id), sqlc.narg(session_id), clock_timestamp())
+    sqlc.narg(quest_id), sqlc.narg(patron_id), sqlc.narg(request_id), sqlc.narg(session_id), sqlc.narg(building_id), clock_timestamp())
 RETURNING *;
 
 -- The DM edits any entry's text and visibility; only a CUSTOM entry may move to another day (core

@@ -124,6 +124,7 @@ type AdvancePreview struct {
 	ShipmentsAfter  *ShipmentSchedule       `json:"shipmentsAfter" doc:"null when no shipment schedule is set"`
 	Summary         string                  `json:"summary" doc:"e.g. Day 12 → 17 · Food 140 → 80 · 1 shipment arrival (Day 14)"`
 	MarketDocksDays []int64                 `json:"marketDocksDays" doc:"The days open market orders dock during this advance, soonest first; empty when none does"`
+	Finishes        []AdvanceFinish         `json:"finishes" doc:"The buildings this advance finishes, in finish order; for players only those of revealed blueprints"`
 }
 
 // ArrivalRun is the arrival days first, first+every, ... (count of them), ending on last.
@@ -222,6 +223,8 @@ type undoSnapshot struct {
 	MarketOrders map[uuid.UUID]marketOrderBefore `json:"marketOrders,omitempty"`
 	// BridgeEventID is the Foundry inbox item the change accepted, which waits again after the undo.
 	BridgeEventID *uuid.UUID `json:"bridgeEventId,omitempty"`
+	// Buildings is each building the change started, crewed, finished or ended, keyed by building ID.
+	Buildings map[uuid.UUID]buildingBefore `json:"buildings,omitempty"`
 }
 
 // questBefore is a quest's status as it was before a colony mutation resolved or reopened it.
@@ -266,7 +269,11 @@ func (service *Service) PreviewAdvance(requestContext context.Context, viewer Vi
 	for _, order := range docking {
 		marketDocksDays = append(marketDocksDays, int64(order.ArrivesDay))
 	}
-	return advancePreview(colony, result, marketDocksDays), nil
+	finishes, err := advanceFinishes(requestContext, service.queries, viewer.campaignID, result)
+	if err != nil {
+		return AdvancePreview{}, err
+	}
+	return advancePreview(colony, result, marketDocksDays, finishes), nil
 }
 
 // Advance moves the clock N days: upkeep, then shipments (spec §5.2), on the write path of §5.1.
@@ -314,6 +321,11 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 		if len(docking) > 0 {
 			topics = append(topics, TopicMarket)
 		}
+		buildings, finishEntries, err := advanceBuildings(requestContext, queries, colony, result)
+		if err != nil {
+			return colonyOutcome{}, err
+		}
+		entries = append(entries, finishEntries...)
 		if input.BridgeEventID != nil {
 			if _, err := decideBridgeEvent(requestContext, queries, viewer.campaignID, *input.BridgeEventID, []BridgeEventKind{BridgeEventKindTimeAdvanced},
 				BridgeEventStatusAccepted, service.clock().UTC(), "bridgeEventId"); err != nil {
@@ -334,6 +346,7 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 			after: result.After, label: title, entries: entries, topics: topics,
 			daysAdvanced:  &bridgeDaysAdvanced{FromDay: colony.state.Day, ToDay: result.After.Day, Days: result.Days},
 			bridgeEventID: input.BridgeEventID,
+			buildings:     buildings,
 		}, nil
 	})
 }
@@ -523,6 +536,9 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err := restoreMarketOrders(requestContext, queries, viewer.campaignID, record.Before.MarketOrders); err != nil {
 			return err
 		}
+		if err := restoreBuildings(requestContext, queries, colony, record.Before.Buildings); err != nil {
+			return err
+		}
 		var reopenedDeposit *store.ReopenAcceptedBridgeEventRow
 		if record.Before.BridgeEventID != nil {
 			reopened, err := queries.ReopenAcceptedBridgeEvent(requestContext, store.ReopenAcceptedBridgeEventParams{
@@ -567,7 +583,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 			entry.npcID = newestAboutNpc.NpcID
 			entry.npcName = newestAboutNpc.NpcName
 		}
-		entry.questID, entry.patronID, entry.requestID = newestLinks(undone)
+		entry.questID, entry.patronID, entry.requestID, entry.buildingID = newestLinks(undone)
 		if newestPublic != nil {
 			entry.visibility = TimelineVisibilityPublic
 			entry.title = "The DM rewound: " + newestPublic.Title
@@ -576,6 +592,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 			entry.questID = newestPublic.QuestID
 			entry.patronID = newestPublic.PatronID
 			entry.requestID = newestPublic.RequestID
+			entry.buildingID = newestPublic.BuildingID
 			refusal, err := npcEntryRefusal(requestContext, queries, viewer.campaignID, npcEntry{npcID: entry.npcID, npcName: entry.npcName, title: entry.title}, false)
 			if err != nil {
 				return err
@@ -585,8 +602,9 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 			}
 		}
 		// Undoing Use action now deletes its request (the foreign key clears the link), and with it the
-		// only link that hides the action's name, so neither a public nor a DM-only UNDO names it.
-		if deletesCreatedRequest(record.Before) {
+		// only link that hides the action's name, so neither a public nor a DM-only UNDO names it. Undoing
+		// a Start is the same: its building was the link.
+		if deletesCreatedRequest(record.Before) || deletesCreatedBuilding(record.Before) {
 			entry.title = "The DM rewound a change to the colony"
 		}
 		if restored.Day != colony.state.Day {
@@ -639,7 +657,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	if err != nil {
 		return ColonyChange{}, err
 	}
-	topics := []Topic{TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicQuests, TopicPatrons, TopicRequests, TopicMarket}
+	topics := []Topic{TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicNpcs, TopicQuests, TopicPatrons, TopicRequests, TopicMarket, TopicConstruction}
 	if bridged || inboxReopened {
 		topics = append(topics, TopicBridge)
 	}
@@ -650,10 +668,14 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 	return change, nil
 }
 
-// newestLinks returns the quest, patron and request links of the newest undone entries that carry them.
-func newestLinks(undone []store.TimelineEvent) (questID *uuid.UUID, patronID *uuid.UUID, requestID *uuid.UUID) {
-	var questSequence, patronSequence, requestSequence int64
+// newestLinks returns the quest, patron, request and building links of the newest undone entries that
+// carry them.
+func newestLinks(undone []store.TimelineEvent) (questID *uuid.UUID, patronID *uuid.UUID, requestID *uuid.UUID, buildingID *uuid.UUID) {
+	var questSequence, patronSequence, requestSequence, buildingSequence int64
 	for _, event := range undone {
+		if event.BuildingID != nil && event.Sequence > buildingSequence {
+			buildingID, buildingSequence = event.BuildingID, event.Sequence
+		}
 		if event.QuestID != nil && event.Sequence > questSequence {
 			questID, questSequence = event.QuestID, event.Sequence
 		}
@@ -664,7 +686,7 @@ func newestLinks(undone []store.TimelineEvent) (questID *uuid.UUID, patronID *uu
 			requestID, requestSequence = event.RequestID, event.Sequence
 		}
 	}
-	return questID, patronID, requestID
+	return questID, patronID, requestID, buildingID
 }
 
 func deletesCreatedRequest(before undoSnapshot) bool {
@@ -832,7 +854,8 @@ func readColony(requestContext context.Context, queries *store.Queries, campaign
 		snapshot.state.Roles[row.Role.Key] = game.Role{Label: row.Role.Label, UnnamedCount: int64(row.Role.UnnamedCount), NamedCount: row.NamedCount, Archived: row.Role.Archived}
 		snapshot.roles[row.Role.Key] = row.Role
 	}
-	return snapshot, nil
+	snapshot.state.Projects, err = readProjects(requestContext, queries, campaignID)
+	return snapshot, err
 }
 
 // plannedEntry is one timeline entry a colony mutation writes, its text already rendered.
@@ -856,6 +879,8 @@ type plannedEntry struct {
 	requestID *uuid.UUID
 	// sessionID links SESSION_PLAYED to its session.
 	sessionID *uuid.UUID
+	// buildingID links a construction entry to its building, so players lose it while the blueprint is hidden.
+	buildingID *uuid.UUID
 	// dmNote is detail only the DM reads, such as a hidden patron's favor line (spec §5.6); it is stored
 	// in data and served in the entry's Dm.
 	dmNote string
@@ -888,6 +913,8 @@ type colonyOutcome struct {
 	daysAdvanced *bridgeDaysAdvanced
 	// bridgeEventID is the Foundry inbox item decide accepted; the undo slot records it.
 	bridgeEventID *uuid.UUID
+	// buildings are the buildings decide changed, as they were before.
+	buildings map[uuid.UUID]buildingBefore
 }
 
 // favorChange is one patron's favor before and after a colony mutation.
@@ -977,6 +1004,9 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 			before.MarketOrders = outcome.marketOrders
 		}
 		before.BridgeEventID = outcome.bridgeEventID
+		if len(outcome.buildings) > 0 {
+			before.Buildings = outcome.buildings
+		}
 		groupID := uuid.New()
 		if outcome.groupID != uuid.Nil {
 			groupID = outcome.groupID
@@ -1039,8 +1069,9 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		return ColonyChange{}, err
 	}
 	// The DM's /settings list shows amounts too, so resources goes with colony and timeline; any
-	// mutation can move headcounts (new colonists land in Unassigned), so people goes too.
-	topics := []Topic{TopicColony, TopicTimeline, TopicResources, TopicPeople}
+	// mutation can move headcounts (new colonists land in Unassigned), so people goes too, and with it
+	// construction, whose page counts idle colonists and carries the version.
+	topics := []Topic{TopicColony, TopicTimeline, TopicResources, TopicPeople, TopicConstruction}
 	if outcomeTouchedNpcs {
 		topics = append(topics, TopicNpcs)
 	}
@@ -1189,6 +1220,7 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 			PatronID:   entry.patronID,
 			RequestID:  entry.requestID,
 			SessionID:  entry.sessionID,
+			BuildingID: entry.buildingID,
 		})
 		if err != nil {
 			return nil, err
@@ -1232,7 +1264,7 @@ func gameError(err error, renames map[string]string) error {
 
 // advancePreview turns a rule result into the preview sheet: "Day 12 → 17 · Food 140 → 80 · 1
 // shipment arrival (Day 14)".
-func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDocksDays []int64) AdvancePreview {
+func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDocksDays []int64, finishes []AdvanceFinish) AdvancePreview {
 	preview := AdvancePreview{
 		Days:            result.Days,
 		Version:         colony.row.Version,
@@ -1243,6 +1275,7 @@ func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDock
 		ArrivalCount:    result.ArrivalCount,
 		Arrivals:        make([]ArrivalRun, 0, len(result.Arrivals)),
 		MarketDocksDays: marketDocksDays,
+		Finishes:        finishes,
 	}
 	if result.After.Schedule != nil {
 		preview.ShipmentsAfter = &ShipmentSchedule{
@@ -1292,6 +1325,9 @@ func advancePreview(colony colonySnapshot, result game.AdvanceResult, marketDock
 			dockingDays = append(dockingDays, dayText(day))
 		}
 		parts = append(parts, plural(int64(len(marketDocksDays)), "Goods ship docks ", "Goods ships dock ")+strings.Join(dockingDays, ", "))
+	}
+	for _, finish := range finishes {
+		parts = append(parts, "The "+finish.Name+" is finished on "+dayText(finish.Day))
 	}
 	preview.Summary = joinParts(parts...)
 	return preview

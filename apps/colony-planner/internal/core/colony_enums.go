@@ -99,6 +99,11 @@ const (
 	TimelineKindMarketOrderCancelled    TimelineKind = "MARKET_ORDER_CANCELLED"
 	TimelineKindPollClosed              TimelineKind = "POLL_CLOSED"
 	TimelineKindCoinDeposited           TimelineKind = "COIN_DEPOSITED"
+	TimelineKindBuildingStarted         TimelineKind = "BUILDING_STARTED"
+	TimelineKindBuildingCrewsChanged    TimelineKind = "BUILDING_CREWS_CHANGED"
+	TimelineKindBuildingCancelled       TimelineKind = "BUILDING_CANCELLED"
+	TimelineKindBuildingDemolished      TimelineKind = "BUILDING_DEMOLISHED"
+	TimelineKindBuildingFinished        TimelineKind = "BUILDING_FINISHED"
 )
 
 // AllTimelineKinds lists every kind, for the API's enum schema and the DM's filter chips.
@@ -128,6 +133,11 @@ func AllTimelineKinds() []TimelineKind {
 		TimelineKindMarketOrderCancelled,
 		TimelineKindPollClosed,
 		TimelineKindCoinDeposited,
+		TimelineKindBuildingStarted,
+		TimelineKindBuildingCrewsChanged,
+		TimelineKindBuildingCancelled,
+		TimelineKindBuildingDemolished,
+		TimelineKindBuildingFinished,
 	}
 }
 

@@ -665,6 +665,14 @@ var mixedIDFields = map[string]string{
 	"sessionId":      "uuid",
 	"optionIds":      "uuids",
 	"bridgeEventId":  "uuid",
+	// Construction (docs/design/construction.md): a Start names its blueprint, and crews, refunds,
+	// blueprint costs and labor are keyed by role or resource.
+	"blueprintId":         "uuid",
+	"constructionRoleKey": "key",
+	"crews":               "map",
+	"refund":              "map",
+	"cost":                "map",
+	"labor":               "map",
 	// Every Effects (rewardEffects, failureEffects, effects, appliedEffects) keys resources here.
 	"resources": "map",
 }
@@ -748,6 +756,9 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		"sessionId":      campaignB.pathIDs["sessionId"],
 		"optionIds":      []string{campaignB.pathIDs["pollOptionId"]},
 		"bridgeEventId":  campaignB.pathIDs["eventId"],
+		"blueprintId":    campaignB.pathIDs["blueprintId"],
+		// B's own role, which A's Settings must refuse as its construction role.
+		"constructionRoleKey": campaignB.pathIDs["roleKey"],
 	}
 	// Each form refuses another kind's item on its own, so only B's item of the kind it answers proves
 	// the campaign filter.
@@ -929,6 +940,67 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 	marketItemOfA := func() map[string]any {
 		return map[string]any{"name": "Pass Four", "description": "", "priceGold": 2, "maxPerOrder": 3}
 	}
+	// Pass 3's sample bodies may have archived A's {blueprintId} blueprint, and an archived one can't
+	// be started, so this body brings it back first. It costs nothing and takes no crew.
+	blueprintA := uuid.MustParse(campaignA.pathIDs["blueprintId"])
+	validBodies["/construction/buildings"] = func() map[string]any {
+		blueprint, err := testHarness.core.SetBlueprintArchived(testHarness.context, dmViewerA, blueprintA, false)
+		if err != nil {
+			t.Fatalf("unarchive A's blueprint: %v", err)
+		}
+		return map[string]any{
+			"expectedVersion": boardOf(dmViewerA).Version, "blueprintId": blueprintA.String(),
+			"blueprintUpdatedAt": blueprint.UpdatedAt, "crews": map[string]any{},
+		}
+	}
+	validBodies["/construction/blueprints/{blueprintId}"] = func() map[string]any {
+		return map[string]any{
+			"name": "Granary", "description": "", "dmNotes": "", "sortOrder": 0, "cost": map[string]any{},
+			"labor": map[string]any{"BUILDER": map[string]any{"effort": 40, "maxCrew": 4}}, "completionEffects": effectsOfA(),
+		}
+	}
+	// Pass 3 may have cancelled A's {buildingId} building, and crews, cancel and demolish each need one
+	// in a status of its own, so each body starts a one-day shed of A's own and names it in the path.
+	shedA, err := testHarness.core.CreateBlueprint(testHarness.context, dmViewerA, core.NewBlueprintInput{BlueprintInput: core.BlueprintInput{
+		Name: "Pass Four Shed", Cost: map[string]int64{}, Labor: map[string]core.BlueprintLaborInput{"BUILDER": {Effort: 1}},
+	}})
+	if err != nil {
+		t.Fatalf("add A's pass 4 shed: %v", err)
+	}
+	startShedA := func(crew int64, finish bool) {
+		t.Helper()
+		started, err := testHarness.core.StartBuilding(testHarness.context, dmViewerA, core.StartBuildingInput{
+			ExpectedVersion: boardOf(dmViewerA).Version, BlueprintID: shedA.ID, BlueprintUpdatedAt: shedA.UpdatedAt, Crews: map[string]int64{"BUILDER": crew},
+		})
+		if err != nil {
+			t.Fatalf("start A's pass 4 shed: %v", err)
+		}
+		if finish {
+			if _, err := testHarness.core.Advance(testHarness.context, dmViewerA, core.AdvanceInput{Days: 1, ExpectedVersion: boardOf(dmViewerA).Version}); err != nil {
+				t.Fatalf("finish A's pass 4 shed: %v", err)
+			}
+		}
+		campaignA.pathIDs["buildingId"] = started.Entries[0].BuildingID.String()
+	}
+	validBodies["/construction/buildings/{buildingId}/crews"] = func() map[string]any {
+		startShedA(0, false)
+		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "crews": map[string]any{"BUILDER": 1}}
+	}
+	validBodies["/construction/buildings/{buildingId}/cancel"] = func() map[string]any {
+		startShedA(0, false)
+		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "refund": map[string]any{"gold": 1}}
+	}
+	validBodies["/construction/buildings/{buildingId}/demolish"] = func() map[string]any {
+		startShedA(1, true)
+		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version, "refund": map[string]any{"gold": 1}}
+	}
+	validBodies["/construction/blueprints"] = func() map[string]any {
+		return map[string]any{
+			"name": "Pass Four", "description": "", "dmNotes": "", "revealed": false, "sortOrder": 0,
+			"cost": map[string]any{"gold": 1}, "labor": map[string]any{roleKeyA: map[string]any{"effort": 1, "maxCrew": nil}},
+			"completionEffects": effectsOfA(),
+		}
+	}
 	validBodies["/market/items"] = marketItemOfA
 	validBodies["/market/items/{itemId}"] = marketItemOfA
 	validBodies["/market/colonists/{roleKey}"] = func() map[string]any {
@@ -1072,6 +1144,11 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			substituted[fieldName] = true
 			eventOfB, answersOwnKind := bridgeEventOfB[strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")]
 			switch {
+			// Crews and labor are keyed by role, so B's own role reaches the lookup, with a valid labor line.
+			case fieldName == "crews":
+				setBodyField(body, field.path, map[string]any{campaignB.pathIDs["roleKey"]: 1})
+			case fieldName == "labor":
+				setBodyField(body, field.path, map[string]any{campaignB.pathIDs["roleKey"]: map[string]any{"effort": 1, "maxCrew": nil}})
 			case field.kind == "map":
 				setBodyField(body, field.path, map[string]any{keyOfB: 1})
 			case fieldName == "bridgeEventId" && answersOwnKind:

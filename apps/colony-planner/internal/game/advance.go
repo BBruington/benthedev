@@ -21,8 +21,9 @@ type Step interface {
 	NextBoundary(state State, after int64) (day int64, ok bool)
 }
 
-// DailySteps is the pipeline, in order. A future step is appended only if its rules need one.
-var DailySteps = []Step{Upkeep{}, Shipments{}}
+// DailySteps is the pipeline, in order. A future step is appended only if its rules need one; Phase 2
+// of construction puts BuildingOutput first (docs/design/construction.md §4.1).
+var DailySteps = []Step{Upkeep{}, Shipments{}, Construction{}}
 
 // ArrivalRun is the arithmetic run of shipment arrival days First, First+Every, … (Count of them).
 // Its JSON is the `data` of a folded SHIPMENT_ARRIVED entry: {first, every, count}.
@@ -41,6 +42,7 @@ func (run ArrivalRun) Last() int64 {
 type Log struct {
 	resourceDeltas map[string]int64
 	arrivalRuns    []ArrivalRun
+	finishes       []BuildingFinish
 }
 
 // RecordResourceDelta adds an applied change to a resource.
@@ -98,7 +100,7 @@ func (upkeep Upkeep) Span(state *State, from int64, to int64, log *Log) {
 	state.Resources[FoodResourceKey] = food
 }
 
-// Colonists are constant during an advance, so upkeep changes nothing another step reads.
+// Upkeep changes only food, which no other step reads.
 func (upkeep Upkeep) NextBoundary(State, int64) (int64, bool) {
 	return 0, false
 }
@@ -142,7 +144,7 @@ type AdvanceResult struct {
 	// snapshot: the day, the schedule and every resource After changed.
 	Before State
 	After  State
-	// Colonists is the headcount upkeep used.
+	// Colonists is the headcount upkeep started with; a finish's completion Effects may add to it.
 	Colonists int64
 	// Applied holds the applied resource deltas only (zero ones omitted): the DAYS_ADVANCED deltas.
 	Applied Effects
@@ -152,6 +154,9 @@ type AdvanceResult struct {
 	// ArrivalEntries are the SHIPMENT_ARRIVED entries to write: one per arrival day when there are
 	// MaxUnfoldedArrivals or fewer, otherwise one folded entry per run.
 	ArrivalEntries []ArrivalEntry
+	// Finishes are the projects finished in (Before.Day, After.Day], in the order they finished. Their
+	// completion Effects are in their own Applied, not in this result's.
+	Finishes []BuildingFinish
 }
 
 // Advance moves the colony forward `days` days (spec §5.2). The preview calls it too and saves nothing.
@@ -207,6 +212,7 @@ func advance(state State, days int64, steps []Step) (AdvanceResult, error) {
 		Applied:        Effects{Resources: maps.Clone(log.resourceDeltas)},
 		Arrivals:       append([]ArrivalRun{}, log.arrivalRuns...),
 		ArrivalEntries: []ArrivalEntry{},
+		Finishes:       append([]BuildingFinish{}, log.finishes...),
 	}
 	if result.Applied.Resources == nil {
 		result.Applied.Resources = map[string]int64{}

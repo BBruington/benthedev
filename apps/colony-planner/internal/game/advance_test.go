@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -19,13 +20,42 @@ func equivalenceStates() map[string]State {
 		"food at the floor":          colony(40, 0, unassignedOnly(20), &Schedule{IntervalDays: 7, NextDay: 42}),
 		"food floor above zero":      foodWithFloor,
 		"next arrival far in future": colony(1, 1000, exampleBRoles(), &Schedule{IntervalDays: 3, NextDay: 50}),
+		"one project":                constructionExample(),
+		"projects that feed upkeep":  projectsThatFeedUpkeep(),
 	}
 }
 
-// referenceAdvance is the naive day-by-day loop the closed forms must match.
-func referenceAdvance(state State, days int64) (State, []int64) {
+// projectsThatFeedUpkeep has two projects, one with two lines finishing on different days, whose
+// completion Effects bring colonists (so upkeep eats more from the next day) and food, and a stalled
+// project whose Mage line has no crew.
+func projectsThatFeedUpkeep() State {
+	state := colony(3, 60, map[string]Role{
+		"BUILDER":         {Label: "Builder", UnnamedCount: 5},
+		"MAGE":            {Label: "Mage", UnnamedCount: 2},
+		UnassignedRoleKey: {Label: "Unassigned", UnnamedCount: 3},
+	}, &Schedule{IntervalDays: 4, NextDay: 5})
+	state.Projects = []Project{
+		{BuildingID: buildingID(1), Lines: []LaborLine{
+			{RoleKey: "BUILDER", Effort: 13, Crew: 3},
+			{RoleKey: "MAGE", Effort: 7, MaxCrew: pointer(int64(2)), Crew: 2},
+		}, CompletionEffects: Effects{Resources: map[string]int64{"morale": -10}, Colonists: 4}},
+		{BuildingID: buildingID(2), Lines: []LaborLine{{RoleKey: "BUILDER", Effort: 30, Progress: 5, Crew: 2}},
+			CompletionEffects: Effects{Resources: map[string]int64{"food": 50, "morale": 20}}},
+		{BuildingID: buildingID(3), Lines: []LaborLine{
+			{RoleKey: "BUILDER", Effort: 4},
+			{RoleKey: "MAGE", Effort: 9},
+		}},
+	}
+	return state
+}
+
+// referenceAdvance is the naive day-by-day loop the closed forms must match: upkeep, shipments, then
+// each line's crew working one day, a finished line freeing its crew and a finished project applying
+// its completion Effects.
+func referenceAdvance(state State, days int64) (State, []int64, []BuildingFinish) {
 	after := state.Clone()
 	arrivals := []int64{}
+	finishes := []BuildingFinish{}
 	for range days {
 		after.Day++
 		food := after.Resources[FoodResourceKey]
@@ -35,8 +65,28 @@ func referenceAdvance(state State, days int64) (State, []int64) {
 			arrivals = append(arrivals, after.Day)
 			after.Schedule.NextDay += after.Schedule.IntervalDays
 		}
+		for index := range after.Projects {
+			project := &after.Projects[index]
+			finishedToday := false
+			for lineIndex := range project.Lines {
+				line := &project.Lines[lineIndex]
+				if line.Crew == 0 || line.Progress == line.Effort {
+					continue
+				}
+				line.Progress = min(line.Progress+line.Crew, line.Effort)
+				if line.Progress == line.Effort {
+					line.Crew = 0
+					finishedToday = true
+				}
+			}
+			if finishedToday && allDone(project.Lines) {
+				applied, skipped := applyCompletion(&after, project.CompletionEffects)
+				finishes = append(finishes, BuildingFinish{BuildingID: project.BuildingID, Day: after.Day, Applied: applied, Skipped: skipped, Lines: slices.Clone(project.Lines)})
+			}
+		}
+		after.Projects = slices.DeleteFunc(after.Projects, func(project Project) bool { return allDone(project.Lines) })
 	}
-	return after, arrivals
+	return after, arrivals, finishes
 }
 
 func expandedArrivals(result AdvanceResult) []int64 {
@@ -53,7 +103,7 @@ func TestSpanEngineMatchesTheDayByDayReference(t *testing.T) {
 	for name, state := range equivalenceStates() {
 		for _, days := range []int64{1, 2, 3, 6, 7, 8, 13, 30, 100} {
 			result := mustAdvance(t, state, days)
-			wantState, wantArrivals := referenceAdvance(state, days)
+			wantState, wantArrivals, wantFinishes := referenceAdvance(state, days)
 			if !reflect.DeepEqual(result.After, wantState) {
 				t.Fatalf("%s, advance %d: %+v, reference %+v", name, days, result.After, wantState)
 			}
@@ -63,7 +113,14 @@ func TestSpanEngineMatchesTheDayByDayReference(t *testing.T) {
 			if result.ArrivalCount != int64(len(wantArrivals)) {
 				t.Fatalf("%s, advance %d: arrival count %d, want %d", name, days, result.ArrivalCount, len(wantArrivals))
 			}
+			if !reflect.DeepEqual(result.Finishes, wantFinishes) {
+				t.Fatalf("%s, advance %d: finishes %+v, reference %+v", name, days, result.Finishes, wantFinishes)
+			}
+			// A finish's completion Effects are its own entry's deltas, not the advance's.
 			wantFoodDelta := food(wantState) - food(state)
+			for _, finish := range wantFinishes {
+				wantFoodDelta -= finish.Applied.Resources[FoodResourceKey]
+			}
 			if result.Applied.Resources[FoodResourceKey] != wantFoodDelta {
 				t.Fatalf("%s, advance %d: food delta %d, want %d", name, days, result.Applied.Resources[FoodResourceKey], wantFoodDelta)
 			}
@@ -83,6 +140,9 @@ func TestAdvancingInPartsEqualsAdvancingOnce(t *testing.T) {
 			}
 			if !reflect.DeepEqual(append(expandedArrivals(first), expandedArrivals(second)...), expandedArrivals(whole)) {
 				t.Fatalf("%s: arrivals split %d+%d differ from the whole", name, parts[0], parts[1])
+			}
+			if !reflect.DeepEqual(append(slices.Clone(first.Finishes), second.Finishes...), whole.Finishes) {
+				t.Fatalf("%s: finishes split %d+%d differ from the whole", name, parts[0], parts[1])
 			}
 		}
 	}

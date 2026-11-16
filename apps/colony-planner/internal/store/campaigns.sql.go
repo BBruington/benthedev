@@ -491,6 +491,18 @@ func (q *Queries) SetCampaignStatus(ctx context.Context, arg SetCampaignStatusPa
 	return i, err
 }
 
+const setDefaultConstructionRole = `-- name: SetDefaultConstructionRole :exec
+UPDATE settings SET construction_role_key = 'BUILDER'
+WHERE settings.campaign_id = $1
+  AND EXISTS (SELECT 1 FROM role WHERE role.campaign_id = $1 AND role.key = 'BUILDER' AND NOT role.archived)
+`
+
+// New blueprints start with a line for this role (docs/design/construction.md §2); it is data the DM changes.
+func (q *Queries) SetDefaultConstructionRole(ctx context.Context, campaignID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, setDefaultConstructionRole, campaignID)
+	return err
+}
+
 const slugTaken = `-- name: SlugTaken :one
 SELECT EXISTS (SELECT 1 FROM campaign WHERE campaign.slug = $1::text)
     OR EXISTS (

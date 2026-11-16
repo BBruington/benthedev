@@ -4,7 +4,8 @@ import "strconv"
 
 // The workforce rules (spec §5.5). The colonist total changes only when a named NPC joins as a new
 // colonist or leaves for good; every other operation moves people between roles, or between a role's
-// unnamed and named headcounts. Nothing happens on its own: the DM makes every change.
+// unnamed and named headcounts. Nothing happens on its own: the DM makes every change, and none may leave
+// a role with fewer colonists than its construction crews (docs/design/construction.md K8).
 
 // Transfer moves count unnamed colonists from one role to another. The total is unchanged.
 func Transfer(state State, fromKey string, toKey string, count int64) (State, error) {
@@ -34,6 +35,9 @@ func Transfer(state State, fromKey string, toKey string, count int64) (State, er
 	to.UnnamedCount += count
 	after.Roles[fromKey] = from
 	after.Roles[toKey] = to
+	if err := checkCrewsFit(after, "count"); err != nil {
+		return State{}, err
+	}
 	return after, nil
 }
 
@@ -56,6 +60,9 @@ func SetUnnamedCount(state State, roleKey string, count int64) (State, error) {
 	after := state.Clone()
 	role.UnnamedCount = count
 	after.Roles[roleKey] = role
+	if err := checkCrewsFit(after, "count"); err != nil {
+		return State{}, err
+	}
 	return after, nil
 }
 
@@ -102,6 +109,9 @@ func ChangeRole(state State, fromKey string, toKey string) (State, error) {
 	to.NamedCount++
 	after.Roles[fromKey] = from
 	after.Roles[toKey] = to
+	if err := checkCrewsFit(after, "roleKey"); err != nil {
+		return State{}, err
+	}
 	return after, nil
 }
 
@@ -121,6 +131,9 @@ func LeaveColony(state State, roleKey string, returnToPool bool) (State, error) 
 	role.NamedCount--
 	after := state.Clone()
 	after.Roles[roleKey] = role
+	if err := checkCrewsFit(after, "mode"); err != nil {
+		return State{}, err
+	}
 	return after, nil
 }
 

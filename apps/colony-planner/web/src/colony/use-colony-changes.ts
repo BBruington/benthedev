@@ -7,6 +7,7 @@ import {
 	advancePreviewQueryKeyPrefix,
 	approveRequestPreviewQueryKeyPrefix,
 	colonyBoardQuery,
+	constructionQuery,
 	marketQuery,
 	npcQueryKeyPrefix,
 	npcsQueryKeyPrefix,
@@ -38,7 +39,7 @@ const goldResourceKey = "gold";
 /**
  * Brings this tab up to date after the DM's own change, without waiting for the live stream: the
  * board comes back with the change, and everything it touched is read again. It settles once the
- * workforce and the roles are fresh, the version the next workforce sheet starts from.
+ * workforce, the roles and the Buildings page are fresh, the versions the next sheet starts from.
  */
 function refreshAfter(
 	queryClient: QueryClient,
@@ -72,6 +73,7 @@ function refreshAfter(
 	queryClient.invalidateQueries({ queryKey: requestQueryKeyPrefix(campaignId) });
 	return Promise.all([
 		queryClient.invalidateQueries({ queryKey: workforceQuery(campaignId).queryKey }),
+		queryClient.invalidateQueries({ queryKey: constructionQuery(campaignId).queryKey }),
 		queryClient.invalidateQueries({ queryKey: rolesQuery(campaignId).queryKey }),
 	]);
 }
@@ -103,6 +105,15 @@ function toastChange(
 		description,
 		duration: undoToastDurationInMilliseconds,
 	});
+}
+
+/**
+ * The toast for a player's own Start or Set crews: those entries are the DM's alone (construction
+ * design K17), so the player's copy of the change can't say who sees it.
+ */
+function toastPlayerBuildingChange(change: ColonyChange) {
+	markAnnounced(change.entries.map((entry) => entry.id));
+	toast.success(change.label, { description: "Only the DM sees it on the timeline." });
 }
 
 /** "40 gold added to the colony.", from the deposit's own entry. */
@@ -159,6 +170,19 @@ export function useColonyChanges() {
 		},
 	};
 
+	const buildingChangeOptions = {
+		...changeOptions,
+		onSuccess: (change: ColonyChange) => {
+			const me = cachedMe(queryClient, campaignId);
+			if (me && canUseDmTools(me)) {
+				toastChange(change, undoGroup);
+			} else {
+				toastPlayerBuildingChange(change);
+			}
+			return refreshAfter(queryClient, campaignId, change);
+		},
+	};
+
 	return {
 		acceptBridgeDeposit: api.useMutation(
 			"post",
@@ -188,6 +212,11 @@ export function useColonyChanges() {
 			"/api/campaigns/{campaignId}/requests/{requestId}/approve",
 			changeOptions,
 		),
+		cancelBuilding: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/cancel",
+			changeOptions,
+		),
 		changeColonyRole: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/npcs/{npcId}/change-role",
@@ -206,6 +235,11 @@ export function useColonyChanges() {
 		correctDay: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/colony/correct-day",
+			changeOptions,
+		),
+		demolishBuilding: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/demolish",
 			changeOptions,
 		),
 		failQuest: api.useMutation(
@@ -235,6 +269,11 @@ export function useColonyChanges() {
 			"/api/campaigns/{campaignId}/quests/{questId}/reopen",
 			changeOptions,
 		),
+		setBuildingCrews: api.useMutation(
+			"put",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/crews",
+			buildingChangeOptions,
+		),
 		setRoleCount: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/people/set-count",
@@ -244,6 +283,11 @@ export function useColonyChanges() {
 			"put",
 			"/api/campaigns/{campaignId}/colony/shipments",
 			changeOptions,
+		),
+		startBuilding: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/construction/buildings",
+			buildingChangeOptions,
 		),
 		transferColonists: api.useMutation(
 			"post",

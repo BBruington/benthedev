@@ -235,6 +235,70 @@ func AllBridgeOutboxKindValues() []BridgeOutboxKind {
 	}
 }
 
+type BuildingStatus string
+
+const (
+	BuildingStatusCONSTRUCTING BuildingStatus = "CONSTRUCTING"
+	BuildingStatusFINISHED     BuildingStatus = "FINISHED"
+	BuildingStatusCANCELLED    BuildingStatus = "CANCELLED"
+	BuildingStatusDEMOLISHED   BuildingStatus = "DEMOLISHED"
+)
+
+func (e *BuildingStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BuildingStatus(s)
+	case string:
+		*e = BuildingStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BuildingStatus: %T", src)
+	}
+	return nil
+}
+
+type NullBuildingStatus struct {
+	BuildingStatus BuildingStatus
+	Valid          bool // Valid is true if BuildingStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBuildingStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.BuildingStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BuildingStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBuildingStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BuildingStatus), nil
+}
+
+func (e BuildingStatus) Valid() bool {
+	switch e {
+	case BuildingStatusCONSTRUCTING,
+		BuildingStatusFINISHED,
+		BuildingStatusCANCELLED,
+		BuildingStatusDEMOLISHED:
+		return true
+	}
+	return false
+}
+
+func AllBuildingStatusValues() []BuildingStatus {
+	return []BuildingStatus{
+		BuildingStatusCONSTRUCTING,
+		BuildingStatusFINISHED,
+		BuildingStatusCANCELLED,
+		BuildingStatusDEMOLISHED,
+	}
+}
+
 type CampaignRequestStatus string
 
 const (
@@ -1399,6 +1463,61 @@ type BridgePairingCode struct {
 	CampaignID uuid.UUID
 }
 
+type Building struct {
+	ID                uuid.UUID
+	BlueprintID       uuid.UUID
+	Status            BuildingStatus
+	Cost              []byte
+	CompletionEffects []byte
+	StartedDay        int32
+	FinishedDay       *int32
+	EndedDay          *int32
+	Refund            []byte
+	StartedBy         *uuid.UUID
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	CampaignID        uuid.UUID
+}
+
+type BuildingBlueprint struct {
+	ID                uuid.UUID
+	Name              string
+	Description       string
+	DmNotes           string
+	Revealed          bool
+	Archived          bool
+	CompletionEffects []byte
+	SortOrder         int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	CampaignID        uuid.UUID
+}
+
+type BuildingBlueprintCost struct {
+	BlueprintID uuid.UUID
+	ResourceKey string
+	Amount      int32
+	CampaignID  uuid.UUID
+}
+
+type BuildingBlueprintLabor struct {
+	BlueprintID uuid.UUID
+	RoleKey     string
+	Effort      int32
+	MaxCrew     *int32
+	CampaignID  uuid.UUID
+}
+
+type BuildingLabor struct {
+	BuildingID uuid.UUID
+	RoleKey    string
+	Effort     int32
+	MaxCrew    *int32
+	Progress   int32
+	Crew       int32
+	CampaignID uuid.UUID
+}
+
 type Campaign struct {
 	ID          uuid.UUID
 	Slug        string
@@ -1770,6 +1889,7 @@ type Settings struct {
 	IcsToken                 string
 	MarketVoyageDays         int32
 	MarketShipLimit          int32
+	ConstructionRoleKey      *string
 }
 
 type TimelineEvent struct {
@@ -1794,6 +1914,7 @@ type TimelineEvent struct {
 	PatronID   *uuid.UUID
 	RequestID  *uuid.UUID
 	SessionID  *uuid.UUID
+	BuildingID *uuid.UUID
 }
 
 type WebSession struct {

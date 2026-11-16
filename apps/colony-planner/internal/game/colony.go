@@ -27,7 +27,7 @@ const (
 	FoodPerColonistPerDay = 1
 )
 
-// State is everything the M1 rules read and change. Handlers load it from the colony, resource and
+// State is everything the colony rules read and change. Handlers load it from the colony, resource and
 // role rows, call a rule and save what comes back; no rule mutates the State it is given.
 type State struct {
 	Day int64
@@ -38,6 +38,8 @@ type State struct {
 	Resources map[string]Resource
 	// Roles is keyed by role key and must include UNASSIGNED.
 	Roles map[string]Role
+	// Projects are the unfinished buildings, sorted by building ID (docs/design/construction.md §3).
+	Projects []Project
 }
 
 // Schedule is the shipment cadence (spec §5.3): interval I ≥ 1 and next arrival day D > Day.
@@ -96,6 +98,7 @@ func (state State) Clone() State {
 	if clone.Roles == nil {
 		clone.Roles = map[string]Role{}
 	}
+	clone.Projects = cloneProjects(state.Projects)
 	return clone
 }
 
@@ -122,6 +125,9 @@ func checkStoredState(state State) error {
 		if role.UnnamedCount < 0 || role.NamedCount < 0 {
 			return fmt.Errorf("game: role %q has a negative headcount", key)
 		}
+	}
+	if !checkStoredProjects(state.Projects) {
+		return fmt.Errorf("game: a project's labor is out of range")
 	}
 	return nil
 }
