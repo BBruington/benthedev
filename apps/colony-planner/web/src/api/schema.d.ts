@@ -600,6 +600,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/buildings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a finished, Active building of a blueprint at once and for free: no cost, labor or completion Effects; the DM may undo it */
+        post: operations["addBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/revealed": {
         parameters: {
             query?: never;
@@ -628,6 +645,23 @@ export interface paths {
         put?: never;
         /** Start a building: takes its cost in full and sets its first crews; the DM may undo it */
         post: operations["startBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set an Idle building Active again: its storage bonus counts at once and its output runs from the next day */
+        post: operations["activateBuilding"];
         delete?: never;
         options?: never;
         head?: never;
@@ -679,6 +713,23 @@ export interface paths {
         put?: never;
         /** Demolish a finished building, giving back what the DM typed (capped) */
         post: operations["demolishBuilding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/idle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a finished building Idle: its daily output and storage bonus stop, and stock above a cap that falls stays */
+        post: operations["idleBuilding"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2593,6 +2644,10 @@ export interface components {
             isSiteOwner: boolean;
             viewAsPlayer: boolean;
         };
+        AddBuildingInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+        };
         AdjustInput: {
             /**
              * Format: uuid
@@ -2750,6 +2805,10 @@ export interface components {
             };
             /** @description 1 to 80 characters, unique in the campaign */
             name: string;
+            /** @description Resource key to its daily change and storage bonus (0 or more), not both 0; {} for none. Required, since a full-record edit without it would clear the output */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
             /** Format: int64 */
             sortOrder: number;
         };
@@ -2774,6 +2833,18 @@ export interface components {
              * @description 1 or more; null for no cap
              */
             maxCrew: number | null;
+        };
+        BlueprintOutput: {
+            /**
+             * Format: int64
+             * @description Added each day, capped at the effective max; negative is upkeep, floored at the minimum
+             */
+            dailyDelta: number;
+            /**
+             * Format: int64
+             * @description 0 or more, added to the resource's max; nothing for a resource with no max
+             */
+            storageBonus: number;
         };
         BridgeAckFailure: {
             /** @description At most 300 characters */
@@ -2935,6 +3006,10 @@ export interface components {
             moduleManifestUrl: string;
         };
         Building: {
+            /** @description Meaningful only while FINISHED: an Idle building (false) gives no output and no storage bonus */
+            active: boolean;
+            /** @description The DM placed it with Add building, for free, rather than building it */
+            added: boolean;
             /** Format: uuid */
             blueprintId: string;
             completionEffects: components["schemas"]["Effects"];
@@ -2957,6 +3032,10 @@ export interface components {
             /** @description By role key */
             labor: components["schemas"]["BuildingLabor"][];
             name: string;
+            /** @description Its blueprint's live output, which it gives while it stands Active */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
             /**
              * Format: int64
              * @description The finish day with the current crews; null when it isn't under construction or a line with work left has no crew
@@ -2985,6 +3064,10 @@ export interface components {
             /** @description By role key */
             labor: components["schemas"]["BlueprintLabor"][];
             name: string;
+            /** @description Resource key to what each Active standing building of it does for that resource; live, so an edit changes standing buildings from the next day */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
             /** Format: int64 */
             sortOrder: number;
             /** Format: date-time */
@@ -3026,6 +3109,10 @@ export interface components {
         };
         /** @enum {string} */
         BuildingStatus: "CONSTRUCTING" | "FINISHED" | "CANCELLED" | "DEMOLISHED";
+        BuildingVersionInput: {
+            /** Format: int64 */
+            expectedVersion: number;
+        };
         CalendarLink: {
             /** @description /calendar/{token}.ics on this site */
             path: string;
@@ -3151,7 +3238,7 @@ export interface components {
             label: string;
             /**
              * Format: int64
-             * @description null when unbounded
+             * @description The effective max: the resource's own plus every Active standing building's storage bonus; null when unbounded. The amount may sit above it after a bonus ends
              */
             maxAmount: number | null;
             /** Format: int64 */
@@ -3679,6 +3766,10 @@ export interface components {
             };
             /** @description 1 to 80 characters, unique in the campaign */
             name: string;
+            /** @description Resource key to its daily change and storage bonus (0 or more), not both 0; {} for none. Required, since a full-record edit without it would clear the output */
+            output: {
+                [key: string]: components["schemas"]["BlueprintOutput"];
+            };
             /** @description Visible to players; the create form starts it off */
             revealed: boolean;
             /** Format: int64 */
@@ -4487,13 +4578,18 @@ export interface components {
             label: string;
             /**
              * Format: int64
-             * @description null when unbounded
+             * @description The DM's own max; null when unbounded
              */
             maxAmount: number | null;
             /** Format: int64 */
             minAmount: number;
             /** Format: int64 */
             sortOrder: number;
+            /**
+             * Format: int64
+             * @description What every Active standing building adds to maxAmount (0 while maxAmount is null)
+             */
+            storageBonus: number;
         };
         RevealInput: {
             revealed: boolean;
@@ -4851,7 +4947,7 @@ export interface components {
             visibility: components["schemas"]["TimelineVisibility"];
         };
         /** @enum {string} */
-        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED" | "POLL_CLOSED" | "COIN_DEPOSITED" | "BUILDING_STARTED" | "BUILDING_CREWS_CHANGED" | "BUILDING_CANCELLED" | "BUILDING_DEMOLISHED" | "BUILDING_FINISHED";
+        TimelineKind: "DAYS_ADVANCED" | "SHIPMENT_ARRIVED" | "SHIPMENT_SCHEDULE_CHANGED" | "CARGO_RECORDED" | "STOCK_ADJUSTED" | "DAY_CORRECTED" | "UNDO" | "CUSTOM" | "WORKFORCE_CHANGED" | "COLONIST_JOINED" | "COLONIST_LEFT" | "QUEST_POSTED" | "QUEST_COMPLETED" | "QUEST_FAILED" | "QUEST_REOPENED" | "PATRON_ACTION" | "FAVOR_ADJUSTED" | "SESSION_PLAYED" | "MARKET_ORDER_PLACED" | "MARKET_ORDER_DOCKED" | "MARKET_ORDER_PAID" | "MARKET_ORDER_CANCELLED" | "POLL_CLOSED" | "COIN_DEPOSITED" | "BUILDING_STARTED" | "BUILDING_CREWS_CHANGED" | "BUILDING_CANCELLED" | "BUILDING_DEMOLISHED" | "BUILDING_FINISHED" | "BUILDING_IDLED" | "BUILDING_ACTIVATED" | "BUILDING_ADDED";
         TimelinePage: {
             /**
              * Format: int64
@@ -6191,6 +6287,43 @@ export interface operations {
             };
         };
     };
+    addBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                blueprintId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddBuildingInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     setBlueprintRevealed: {
         parameters: {
             query?: never;
@@ -6246,6 +6379,43 @@ export interface operations {
         responses: {
             /** @description Created */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    activateBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                buildingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingVersionInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6352,6 +6522,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["BuildingRefundInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColonyChange"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    idleBuilding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The campaign's ID (GET /api/campaigns lists the caller's) */
+                campaignId: string;
+                buildingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildingVersionInput"];
             };
         };
         responses: {

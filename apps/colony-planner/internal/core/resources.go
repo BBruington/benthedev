@@ -2,10 +2,14 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/BBruington/colony-planner/internal/game"
 	"github.com/BBruington/colony-planner/internal/store"
@@ -21,8 +25,10 @@ type ResourceSettings struct {
 	Icon      ColonyIcon `json:"icon"`
 	Amount    int64      `json:"amount"`
 	MinAmount int64      `json:"minAmount"`
-	MaxAmount *int64     `json:"maxAmount" doc:"null when unbounded"`
-	SortOrder int64      `json:"sortOrder"`
+	MaxAmount *int64     `json:"maxAmount" doc:"The DM's own max; null when unbounded"`
+	// StorageBonus is what Active standing buildings add to MaxAmount; the board shows the sum.
+	StorageBonus int64 `json:"storageBonus" doc:"What every Active standing building adds to maxAmount (0 while maxAmount is null)"`
+	SortOrder    int64 `json:"sortOrder"`
 	// IsSystem marks a resource a rule reads (food); it can be renamed but not archived.
 	IsSystem bool `json:"isSystem"`
 	Archived bool `json:"archived"`
@@ -62,9 +68,13 @@ func (service *Service) ListResources(requestContext context.Context, viewer Vie
 	if err != nil {
 		return ResourceList{}, err
 	}
+	storage, err := storageState(requestContext, service.queries, viewer.campaignID, rows)
+	if err != nil {
+		return ResourceList{}, err
+	}
 	resources := make([]ResourceSettings, 0, len(rows))
 	for _, row := range rows {
-		resources = append(resources, toResourceSettings(row))
+		resources = append(resources, toResourceSettings(row, storage))
 	}
 	return ResourceList{Resources: resources}, nil
 }
@@ -123,10 +133,14 @@ func (service *Service) CreateResource(requestContext context.Context, viewer Vi
 		return ResourceSettings{}, err
 	}
 	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicResources, TopicColony)...)
-	return toResourceSettings(row), nil
+	// No building can name a resource that didn't exist, so it has no storage bonus.
+	return toResourceSettings(row, game.State{}), nil
 }
 
 // UpdateResource replaces a resource's settings. It is not a colony mutation: no version, no timeline.
+// A new max is checked against the current amount with the storage bonuses on top, so a Granary's
+// stock never blocks an edit, and an unchanged max is never checked: an amount above a cap that fell
+// stays there (K13).
 func (service *Service) UpdateResource(requestContext context.Context, viewer Viewer, resourceKey string, input ResourceInput) (ResourceSettings, error) {
 	if err := requireDm(viewer); err != nil {
 		return ResourceSettings{}, err
@@ -139,6 +153,7 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 		return ResourceSettings{}, Invalid("The resource needs fixing.", fieldErrors...)
 	}
 	var row store.Resource
+	var storage game.State
 	bridged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first so no colony mutation changes the amount between the bounds check and the save.
@@ -155,6 +170,10 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 			return NotFound("That resource doesn't exist.")
 		}
 		current := existing[index]
+		storage, err = storageState(requestContext, queries, viewer.campaignID, existing)
+		if err != nil {
+			return err
+		}
 		var fieldErrors []FieldError
 		if fieldError := labelTaken(label, resourceKey, existing); fieldError != nil {
 			fieldErrors = append(fieldErrors, *fieldError)
@@ -164,9 +183,19 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 			fieldErrors = append(fieldErrors, FieldError{Field: "minAmount", Message: fmt.Sprintf(
 				"%s is at %s now, below that minimum. Adjust it first.", current.Label, formatNumber(amount))})
 		}
-		if input.MaxAmount != nil && amount > *input.MaxAmount {
+		proposed := game.EffectiveMaxWith(storage, resourceKey, input.MaxAmount)
+		if proposed != nil && (current.MaxAmount == nil || int64(*current.MaxAmount) != *input.MaxAmount) && amount > *proposed {
 			fieldErrors = append(fieldErrors, FieldError{Field: "maxAmount", Message: fmt.Sprintf(
 				"%s is at %s now, above that maximum. Adjust it first.", current.Label, formatNumber(amount))})
+		}
+		if input.Archived && !current.Archived {
+			fieldError, err := standingOutputRefusal(requestContext, queries, viewer.campaignID, current)
+			if err != nil {
+				return err
+			}
+			if fieldError != nil {
+				fieldErrors = append(fieldErrors, *fieldError)
+			}
 		}
 		if current.IsSystem && input.Archived {
 			fieldErrors = append(fieldErrors, FieldError{Field: "archived", Message: current.Label + " is used by upkeep, so it can't be archived."})
@@ -194,7 +223,29 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 		return ResourceSettings{}, err
 	}
 	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicResources, TopicColony)...)
-	return toResourceSettings(row), nil
+	return toResourceSettings(row, storage), nil
+}
+
+// standingOutputRefusal refuses to archive a resource while a standing building's blueprint output
+// names it, Idle ones included, so an advance never meets an archived key: "The Mill makes food; edit
+// its blueprint or demolish it first."
+func standingOutputRefusal(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, resource store.Resource) (*FieldError, error) {
+	building, err := queries.StandingBuildingNamingResource(requestContext, store.StandingBuildingNamingResourceParams{CampaignID: campaignID, ResourceKey: resource.Key})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	verb := "stores"
+	switch {
+	case building.DailyDelta > 0:
+		verb = "makes"
+	case building.DailyDelta < 0:
+		verb = "uses"
+	}
+	return &FieldError{Field: "archived", Message: "The " + building.BlueprintName + " " + verb + " " + strings.ToLower(resource.Label) +
+		"; edit its blueprint or demolish it first."}, nil
 }
 
 // checkResourceSettings checks what adding and editing share: the label, the icon and the bounds.
@@ -303,16 +354,23 @@ func int32PointerOf(value *int64) *int32 {
 	return &narrowed
 }
 
-func toResourceSettings(row store.Resource) ResourceSettings {
+// toResourceSettings reads the storage bonus from storage, the standing buildings; a resource with no
+// max of its own has none.
+func toResourceSettings(row store.Resource, storage game.State) ResourceSettings {
+	var storageBonus int64
+	if row.MaxAmount != nil {
+		storageBonus = game.StorageBonus(storage, row.Key)
+	}
 	return ResourceSettings{
-		Key:       row.Key,
-		Label:     row.Label,
-		Icon:      row.Icon,
-		Amount:    int64(row.Amount),
-		MinAmount: int64(row.MinAmount),
-		MaxAmount: int64Pointer(row.MaxAmount),
-		SortOrder: int64(row.SortOrder),
-		IsSystem:  row.IsSystem,
-		Archived:  row.Archived,
+		Key:          row.Key,
+		Label:        row.Label,
+		Icon:         row.Icon,
+		Amount:       int64(row.Amount),
+		MinAmount:    int64(row.MinAmount),
+		MaxAmount:    int64Pointer(row.MaxAmount),
+		StorageBonus: storageBonus,
+		SortOrder:    int64(row.SortOrder),
+		IsSystem:     row.IsSystem,
+		Archived:     row.Archived,
 	}
 }

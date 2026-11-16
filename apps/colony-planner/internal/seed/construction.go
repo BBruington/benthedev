@@ -10,7 +10,8 @@ import (
 )
 
 // sampleConstruction is Sample Colony's catalog and its one project, played through core with the
-// advances: the DM drafts a revealed Granary and Palisade and a hidden Warded Tower; Thorin starts the
+// advances: the DM drafts a revealed Granary (food storage +200), Palisade and Mill (food +6 and
+// materials -1 a day) and a hidden Warded Tower; Thorin starts the
 // Palisade on Day 14 with 2 Builders, who put in 10 Builder-days by Day 19 and then join the
 // saltmarsh survey; on Day 22 the DM puts all 3 Builders back on it.
 type sampleConstruction struct {
@@ -22,7 +23,7 @@ type sampleConstruction struct {
 }
 
 func newSampleConstruction(requestContext context.Context, service *core.Service, dm core.Viewer, enter enterAs) (*sampleConstruction, error) {
-	maxCrew := int64(4)
+	maxCrew, millCrew := int64(4), int64(3)
 	blueprints := []core.NewBlueprintInput{
 		{Revealed: true, BlueprintInput: core.BlueprintInput{
 			Name:              "Granary",
@@ -30,6 +31,7 @@ func newSampleConstruction(requestContext context.Context, service *core.Service
 			Cost:              map[string]int64{"materials": 30, "gold": 20},
 			Labor:             map[string]core.BlueprintLaborInput{"BUILDER": {Effort: 40, MaxCrew: &maxCrew}},
 			CompletionEffects: core.Effects{Resources: map[string]int64{"morale": 5}},
+			Output:            map[string]core.BlueprintOutput{"food": {StorageBonus: 200}},
 			SortOrder:         10,
 		}},
 		{Revealed: true, BlueprintInput: core.BlueprintInput{
@@ -38,6 +40,14 @@ func newSampleConstruction(requestContext context.Context, service *core.Service
 			Cost:        map[string]int64{"materials": 40},
 			Labor:       map[string]core.BlueprintLaborInput{"BUILDER": {Effort: 60}},
 			SortOrder:   20,
+		}},
+		{Revealed: true, BlueprintInput: core.BlueprintInput{
+			Name:        "Mill",
+			Description: "A waterwheel on the creek that grinds the colony's grain.",
+			Cost:        map[string]int64{"materials": 25},
+			Labor:       map[string]core.BlueprintLaborInput{"BUILDER": {Effort: 30, MaxCrew: &millCrew}},
+			Output:      map[string]core.BlueprintOutput{"food": {DailyDelta: 6}, "materials": {DailyDelta: -1}},
+			SortOrder:   25,
 		}},
 		{BlueprintInput: core.BlueprintInput{
 			Name:        "Warded Tower",

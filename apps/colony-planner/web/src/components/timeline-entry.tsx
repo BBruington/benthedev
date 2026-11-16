@@ -15,8 +15,11 @@ import {
 	HardHatIcon,
 	HourglassIcon,
 	HouseIcon,
+	HousePlusIcon,
 	type LucideIcon,
 	PackageOpenIcon,
+	PauseIcon,
+	PlayIcon,
 	RotateCcwIcon,
 	ScaleIcon,
 	ScrollTextIcon,
@@ -43,6 +46,16 @@ type Glyph = { icon: LucideIcon; label: string; tone: string };
 
 /** Each kind's typed glyph (spec §6.6); the Record fails typechecking when a kind is added. */
 export const timelineKinds: Record<TimelineKind, Glyph> = {
+	BUILDING_ACTIVATED: {
+		icon: PlayIcon,
+		label: "Building active",
+		tone: "bg-moss/14 text-moss-ink",
+	},
+	BUILDING_ADDED: {
+		icon: HousePlusIcon,
+		label: "Building added",
+		tone: "bg-moss/14 text-moss-ink",
+	},
 	BUILDING_CANCELLED: {
 		icon: BanIcon,
 		label: "Building cancelled",
@@ -62,6 +75,11 @@ export const timelineKinds: Record<TimelineKind, Glyph> = {
 		icon: HouseIcon,
 		label: "Building finished",
 		tone: "bg-moss/14 text-moss-ink",
+	},
+	BUILDING_IDLED: {
+		icon: PauseIcon,
+		label: "Building idle",
+		tone: "bg-muted text-muted-foreground",
 	},
 	BUILDING_STARTED: {
 		icon: HammerIcon,

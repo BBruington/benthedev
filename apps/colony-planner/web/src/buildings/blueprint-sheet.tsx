@@ -17,8 +17,11 @@ import {
 	laborToDrafts,
 	type NumberDraft,
 	newLaborDraft,
+	type OutputDraft,
+	outputToDrafts,
 	parseAmounts,
 	parseLabor,
+	parseOutput,
 } from "@/lib/construction";
 import { focusFirstVisible } from "@/lib/focus";
 import { forgetFailedSaves } from "@/lib/forms";
@@ -30,6 +33,7 @@ import {
 } from "@/lib/ventures";
 import { EffectsEditor, FormSection } from "@/ventures/venture-parts";
 import { AmountsEditor } from "./amounts-editor";
+import { OutputEditor } from "./output-editor";
 
 type BuildingBlueprint = Schemas["BuildingBlueprint"];
 type BlueprintInput = Schemas["BlueprintInput"];
@@ -46,6 +50,7 @@ type Draft = {
 	dmNotes: string;
 	cost: NumberDraft;
 	labor: LaborDraft[];
+	output: OutputDraft[];
 	completion: EffectsDraft;
 };
 
@@ -58,6 +63,7 @@ function toDraft(blueprint: BuildingBlueprint | null, constructionRoleKey: strin
 			dmNotes: "",
 			labor: constructionRoleKey ? [newLaborDraft(constructionRoleKey)] : [],
 			name: "",
+			output: [],
 		};
 	}
 	return {
@@ -67,6 +73,7 @@ function toDraft(blueprint: BuildingBlueprint | null, constructionRoleKey: strin
 		dmNotes: blueprint.dm?.dmNotes ?? "",
 		labor: laborToDrafts(blueprint.labor),
 		name: blueprint.name,
+		output: outputToDrafts(blueprint.output),
 	};
 }
 
@@ -77,6 +84,7 @@ function buildInput(
 ): { input: BlueprintInput | null; problems: Record<string, string> } {
 	const cost = parseAmounts(draft.cost);
 	const labor = parseLabor(draft.labor);
+	const output = parseOutput(draft.output);
 	const completion = draftToEffects(draft.completion);
 	const problems: Record<string, string> = {};
 	for (const [key, problem] of Object.entries(cost.problems)) {
@@ -84,6 +92,9 @@ function buildInput(
 	}
 	for (const [key, problem] of Object.entries(labor.problems)) {
 		problems[`labor-${key}`] = problem;
+	}
+	for (const [key, problem] of Object.entries(output.problems)) {
+		problems[`output-${key}`] = problem;
 	}
 	for (const [key, problem] of Object.entries(completion.problems)) {
 		problems[`completion-${key}`] = problem;
@@ -99,6 +110,7 @@ function buildInput(
 			dmNotes: draft.dmNotes,
 			labor: labor.labor,
 			name: draft.name,
+			output: output.output,
 			sortOrder,
 		},
 		problems,
@@ -210,7 +222,7 @@ export function BlueprintSheet({
 			className="md:max-w-2xl"
 			description={
 				blueprint
-					? "Buildings already started keep the cost, labor and completion effects they started with. Show or hide it with the switch on its card."
+					? "Buildings already started keep the cost, labor and completion effects they started with. Its output is live: standing buildings follow an edit. Show or hide it with the switch on its card."
 					: "New blueprints are hidden from players unless you turn the switch on."
 			}
 			footer={
@@ -298,6 +310,23 @@ export function BlueprintSheet({
 						resources={resources}
 					/>
 					{serverErrors.cost ? <p className="text-ember-ink text-sm">{serverErrors.cost}</p> : null}
+				</FormSection>
+
+				<FormSection
+					description="What each standing building of it does while Active. A daily change adds to a resource, or takes from it with a minus sign, stopping at its bounds. Storing more raises the resource's maximum."
+					title="Output"
+				>
+					<OutputEditor
+						drafts={draft.output}
+						onChange={(output) => {
+							set("output", output);
+						}}
+						problems={prefixed(problems, "output-")}
+						resources={resources}
+					/>
+					{serverErrors.output ? (
+						<p className="text-ember-ink text-sm">{serverErrors.output}</p>
+					) : null}
 				</FormSection>
 
 				<FormSection

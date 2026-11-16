@@ -86,6 +86,7 @@ function toastChange(
 	change: ColonyChange,
 	undo: ((groupId: string) => void) | null,
 	title?: string,
+	descriptionOverride?: string,
 ) {
 	markAnnounced(change.entries.map((entry) => entry.id));
 	const publicEntry = change.entries.find(isPublicEntry);
@@ -93,6 +94,7 @@ function toastChange(
 	if (publicEntry) {
 		description = publicEntry.body || "Everyone sees it on the timeline.";
 	}
+	description = descriptionOverride ?? description;
 	toast.success(title ?? publicEntry?.title ?? change.label, {
 		action: undo
 			? {
@@ -114,6 +116,24 @@ function toastChange(
 function toastPlayerBuildingChange(change: ColonyChange) {
 	markAnnounced(change.entries.map((entry) => entry.id));
 	toast.success(change.label, { description: "Only the DM sees it on the timeline." });
+}
+
+/**
+ * A building added of a hidden blueprint writes a PUBLIC entry that players see only once the
+ * blueprint is revealed, so its toast can't say everyone sees it.
+ */
+function hiddenBlueprintDescription(
+	queryClient: QueryClient,
+	campaignId: string,
+	blueprintId: string,
+): string | undefined {
+	const page = queryClient.getQueryData<Schemas["ConstructionPage"]>(
+		constructionQuery(campaignId).queryKey,
+	);
+	const blueprint = page?.blueprints.find((candidate) => candidate.id === blueprintId);
+	return blueprint?.dm?.revealed === false
+		? "Players see it on the timeline once its blueprint is visible."
+		: undefined;
 }
 
 /** "40 gold added to the colony.", from the deposit's own entry. */
@@ -200,6 +220,30 @@ export function useColonyChanges() {
 				},
 			},
 		),
+		activateBuilding: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/activate",
+			changeOptions,
+		),
+		addBuilding: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/buildings",
+			{
+				...changeOptions,
+				onSuccess: (
+					change: ColonyChange,
+					variables: { params: { path: { blueprintId: string } } },
+				) => {
+					toastChange(
+						change,
+						undoGroup,
+						undefined,
+						hiddenBlueprintDescription(queryClient, campaignId, variables.params.path.blueprintId),
+					);
+					return refreshAfter(queryClient, campaignId, change);
+				},
+			},
+		),
 		adjust: api.useMutation("post", "/api/campaigns/{campaignId}/colony/adjust", changeOptions),
 		adjustFavor: api.useMutation(
 			"post",
@@ -245,6 +289,11 @@ export function useColonyChanges() {
 		failQuest: api.useMutation(
 			"post",
 			"/api/campaigns/{campaignId}/quests/{questId}/fail",
+			changeOptions,
+		),
+		idleBuilding: api.useMutation(
+			"post",
+			"/api/campaigns/{campaignId}/construction/buildings/{buildingId}/idle",
 			changeOptions,
 		),
 		/** The path parameters every change sends: the campaign on screen. */

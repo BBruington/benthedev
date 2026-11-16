@@ -3,7 +3,7 @@
 -- name: ListResources :many
 SELECT * FROM resource WHERE campaign_id = @campaign_id ORDER BY sort_order, key;
 
--- A colony mutation saves each changed amount; the CHECK keeps it within the bounds.
+-- A colony mutation saves each changed amount; the CHECK keeps it at or above the minimum.
 -- name: SetResourceAmount :exec
 UPDATE resource SET amount = @amount WHERE campaign_id = @campaign_id AND key = @key;
 

@@ -43,7 +43,7 @@ func TestConstructionWorkedExample(t *testing.T) {
 		t.Fatalf("after the finish the Builders are still crewed: %+v", result.After.Projects)
 	}
 	if food(result.After) != 0 || result.Applied.Resources[FoodResourceKey] != -12 {
-		t.Fatalf("food %d (applied %d), want 0 on Day 47 with no output in Phase 1", food(result.After), result.Applied.Resources[FoodResourceKey])
+		t.Fatalf("food %d (applied %d), want 0 on Day 47 for a building with no output", food(result.After), result.Applied.Resources[FoodResourceKey])
 	}
 	wantFood := map[int64]int64{41: 7, 42: 2, 43: 0, 45: 0, 47: 0}
 	for day, want := range wantFood {

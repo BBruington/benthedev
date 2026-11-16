@@ -1,9 +1,15 @@
-import { ArchiveIcon, ArchiveRestoreIcon, HammerIcon, PenLineIcon } from "lucide-react";
+import {
+	ArchiveIcon,
+	ArchiveRestoreIcon,
+	HammerIcon,
+	HousePlusIcon,
+	PenLineIcon,
+} from "lucide-react";
 import type { Schemas } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { amountsText, laborText } from "@/lib/construction";
+import { amountsText, dailyOutputText, laborText, storageBonusText } from "@/lib/construction";
 import { cn } from "@/lib/utils";
 import { HiddenBadge } from "@/people/people-sections";
 import { ArchivedBadge, effectsText } from "@/ventures/venture-parts";
@@ -16,12 +22,14 @@ export type BlueprintControls = {
 	onEdit: (blueprint: BuildingBlueprint) => void;
 	onReveal: (blueprint: BuildingBlueprint, revealed: boolean) => void;
 	onArchive: (blueprint: BuildingBlueprint, archived: boolean) => void;
+	/** Opens the confirm for a free, finished building of it (construction design K19). */
+	onAdd: (blueprint: BuildingBlueprint) => void;
 	/** The visibility being saved for a blueprint, while it saves. */
 	pendingReveal: { blueprintId: string; revealed: boolean } | null;
 	pendingArchiveId: string | null;
 };
 
-/** A blueprint: what it costs, the work it needs and what finishing it brings, with Start. */
+/** A blueprint: what it costs, the work it needs, what finishing it brings and its output, with Start. */
 export function BlueprintCard({
 	blueprint,
 	resources,
@@ -38,6 +46,8 @@ export function BlueprintCard({
 }) {
 	const cost = amountsText(blueprint.cost, resources) || "Nothing";
 	const completion = effectsText(blueprint.completionEffects, resources, "");
+	const daily = dailyOutputText(blueprint.output, resources);
+	const storage = storageBonusText(blueprint.output, resources);
 	return (
 		<li
 			className={cn(
@@ -76,6 +86,18 @@ export function BlueprintCard({
 					<div className="flex flex-wrap gap-x-2">
 						<dt className="font-medium">When finished</dt>
 						<dd>{completion}</dd>
+					</div>
+				) : null}
+				{daily ? (
+					<div className="flex flex-wrap gap-x-2">
+						<dt className="font-medium">Each day</dt>
+						<dd>{daily}</dd>
+					</div>
+				) : null}
+				{storage ? (
+					<div className="flex flex-wrap gap-x-2">
+						<dt className="sr-only">Storage</dt>
+						<dd>{storage}</dd>
 					</div>
 				) : null}
 			</dl>
@@ -142,6 +164,17 @@ function DmBlueprintControls({
 					<PenLineIcon />
 					Edit
 				</Button>
+				{blueprint.archived ? null : (
+					<Button
+						onClick={() => {
+							controls.onAdd(blueprint);
+						}}
+						variant="outline"
+					>
+						<HousePlusIcon />
+						Add building
+					</Button>
+				)}
 				<Button
 					disabled={isArchiving}
 					onClick={() => {

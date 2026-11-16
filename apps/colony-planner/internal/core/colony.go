@@ -53,7 +53,7 @@ type ColonyResource struct {
 	Icon      ColonyIcon `json:"icon"`
 	Amount    int64      `json:"amount"`
 	MinAmount int64      `json:"minAmount"`
-	MaxAmount *int64     `json:"maxAmount" doc:"null when unbounded"`
+	MaxAmount *int64     `json:"maxAmount" doc:"The effective max: the resource's own plus every Active standing building's storage bonus; null when unbounded. The amount may sit above it after a bonus ends"`
 	// IsSystem marks a resource a rule reads (food, for upkeep).
 	IsSystem bool `json:"isSystem"`
 }
@@ -116,7 +116,7 @@ type AdvancePreview struct {
 	FromDay   int64 `json:"fromDay"`
 	ToDay     int64 `json:"toDay"`
 	Colonists int64 `json:"colonists" doc:"The headcount upkeep used"`
-	// Resources lists every resource the advance changes (food, in v1).
+	// Resources lists every resource the advance changes: food, and whatever building output moves.
 	Resources       []ResourceChangePreview `json:"resources"`
 	ArrivalCount    int64                   `json:"arrivalCount"`
 	Arrivals        []ArrivalRun            `json:"arrivals" doc:"Every arrival day in the span, as runs"`
@@ -208,7 +208,11 @@ type undoSnapshot struct {
 	ShipmentIntervalDays *int64           `json:"shipmentIntervalDays"`
 	NextShipmentDay      *int64           `json:"nextShipmentDay"`
 	ResourceAmounts      map[string]int64 `json:"resourceAmounts"`
-	RoleUnnamedCounts    map[string]int64 `json:"roleUnnamedCounts"`
+	// ResourceMaxAmounts is each resource in ResourceAmounts with its own max (null for none) at the
+	// time, so undo can tell a max the DM lowered since from a storage bonus that ended. A slot written
+	// before it existed has none.
+	ResourceMaxAmounts map[string]*int64 `json:"resourceMaxAmounts,omitempty"`
+	RoleUnnamedCounts  map[string]int64  `json:"roleUnnamedCounts"`
 	// NpcColonyRoles is each named colonist's role before the change, keyed by NPC ID; null means
 	// they weren't a colonist (spec §5.5).
 	NpcColonyRoles map[uuid.UUID]*string `json:"npcColonyRoles,omitempty"`
@@ -535,7 +539,19 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 		if err := restoreMarketOrders(requestContext, queries, viewer.campaignID, record.Before.MarketOrders); err != nil {
 			return err
 		}
+		hiddenCreated, err := hiddenCreatedBuildings(requestContext, queries, viewer.campaignID, record.Before.Buildings)
+		if err != nil {
+			return err
+		}
+		// Marked before restoreBuildings deletes a created building, so each row still shows its link.
+		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
+		if err != nil {
+			return err
+		}
 		if err := restoreBuildings(requestContext, queries, colony, record.Before.Buildings); err != nil {
+			return err
+		}
+		if err := unlinkDeletedBuildings(requestContext, queries, viewer.campaignID, undone, record.Before.Buildings, hiddenCreated); err != nil {
 			return err
 		}
 		var reopenedDeposit *store.ReopenAcceptedBridgeEventRow
@@ -553,10 +569,6 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 					reopenedDeposit = &reopened
 				}
 			}
-		}
-		undone, err := queries.MarkTimelineGroupUndone(requestContext, store.MarkTimelineGroupUndoneParams{CampaignID: viewer.campaignID, GroupID: record.GroupID})
-		if err != nil {
-			return err
 		}
 		// PUBLIC only if a player saw something being undone, and then named by the newest public
 		// entry's own title, so a public UNDO never names what players were never shown (spec §5.8).
@@ -853,7 +865,15 @@ func readColony(requestContext context.Context, queries *store.Queries, campaign
 		snapshot.state.Roles[row.Role.Key] = game.Role{Label: row.Role.Label, UnnamedCount: int64(row.Role.UnnamedCount), NamedCount: row.NamedCount, Archived: row.Role.Archived}
 		snapshot.roles[row.Role.Key] = row.Role
 	}
-	snapshot.state.Projects, err = readProjects(requestContext, queries, campaignID)
+	outputs, err := readBlueprintOutputs(requestContext, queries, campaignID)
+	if err != nil {
+		return colonySnapshot{}, err
+	}
+	snapshot.state.Projects, err = readProjects(requestContext, queries, campaignID, outputs)
+	if err != nil {
+		return colonySnapshot{}, err
+	}
+	snapshot.state.Buildings, err = readStandingBuildings(requestContext, queries, campaignID, outputs)
 	return snapshot, err
 }
 
@@ -1093,9 +1113,10 @@ func compareIDs(first uuid.UUID, second uuid.UUID) int {
 // they were before it.
 func snapshotBefore(before game.State, after game.State) undoSnapshot {
 	snapshot := undoSnapshot{
-		Day:               before.Day,
-		ResourceAmounts:   map[string]int64{},
-		RoleUnnamedCounts: map[string]int64{},
+		Day:                before.Day,
+		ResourceAmounts:    map[string]int64{},
+		ResourceMaxAmounts: map[string]*int64{},
+		RoleUnnamedCounts:  map[string]int64{},
 	}
 	if before.Schedule != nil {
 		intervalDays := before.Schedule.IntervalDays
@@ -1106,6 +1127,7 @@ func snapshotBefore(before game.State, after game.State) undoSnapshot {
 	for key, resource := range after.Resources {
 		if previous := before.Resources[key]; previous.Amount != resource.Amount {
 			snapshot.ResourceAmounts[key] = previous.Amount
+			snapshot.ResourceMaxAmounts[key] = previous.MaxAmount
 		}
 	}
 	for key, role := range after.Roles {
@@ -1116,8 +1138,10 @@ func snapshotBefore(before game.State, after game.State) undoSnapshot {
 	return snapshot
 }
 
-// restoreSnapshot is the State undo saves. A restore the database would refuse (a resource's bounds
-// changed on /settings since, or a role was archived) is a conflict the DM resolves by hand.
+// restoreSnapshot is the State undo saves. A restore the database would refuse (a resource's minimum
+// raised on /settings since, or a role was archived) is a conflict the DM resolves by hand, and so is
+// one above a max the DM lowered since. An amount above a cap a storage bonus left is a state the colony
+// may be in (K13), so undo puts that back as it was.
 func restoreSnapshot(colony colonySnapshot, before undoSnapshot) (game.State, error) {
 	restored := colony.state.Clone()
 	restored.Day = before.Day
@@ -1131,7 +1155,10 @@ func restoreSnapshot(colony colonySnapshot, before undoSnapshot) (game.State, er
 		if !found {
 			return game.State{}, Conflict("Undo can't restore " + key + ": that resource no longer exists.")
 		}
-		if amount < resource.MinAmount || (resource.MaxAmount != nil && amount > *resource.MaxAmount) {
+		ownMaxThen, recorded := before.ResourceMaxAmounts[key]
+		ownMaxLowered := recorded && resource.MaxAmount != nil && (ownMaxThen == nil || *resource.MaxAmount < *ownMaxThen)
+		effective := game.EffectiveMax(colony.state, key)
+		if amount < resource.MinAmount || (ownMaxLowered && effective != nil && amount > *effective) {
 			return game.State{}, Conflict("Undo would put " + resource.Label + " back at " + formatNumber(amount) +
 				", outside the bounds it has had since. Adjust it instead.")
 		}
@@ -1476,7 +1503,11 @@ func (service *Service) readBoard(requestContext context.Context, queries *store
 	if err != nil {
 		return ColonyBoard{}, err
 	}
-	board, err := toColonyBoard(colony, header.CampaignName, resources, roles, dmProjection)
+	maxes, err := effectiveMaxes(requestContext, queries, campaignID, resources)
+	if err != nil {
+		return ColonyBoard{}, err
+	}
+	board, err := toColonyBoard(colony, header.CampaignName, resources, maxes, roles, dmProjection)
 	if err != nil {
 		return ColonyBoard{}, err
 	}
@@ -1486,8 +1517,9 @@ func (service *Service) readBoard(requestContext context.Context, queries *store
 }
 
 // toColonyBoard fills Dm unconditionally; the Transformer decides who keeps it. Headcounts follow the
-// projection (roleHeadcount): hidden named colonists count for players as unnamed ones.
-func toColonyBoard(colony store.Colony, campaignName string, resources []store.Resource, roles []store.ListRolesRow, dmProjection bool) (ColonyBoard, error) {
+// projection (roleHeadcount): hidden named colonists count for players as unnamed ones. Each max is the
+// effective one, hidden buildings' storage bonuses included: players see the numbers move.
+func toColonyBoard(colony store.Colony, campaignName string, resources []store.Resource, maxes map[string]*int64, roles []store.ListRolesRow, dmProjection bool) (ColonyBoard, error) {
 	board := ColonyBoard{
 		CampaignName: campaignName,
 		ColonyName:   colony.Name,
@@ -1508,7 +1540,7 @@ func toColonyBoard(colony store.Colony, campaignName string, resources []store.R
 			Icon:      resource.Icon,
 			Amount:    int64(resource.Amount),
 			MinAmount: int64(resource.MinAmount),
-			MaxAmount: int64Pointer(resource.MaxAmount),
+			MaxAmount: maxes[resource.Key],
 			IsSystem:  resource.IsSystem,
 		})
 	}
@@ -1583,6 +1615,37 @@ func toShipmentSchedule(day int64, intervalDays *int32, nextDay *int32) *Shipmen
 		return nil
 	}
 	return &ShipmentSchedule{IntervalDays: int64(*intervalDays), NextDay: int64(*nextDay), DaysUntil: int64(*nextDay) - day}
+}
+
+// effectiveMaxes is every resource's effective max (game.EffectiveMax), read from the standing
+// buildings and their blueprints' live output.
+func effectiveMaxes(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, resources []store.Resource) (map[string]*int64, error) {
+	state, err := storageState(requestContext, queries, campaignID, resources)
+	if err != nil {
+		return nil, err
+	}
+	maxes := make(map[string]*int64, len(resources))
+	for _, resource := range resources {
+		maxes[resource.Key] = game.EffectiveMax(state, resource.Key)
+	}
+	return maxes, nil
+}
+
+// storageState is the part of game.State the caps read: the resources and the standing buildings.
+func storageState(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, resources []store.Resource) (game.State, error) {
+	outputs, err := readBlueprintOutputs(requestContext, queries, campaignID)
+	if err != nil {
+		return game.State{}, err
+	}
+	state := game.State{Resources: make(map[string]game.Resource, len(resources))}
+	for _, resource := range resources {
+		state.Resources[resource.Key] = game.Resource{
+			Label: resource.Label, Amount: int64(resource.Amount), MinAmount: int64(resource.MinAmount),
+			MaxAmount: int64Pointer(resource.MaxAmount), Archived: resource.Archived,
+		}
+	}
+	state.Buildings, err = readStandingBuildings(requestContext, queries, campaignID, outputs)
+	return state, err
 }
 
 func int64Pointer(value *int32) *int64 {

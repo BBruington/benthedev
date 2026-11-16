@@ -266,7 +266,10 @@ var secrecyFixtures = []secrecyFixture{
 		// A revealed blueprint (the {blueprintId} row) whose DM notes are DM-only, building under
 		// construction (the {buildingId} row), and a hidden blueprint whose every value is DM-only, with
 		// buildings of it under construction (crewed again), finished by an advance (its BUILDING_FINISHED
-		// entry is PUBLIC, but players lose it with the blueprint), demolished, cancelled, and one whose
+		// entry is PUBLIC, but players lose it with the blueprint) and then set Idle and Active again, with
+		// the Active undone once and its UNDO kept from going PUBLIC (its output and storage bonus move
+		// numbers players see, but never name it), one the DM added (its PUBLIC BUILDING_ADDED entry goes
+		// with the blueprint too), demolished, cancelled, and one whose
 		// Start was undone with the UNDO made PUBLIC. Every other construction entry is DM-only, and the
 		// hidden ones name the hidden blueprint. It plants before the cast, so the colony changes after
 		// it hold the undo slot and its advance's entries stay out of the players' recent ten.
@@ -298,6 +301,7 @@ var secrecyFixtures = []secrecyFixture{
 			hidden, err := testHarness.core.CreateBlueprint(testHarness.context, dmViewer, core.NewBlueprintInput{BlueprintInput: core.BlueprintInput{
 				Name: secret + " Warded Tower", Description: secret, DmNotes: secret,
 				Cost: map[string]int64{}, Labor: map[string]core.BlueprintLaborInput{"BUILDER": {Effort: 2}},
+				Output: map[string]core.BlueprintOutput{"food": {DailyDelta: 1, StorageBonus: 5}},
 			}})
 			check("plant a hidden blueprint", err)
 			start := func(blueprint core.BuildingBlueprint, crew int64) core.ColonyChange {
@@ -325,6 +329,26 @@ var secrecyFixtures = []secrecyFixture{
 			}
 			_, err = testHarness.core.SetBuildingCrews(testHarness.context, dmViewer, constructing, core.BuildingCrewsInput{ExpectedVersion: version(), Crews: map[string]int64{"BUILDER": 2}})
 			check("crew the hidden building", err)
+			_, err = testHarness.core.IdleBuilding(testHarness.context, dmViewer, finished, core.BuildingVersionInput{ExpectedVersion: version()})
+			check("set a hidden building Idle", err)
+			activated, err := testHarness.core.ActivateBuilding(testHarness.context, dmViewer, finished, core.BuildingVersionInput{ExpectedVersion: version()})
+			check("set a hidden building Active", err)
+			// The UNDO carries the hidden building's link, so it can't go PUBLIC while its blueprint is hidden.
+			undoneActive, err := testHarness.core.UndoLastChange(testHarness.context, dmViewer, core.UndoInput{GroupID: activated.GroupID})
+			check("undo setting a hidden building Active", err)
+			if _, err := testHarness.core.UpdateTimelineEntry(testHarness.context, dmViewer, undoneActive.Entries[0].ID, core.TimelineEntryInput{
+				Day: undoneActive.Entries[0].Day, Title: undoneActive.Entries[0].Title, Body: undoneActive.Entries[0].Body, Visibility: core.TimelineVisibilityPublic,
+			}); err == nil {
+				t.Fatalf("%s: the UNDO of a hidden building's Active went PUBLIC", side.campaign.name)
+			}
+			_, err = testHarness.core.ActivateBuilding(testHarness.context, dmViewer, finished, core.BuildingVersionInput{ExpectedVersion: version()})
+			check("set the hidden building Active again", err)
+			// An added building of the hidden blueprint writes a PUBLIC BUILDING_ADDED entry players never get.
+			added, err := testHarness.core.AddBuilding(testHarness.context, dmViewer, hidden.ID, core.AddBuildingInput{ExpectedVersion: version()})
+			check("add a hidden building", err)
+			if added.Entries[0].Kind != core.TimelineKindBuildingAdded || added.Entries[0].Dm.Visibility != core.TimelineVisibilityPublic {
+				t.Fatalf("%s: the added building's entry = %+v", side.campaign.name, added.Entries[0])
+			}
 			_, err = testHarness.core.DemolishBuilding(testHarness.context, dmViewer, demolished, core.BuildingRefundInput{ExpectedVersion: version(), Refund: map[string]int64{}})
 			check("demolish a hidden building", err)
 			_, err = testHarness.core.CancelBuilding(testHarness.context, dmViewer, cancelled, core.BuildingRefundInput{ExpectedVersion: version(), Refund: map[string]int64{}})
@@ -340,7 +364,7 @@ var secrecyFixtures = []secrecyFixture{
 			side.campaign.pathIDs["blueprintId"] = shown.ID.String()
 			side.campaign.pathIDs["buildingId"] = granary.String()
 			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, hidden.ID.String(), finished.String(), demolished.String(),
-				constructing.String(), cancelled.String(), buildingOf(undoneStart).String())
+				constructing.String(), cancelled.String(), buildingOf(undoneStart).String(), buildingOf(added).String())
 		},
 		dmProof: []string{"/construction", "/timeline?fromDay=0&toDay=30"},
 	},

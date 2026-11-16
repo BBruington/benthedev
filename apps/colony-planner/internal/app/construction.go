@@ -81,6 +81,21 @@ func (handlers *handlers) registerConstruction(api huma.API) {
 		return &bodyOutput[core.BuildingBlueprint]{Body: blueprint}, nil
 	})
 
+	Register(api, AccessDm, huma.Operation{
+		OperationID:   "addBuilding",
+		Method:        http.MethodPost,
+		Path:          "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/buildings",
+		Summary:       "Add a finished, Active building of a blueprint at once and for free: no cost, labor or completion Effects; the DM may undo it",
+		Tags:          []string{"construction"},
+		DefaultStatus: http.StatusCreated,
+	}, func(requestContext context.Context, input *blueprintBodyInput[core.AddBuildingInput]) (*bodyOutput[core.ColonyChange], error) {
+		change, err := handlers.core.AddBuilding(requestContext, viewerFrom(requestContext), input.BlueprintID, input.Body)
+		if err != nil {
+			return nil, handlers.fail(requestContext, err)
+		}
+		return &bodyOutput[core.ColonyChange]{Body: change}, nil
+	})
+
 	Register(api, AccessMember, huma.Operation{
 		OperationID:   "startBuilding",
 		Method:        http.MethodPost,
@@ -132,6 +147,34 @@ func (handlers *handlers) registerConstruction(api huma.API) {
 		Tags:        []string{"construction"},
 	}, func(requestContext context.Context, input *buildingBodyInput[core.BuildingRefundInput]) (*bodyOutput[core.ColonyChange], error) {
 		change, err := handlers.core.DemolishBuilding(requestContext, viewerFrom(requestContext), input.BuildingID, input.Body)
+		if err != nil {
+			return nil, handlers.fail(requestContext, err)
+		}
+		return &bodyOutput[core.ColonyChange]{Body: change}, nil
+	})
+
+	Register(api, AccessDm, huma.Operation{
+		OperationID: "idleBuilding",
+		Method:      http.MethodPost,
+		Path:        "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/idle",
+		Summary:     "Set a finished building Idle: its daily output and storage bonus stop, and stock above a cap that falls stays",
+		Tags:        []string{"construction"},
+	}, func(requestContext context.Context, input *buildingBodyInput[core.BuildingVersionInput]) (*bodyOutput[core.ColonyChange], error) {
+		change, err := handlers.core.IdleBuilding(requestContext, viewerFrom(requestContext), input.BuildingID, input.Body)
+		if err != nil {
+			return nil, handlers.fail(requestContext, err)
+		}
+		return &bodyOutput[core.ColonyChange]{Body: change}, nil
+	})
+
+	Register(api, AccessDm, huma.Operation{
+		OperationID: "activateBuilding",
+		Method:      http.MethodPost,
+		Path:        "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/activate",
+		Summary:     "Set an Idle building Active again: its storage bonus counts at once and its output runs from the next day",
+		Tags:        []string{"construction"},
+	}, func(requestContext context.Context, input *buildingBodyInput[core.BuildingVersionInput]) (*bodyOutput[core.ColonyChange], error) {
+		change, err := handlers.core.ActivateBuilding(requestContext, viewerFrom(requestContext), input.BuildingID, input.Body)
 		if err != nil {
 			return nil, handlers.fail(requestContext, err)
 		}

@@ -15,6 +15,9 @@ SELECT * FROM building_blueprint_cost WHERE campaign_id = @campaign_id ORDER BY 
 -- name: ListBlueprintLabor :many
 SELECT * FROM building_blueprint_labor WHERE campaign_id = @campaign_id ORDER BY blueprint_id, role_key;
 
+-- name: ListBlueprintOutputs :many
+SELECT * FROM building_blueprint_output WHERE campaign_id = @campaign_id ORDER BY blueprint_id, resource_key;
+
 -- An ID from a path or a request body is loaded with the viewer's campaign; core hides a hidden one
 -- from players.
 -- name: GetBlueprint :one
@@ -68,6 +71,13 @@ DELETE FROM building_blueprint_labor WHERE campaign_id = @campaign_id AND bluepr
 INSERT INTO building_blueprint_labor (campaign_id, blueprint_id, role_key, effort, max_crew)
 VALUES (@campaign_id, @blueprint_id, @role_key, @effort, sqlc.narg(max_crew));
 
+-- name: DeleteBlueprintOutputs :exec
+DELETE FROM building_blueprint_output WHERE campaign_id = @campaign_id AND blueprint_id = @blueprint_id;
+
+-- name: CreateBlueprintOutput :exec
+INSERT INTO building_blueprint_output (campaign_id, blueprint_id, resource_key, daily_delta, storage_bonus)
+VALUES (@campaign_id, @blueprint_id, @resource_key, @daily_delta, @storage_bonus);
+
 -- Buildings with their blueprint's live name and visibility, oldest first.
 -- name: ListBuildings :many
 SELECT sqlc.embed(building), building_blueprint.name AS blueprint_name, building_blueprint.revealed AS blueprint_revealed
@@ -86,13 +96,19 @@ SELECT * FROM building_labor WHERE campaign_id = @campaign_id AND building_id = 
 
 -- The unfinished projects' labor lines, which game.State carries (readColony).
 -- name: ListUnfinishedBuildingLabor :many
-SELECT sqlc.embed(building_labor), building.completion_effects
+SELECT sqlc.embed(building_labor), building.completion_effects, building.blueprint_id
 FROM building_labor
 JOIN building ON building.campaign_id = building_labor.campaign_id AND building.id = building_labor.building_id
 WHERE building_labor.campaign_id = @campaign_id
   AND building.campaign_id = @campaign_id
   AND building.status = 'CONSTRUCTING'
 ORDER BY building_labor.building_id, building_labor.role_key;
+
+-- The standing buildings, Idle ones included, which game.State carries with their blueprints' output.
+-- name: ListStandingBuildings :many
+SELECT id, blueprint_id, active FROM building
+WHERE campaign_id = @campaign_id AND status = 'FINISHED'
+ORDER BY id;
 
 -- An ID from a path or the undo slot is loaded with the viewer's campaign; core hides a building of a
 -- hidden blueprint from players.
@@ -113,9 +129,16 @@ INSERT INTO building (campaign_id, id, blueprint_id, cost, completion_effects, s
 VALUES (@campaign_id, @id, @blueprint_id, @cost, @completion_effects, @started_day, sqlc.narg(started_by))
 RETURNING *;
 
+-- The DM's Add building (K19): standing at once on today's day, with nothing taken and nothing to apply.
+-- name: CreateAddedBuilding :one
+INSERT INTO building (campaign_id, id, blueprint_id, status, added, cost, completion_effects, started_day, finished_day, started_by)
+VALUES (@campaign_id, @id, @blueprint_id, 'FINISHED', true, '{}', '{}', @day, @day, sqlc.narg(started_by))
+RETURNING *;
+
+-- An added building's lines are done from the start (K19), so progress is the effort there and 0 for a Start.
 -- name: CreateBuildingLabor :exec
 INSERT INTO building_labor (campaign_id, building_id, role_key, effort, max_crew, progress, crew)
-VALUES (@campaign_id, @building_id, @role_key, @effort, sqlc.narg(max_crew), 0, @crew);
+VALUES (@campaign_id, @building_id, @role_key, @effort, sqlc.narg(max_crew), @progress, @crew);
 
 -- name: SetBuildingLabor :exec
 UPDATE building_labor SET progress = @progress, crew = @crew
@@ -126,6 +149,10 @@ WHERE campaign_id = @campaign_id AND building_id = @building_id AND role_key = @
 UPDATE building
 SET status = @status, finished_day = sqlc.narg(finished_day), ended_day = sqlc.narg(ended_day),
     refund = sqlc.narg(refund), updated_at = now()
+WHERE campaign_id = @campaign_id AND id = @id;
+
+-- name: SetBuildingActive :exec
+UPDATE building SET active = @active, updated_at = now()
 WHERE campaign_id = @campaign_id AND id = @id;
 
 -- Undoing a Start deletes the building it made; its labor cascades and timeline links clear.
@@ -150,3 +177,19 @@ SELECT EXISTS (
       AND building_labor.role_key = @role_key
       AND building.status = 'CONSTRUCTING'
 ) AS named;
+
+-- A resource can't be archived while a standing building's blueprint output names it, Idle ones
+-- included; the oldest such building names the refusal.
+-- name: StandingBuildingNamingResource :one
+SELECT building_blueprint.name AS blueprint_name, building_blueprint_output.daily_delta
+FROM building
+JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+JOIN building_blueprint_output ON building_blueprint_output.campaign_id = building.campaign_id
+    AND building_blueprint_output.blueprint_id = building.blueprint_id
+WHERE building.campaign_id = @campaign_id
+  AND building_blueprint.campaign_id = @campaign_id
+  AND building_blueprint_output.campaign_id = @campaign_id
+  AND building.status = 'FINISHED'
+  AND building_blueprint_output.resource_key = @resource_key
+ORDER BY building.created_at, building.id
+LIMIT 1;

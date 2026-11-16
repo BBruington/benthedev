@@ -39,6 +39,10 @@ const resourceTones: Record<string, Tone> = {
 
 function resourceCaption(resource: ColonyResource): string | undefined {
 	if (resource.maxAmount !== null) {
+		// Stock stays above a cap that fell (a building set Idle or demolished), so "250 out of 100" can't read right.
+		if (resource.amount > resource.maxAmount) {
+			return `over its max of ${formatNumber(resource.maxAmount)}`;
+		}
 		return `out of ${formatNumber(resource.maxAmount)}`;
 	}
 	if (resource.minAmount !== 0) {

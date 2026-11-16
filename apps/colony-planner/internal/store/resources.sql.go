@@ -113,7 +113,7 @@ type SetResourceAmountParams struct {
 	Key        string
 }
 
-// A colony mutation saves each changed amount; the CHECK keeps it within the bounds.
+// A colony mutation saves each changed amount; the CHECK keeps it at or above the minimum.
 func (q *Queries) SetResourceAmount(ctx context.Context, arg SetResourceAmountParams) error {
 	_, err := q.db.Exec(ctx, setResourceAmount, arg.Amount, arg.CampaignID, arg.Key)
 	return err

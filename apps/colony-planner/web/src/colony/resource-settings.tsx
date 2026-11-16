@@ -32,8 +32,13 @@ type Editing = { kind: "new" } | { kind: "edit"; resource: ResourceSettings };
 export const resourcesHeadingId = "resources-heading";
 
 function boundsText(resource: ResourceSettings): string {
-	const max =
-		resource.maxAmount === null ? "no maximum" : `max ${formatNumber(resource.maxAmount)}`;
+	let max = "no maximum";
+	if (resource.maxAmount !== null) {
+		max = `max ${formatNumber(resource.maxAmount)}`;
+		if (resource.storageBonus > 0) {
+			max += `, +${formatNumber(resource.storageBonus)} from buildings`;
+		}
+	}
 	return `min ${formatNumber(resource.minAmount)} · ${max}`;
 }
 
@@ -319,7 +324,11 @@ function ResourceSheet({
 						/>
 					</Field>
 					<Field
-						description="Leave empty for no maximum."
+						description={
+							existing && existing.storageBonus > 0
+								? `Leave empty for no maximum. Standing buildings add ${formatNumber(existing.storageBonus)} to it.`
+								: "Leave empty for no maximum."
+						}
 						error={maxError}
 						id="resource-max"
 						label="Maximum"

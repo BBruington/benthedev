@@ -45,14 +45,15 @@ type ConstructionPage struct {
 
 // BuildingBlueprint is one building type in the DM's catalog.
 type BuildingBlueprint struct {
-	ID                uuid.UUID        `json:"id" format:"uuid"`
-	Name              string           `json:"name"`
-	Description       string           `json:"description"`
-	Cost              map[string]int64 `json:"cost" doc:"Resource key to the amount Start takes"`
-	Labor             []BlueprintLabor `json:"labor" doc:"By role key"`
-	CompletionEffects Effects          `json:"completionEffects" doc:"Applied once, capped at each maximum, on the day a building of it finishes"`
-	Archived          bool             `json:"archived"`
-	SortOrder         int64            `json:"sortOrder"`
+	ID                uuid.UUID                  `json:"id" format:"uuid"`
+	Name              string                     `json:"name"`
+	Description       string                     `json:"description"`
+	Cost              map[string]int64           `json:"cost" doc:"Resource key to the amount Start takes"`
+	Labor             []BlueprintLabor           `json:"labor" doc:"By role key"`
+	CompletionEffects Effects                    `json:"completionEffects" doc:"Applied once, capped at each maximum, on the day a building of it finishes"`
+	Output            map[string]BlueprintOutput `json:"output" doc:"Resource key to what each Active standing building of it does for that resource; live, so an edit changes standing buildings from the next day"`
+	Archived          bool                       `json:"archived"`
+	SortOrder         int64                      `json:"sortOrder"`
 	// UpdatedAt goes back in StartBuildingInput, so a Start sheet that showed an older cost is refused.
 	UpdatedAt time.Time            `json:"updatedAt"`
 	Dm        *BuildingBlueprintDm `json:"dm,omitempty"`
@@ -71,21 +72,30 @@ type BlueprintLabor struct {
 	MaxCrew *int64 `json:"maxCrew" doc:"null for no cap"`
 }
 
+// BlueprintOutput is what a building of a blueprint does for one resource while it stands Active.
+type BlueprintOutput struct {
+	DailyDelta   int64 `json:"dailyDelta" doc:"Added each day, capped at the effective max; negative is upkeep, floored at the minimum"`
+	StorageBonus int64 `json:"storageBonus" doc:"0 or more, added to the resource's max; nothing for a resource with no max"`
+}
+
 // Building is one project or standing building. Cost, labor and completion Effects are what its
 // blueprint said when it started (K18); its name is the blueprint's current one.
 type Building struct {
-	ID                 uuid.UUID        `json:"id" format:"uuid"`
-	BlueprintID        uuid.UUID        `json:"blueprintId" format:"uuid"`
-	Name               string           `json:"name"`
-	Status             BuildingStatus   `json:"status"`
-	StartedDay         int64            `json:"startedDay"`
-	FinishedDay        *int64           `json:"finishedDay" doc:"null until it finishes"`
-	EndedDay           *int64           `json:"endedDay" doc:"The day it was cancelled or demolished; null otherwise"`
-	Cost               map[string]int64 `json:"cost" doc:"Resource key to the amount Start took"`
-	CompletionEffects  Effects          `json:"completionEffects"`
-	Refund             map[string]int64 `json:"refund" nullable:"true" doc:"What cancelling or demolishing gave back; null otherwise"`
-	Labor              []BuildingLabor  `json:"labor" doc:"By role key"`
-	ProjectedFinishDay *int64           `json:"projectedFinishDay" doc:"The finish day with the current crews; null when it isn't under construction or a line with work left has no crew"`
+	ID                 uuid.UUID                  `json:"id" format:"uuid"`
+	BlueprintID        uuid.UUID                  `json:"blueprintId" format:"uuid"`
+	Name               string                     `json:"name"`
+	Status             BuildingStatus             `json:"status"`
+	Active             bool                       `json:"active" doc:"Meaningful only while FINISHED: an Idle building (false) gives no output and no storage bonus"`
+	Added              bool                       `json:"added" doc:"The DM placed it with Add building, for free, rather than building it"`
+	Output             map[string]BlueprintOutput `json:"output" doc:"Its blueprint's live output, which it gives while it stands Active"`
+	StartedDay         int64                      `json:"startedDay"`
+	FinishedDay        *int64                     `json:"finishedDay" doc:"null until it finishes"`
+	EndedDay           *int64                     `json:"endedDay" doc:"The day it was cancelled or demolished; null otherwise"`
+	Cost               map[string]int64           `json:"cost" doc:"Resource key to the amount Start took"`
+	CompletionEffects  Effects                    `json:"completionEffects"`
+	Refund             map[string]int64           `json:"refund" nullable:"true" doc:"What cancelling or demolishing gave back; null otherwise"`
+	Labor              []BuildingLabor            `json:"labor" doc:"By role key"`
+	ProjectedFinishDay *int64                     `json:"projectedFinishDay" doc:"The finish day with the current crews; null when it isn't under construction or a line with work left has no crew"`
 }
 
 // BuildingLabor is one labor line of a building: progress of effort role-days, crew working now.
@@ -116,6 +126,7 @@ type BlueprintInput struct {
 	Cost              map[string]int64               `json:"cost" doc:"Resource key to an amount of 1 or more; {} for none"`
 	Labor             map[string]BlueprintLaborInput `json:"labor" doc:"Role key to its work; 1 to 10 roles"`
 	CompletionEffects Effects                        `json:"completionEffects"`
+	Output            map[string]BlueprintOutput     `json:"output" doc:"Resource key to its daily change and storage bonus (0 or more), not both 0; {} for none. Required, since a full-record edit without it would clear the output"`
 	SortOrder         int64                          `json:"sortOrder"`
 }
 
@@ -144,6 +155,16 @@ type BuildingCrewsInput struct {
 	Crews           map[string]int64 `json:"crews" doc:"Role key to crew"`
 }
 
+// AddBuildingInput adds a building of a blueprint at once, for free (K19).
+type AddBuildingInput struct {
+	ExpectedVersion int64 `json:"expectedVersion"`
+}
+
+// BuildingVersionInput is a colony change on one building that needs nothing but the version.
+type BuildingVersionInput struct {
+	ExpectedVersion int64 `json:"expectedVersion"`
+}
+
 // BuildingRefundInput is what the DM gives back when cancelling or demolishing; it applies capped.
 type BuildingRefundInput struct {
 	ExpectedVersion int64            `json:"expectedVersion"`
@@ -151,10 +172,12 @@ type BuildingRefundInput struct {
 }
 
 // buildingBefore is a building as it was before a colony mutation changed it, for undo. A building a
-// Start created did not exist before, so undo deletes it.
+// Start created did not exist before, so undo deletes it. Active is nil in a slot written before
+// buildings had it, which leaves it as it is.
 type buildingBefore struct {
 	Created     bool                   `json:"created"`
 	Status      BuildingStatus         `json:"status"`
+	Active      *bool                  `json:"active,omitempty"`
 	FinishedDay *int32                 `json:"finishedDay"`
 	EndedDay    *int32                 `json:"endedDay"`
 	Refund      *Effects               `json:"refund"`
@@ -265,13 +288,13 @@ func listBlueprints(requestContext context.Context, queries *store.Queries, camp
 	if err != nil {
 		return nil, err
 	}
-	costs, labor, err := blueprintLines(requestContext, queries, campaignID)
+	lines, err := readBlueprintLines(requestContext, queries, campaignID)
 	if err != nil {
 		return nil, err
 	}
 	blueprints := make([]BuildingBlueprint, 0, len(rows))
 	for _, row := range rows {
-		blueprint, err := toBlueprint(row, costs[row.ID], labor[row.ID])
+		blueprint, err := toBlueprint(row, lines)
 		if err != nil {
 			return nil, err
 		}
@@ -280,28 +303,64 @@ func listBlueprints(requestContext context.Context, queries *store.Queries, camp
 	return blueprints, nil
 }
 
-func blueprintLines(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) (map[uuid.UUID][]store.BuildingBlueprintCost, map[uuid.UUID][]store.BuildingBlueprintLabor, error) {
+// blueprintLines is every blueprint's cost, labor and output rows, keyed by blueprint ID.
+type blueprintLines struct {
+	costs   map[uuid.UUID][]store.BuildingBlueprintCost
+	labor   map[uuid.UUID][]store.BuildingBlueprintLabor
+	outputs map[uuid.UUID]map[string]game.ResourceOutput
+}
+
+func readBlueprintLines(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) (blueprintLines, error) {
 	costRows, err := queries.ListBlueprintCosts(requestContext, campaignID)
 	if err != nil {
-		return nil, nil, err
+		return blueprintLines{}, err
 	}
 	laborRows, err := queries.ListBlueprintLabor(requestContext, campaignID)
 	if err != nil {
-		return nil, nil, err
+		return blueprintLines{}, err
 	}
-	costs := map[uuid.UUID][]store.BuildingBlueprintCost{}
+	outputs, err := readBlueprintOutputs(requestContext, queries, campaignID)
+	if err != nil {
+		return blueprintLines{}, err
+	}
+	lines := blueprintLines{costs: map[uuid.UUID][]store.BuildingBlueprintCost{}, labor: map[uuid.UUID][]store.BuildingBlueprintLabor{}, outputs: outputs}
 	for _, row := range costRows {
-		costs[row.BlueprintID] = append(costs[row.BlueprintID], row)
+		lines.costs[row.BlueprintID] = append(lines.costs[row.BlueprintID], row)
 	}
-	labor := map[uuid.UUID][]store.BuildingBlueprintLabor{}
 	for _, row := range laborRows {
-		labor[row.BlueprintID] = append(labor[row.BlueprintID], row)
+		lines.labor[row.BlueprintID] = append(lines.labor[row.BlueprintID], row)
 	}
-	return costs, labor, nil
+	return lines, nil
+}
+
+// readBlueprintOutputs is every blueprint's live output, keyed by blueprint ID and resource key.
+func readBlueprintOutputs(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) (map[uuid.UUID]map[string]game.ResourceOutput, error) {
+	rows, err := queries.ListBlueprintOutputs(requestContext, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	outputs := map[uuid.UUID]map[string]game.ResourceOutput{}
+	for _, row := range rows {
+		if outputs[row.BlueprintID] == nil {
+			outputs[row.BlueprintID] = map[string]game.ResourceOutput{}
+		}
+		outputs[row.BlueprintID][row.ResourceKey] = game.ResourceOutput{DailyDelta: int64(row.DailyDelta), StorageBonus: int64(row.StorageBonus)}
+	}
+	return outputs, nil
+}
+
+// toBlueprintOutput is a blueprint's output as the API shows it; never nil.
+func toBlueprintOutput(outputs map[string]game.ResourceOutput) map[string]BlueprintOutput {
+	shown := make(map[string]BlueprintOutput, len(outputs))
+	for key, output := range outputs {
+		shown[key] = BlueprintOutput{DailyDelta: output.DailyDelta, StorageBonus: output.StorageBonus}
+	}
+	return shown
 }
 
 // toBlueprint fills Dm unconditionally; the Transformer decides who keeps it.
-func toBlueprint(row store.BuildingBlueprint, costs []store.BuildingBlueprintCost, labor []store.BuildingBlueprintLabor) (BuildingBlueprint, error) {
+func toBlueprint(row store.BuildingBlueprint, lines blueprintLines) (BuildingBlueprint, error) {
+	costs, labor := lines.costs[row.ID], lines.labor[row.ID]
 	completion, err := decodeEffects(row.CompletionEffects)
 	if err != nil {
 		return BuildingBlueprint{}, err
@@ -313,6 +372,7 @@ func toBlueprint(row store.BuildingBlueprint, costs []store.BuildingBlueprintCos
 		Cost:              make(map[string]int64, len(costs)),
 		Labor:             make([]BlueprintLabor, 0, len(labor)),
 		CompletionEffects: completion,
+		Output:            toBlueprintOutput(lines.outputs[row.ID]),
 		Archived:          row.Archived,
 		SortOrder:         int64(row.SortOrder),
 		UpdatedAt:         row.UpdatedAt.UTC(),
@@ -337,13 +397,17 @@ func listBuildings(requestContext context.Context, queries *store.Queries, campa
 	if err != nil {
 		return nil, err
 	}
+	outputs, err := readBlueprintOutputs(requestContext, queries, campaignID)
+	if err != nil {
+		return nil, err
+	}
 	labor := map[uuid.UUID][]store.BuildingLabor{}
 	for _, row := range laborRows {
 		labor[row.BuildingID] = append(labor[row.BuildingID], row)
 	}
 	buildings := make([]Building, 0, len(rows))
 	for _, row := range rows {
-		building, err := toBuilding(row.Building, row.BlueprintName, labor[row.Building.ID], day)
+		building, err := toBuilding(row.Building, row.BlueprintName, labor[row.Building.ID], outputs[row.Building.BlueprintID], day)
 		if err != nil {
 			return nil, err
 		}
@@ -352,7 +416,7 @@ func listBuildings(requestContext context.Context, queries *store.Queries, campa
 	return buildings, nil
 }
 
-func toBuilding(row store.Building, name string, labor []store.BuildingLabor, day int64) (Building, error) {
+func toBuilding(row store.Building, name string, labor []store.BuildingLabor, output map[string]game.ResourceOutput, day int64) (Building, error) {
 	cost, err := decodeEffects(row.Cost)
 	if err != nil {
 		return Building{}, err
@@ -366,6 +430,9 @@ func toBuilding(row store.Building, name string, labor []store.BuildingLabor, da
 		BlueprintID:       row.BlueprintID,
 		Name:              name,
 		Status:            row.Status,
+		Active:            row.Active,
+		Added:             row.Added,
+		Output:            toBlueprintOutput(output),
 		StartedDay:        int64(row.StartedDay),
 		FinishedDay:       int64Pointer(row.FinishedDay),
 		EndedDay:          int64Pointer(row.EndedDay),
@@ -389,13 +456,13 @@ func toBuilding(row store.Building, name string, labor []store.BuildingLabor, da
 		})
 	}
 	if row.Status == BuildingStatusConstructing {
-		building.ProjectedFinishDay = game.ProjectedFinishDay(day, toProject(row.ID, labor, completion))
+		building.ProjectedFinishDay = game.ProjectedFinishDay(day, toProject(row.ID, labor, completion, nil))
 	}
 	return building, nil
 }
 
-func toProject(buildingID uuid.UUID, labor []store.BuildingLabor, completion Effects) game.Project {
-	project := game.Project{BuildingID: buildingID, Lines: make([]game.LaborLine, 0, len(labor)), CompletionEffects: completion}
+func toProject(buildingID uuid.UUID, labor []store.BuildingLabor, completion Effects, output map[string]game.ResourceOutput) game.Project {
+	project := game.Project{BuildingID: buildingID, Lines: make([]game.LaborLine, 0, len(labor)), CompletionEffects: completion, Output: output}
 	for _, line := range labor {
 		project.Lines = append(project.Lines, game.LaborLine{
 			RoleKey: line.RoleKey, Effort: int64(line.Effort), MaxCrew: int64Pointer(line.MaxCrew), Progress: int64(line.Progress), Crew: int64(line.Crew),
@@ -404,15 +471,16 @@ func toProject(buildingID uuid.UUID, labor []store.BuildingLabor, completion Eff
 	return project
 }
 
-// readProjects is the unfinished projects game.State carries, sorted by building ID.
-func readProjects(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID) ([]game.Project, error) {
+// readProjects is the unfinished projects game.State carries, sorted by building ID, each with its
+// blueprint's live output.
+func readProjects(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, outputs map[uuid.UUID]map[string]game.ResourceOutput) ([]game.Project, error) {
 	rows, err := queries.ListUnfinishedBuildingLabor(requestContext, campaignID)
 	if err != nil {
 		return nil, err
 	}
 	var projects []game.Project
 	for index := 0; index < len(rows); {
-		buildingID := rows[index].BuildingLabor.BuildingID
+		buildingID, blueprintID := rows[index].BuildingLabor.BuildingID, rows[index].BlueprintID
 		completion, err := decodeEffects(rows[index].CompletionEffects)
 		if err != nil {
 			return nil, err
@@ -421,9 +489,23 @@ func readProjects(requestContext context.Context, queries *store.Queries, campai
 		for ; index < len(rows) && rows[index].BuildingLabor.BuildingID == buildingID; index++ {
 			labor = append(labor, rows[index].BuildingLabor)
 		}
-		projects = append(projects, toProject(buildingID, labor, completion))
+		projects = append(projects, toProject(buildingID, labor, completion, maps.Clone(outputs[blueprintID])))
 	}
 	return projects, nil
+}
+
+// readStandingBuildings is the finished buildings game.State carries, sorted by building ID, each with
+// its blueprint's live output.
+func readStandingBuildings(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, outputs map[uuid.UUID]map[string]game.ResourceOutput) ([]game.StandingBuilding, error) {
+	rows, err := queries.ListStandingBuildings(requestContext, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	var buildings []game.StandingBuilding
+	for _, row := range rows {
+		buildings = append(buildings, game.StandingBuilding{BuildingID: row.ID, Active: row.Active, Output: maps.Clone(outputs[row.BlueprintID])})
+	}
+	return buildings, nil
 }
 
 // CreateBlueprint adds a blueprint to the DM's catalog, hidden unless asked otherwise. It is not a
@@ -460,7 +542,8 @@ func (service *Service) CreateBlueprint(requestContext context.Context, viewer V
 	})
 }
 
-// UpdateBlueprint replaces a blueprint's record. Started buildings keep the snapshot they took (K18).
+// UpdateBlueprint replaces a blueprint's record. Started buildings keep the snapshot they took, but its
+// output is live (K18): standing buildings' caps move with it, so the board and /settings change too.
 func (service *Service) UpdateBlueprint(requestContext context.Context, viewer Viewer, blueprintID uuid.UUID, input BlueprintInput) (BuildingBlueprint, error) {
 	if err := requireDm(viewer); err != nil {
 		return BuildingBlueprint{}, err
@@ -497,8 +580,11 @@ func (service *Service) UpdateBlueprint(requestContext context.Context, viewer V
 		if err := queries.DeleteBlueprintLabor(requestContext, store.DeleteBlueprintLaborParams{CampaignID: viewer.campaignID, BlueprintID: blueprintID}); err != nil {
 			return uuid.Nil, err
 		}
+		if err := queries.DeleteBlueprintOutputs(requestContext, store.DeleteBlueprintOutputsParams{CampaignID: viewer.campaignID, BlueprintID: blueprintID}); err != nil {
+			return uuid.Nil, err
+		}
 		return blueprintID, saveBlueprintLines(requestContext, queries, viewer.campaignID, blueprintID, cleaned)
-	}, TopicTimeline)
+	}, TopicTimeline, TopicColony, TopicResources)
 }
 
 // SetBlueprintRevealed is the DM's Visible to players switch. It reveals or hides the blueprint's
@@ -541,11 +627,11 @@ func (service *Service) changeBlueprint(requestContext context.Context, viewer V
 		if err != nil {
 			return blueprintGone(err)
 		}
-		costs, labor, err := blueprintLines(requestContext, queries, viewer.campaignID)
+		lines, err := readBlueprintLines(requestContext, queries, viewer.campaignID)
 		if err != nil {
 			return err
 		}
-		blueprint, err = toBlueprint(row, costs[blueprintID], labor[blueprintID])
+		blueprint, err = toBlueprint(row, lines)
 		return err
 	})
 	if err != nil {
@@ -560,6 +646,7 @@ type cleanedBlueprint struct {
 	name, description, dmNotes string
 	cost                       map[string]int64
 	labor                      []store.CreateBlueprintLaborParams
+	outputs                    []store.CreateBlueprintOutputParams
 	completionEffects          []byte
 	sortOrder                  int32
 }
@@ -616,6 +703,26 @@ func cleanBlueprintInput(requestContext context.Context, queries *store.Queries,
 	}
 	completion, completionErrors := cleanEffects("completionEffects", input.CompletionEffects, resources)
 	fieldErrors = append(fieldErrors, completionErrors...)
+	for _, key := range slices.Sorted(maps.Keys(input.Output)) {
+		output := input.Output[key]
+		resource, found := resources[key]
+		switch {
+		case !found:
+			collect(&FieldError{Field: "output", Message: `There is no resource "` + key + `".`})
+		case resource.Archived:
+			collect(&FieldError{Field: "output", Message: resource.Label + " is archived."})
+		case output.DailyDelta < game.MinStored || output.DailyDelta > game.MaxStored:
+			collect(&FieldError{Field: "output", Message: "That daily change of " + resource.Label + " can't be stored."})
+		case output.StorageBonus < 0 || output.StorageBonus > game.MaxStored:
+			collect(&FieldError{Field: "output", Message: "A storage bonus for " + resource.Label + " is 0 or more, up to " + formatNumber(game.MaxStored) + "."})
+		case output.DailyDelta == 0 && output.StorageBonus == 0:
+			collect(&FieldError{Field: "output", Message: "Give " + resource.Label + " a daily change or a storage bonus, or remove it."})
+		default:
+			cleaned.outputs = append(cleaned.outputs, store.CreateBlueprintOutputParams{
+				CampaignID: campaignID, ResourceKey: key, DailyDelta: int32(output.DailyDelta), StorageBonus: int32(output.StorageBonus),
+			})
+		}
+	}
 
 	roles, err := queries.ListRoles(requestContext, campaignID)
 	if err != nil {
@@ -670,6 +777,12 @@ func saveBlueprintLines(requestContext context.Context, queries *store.Queries, 
 			return err
 		}
 	}
+	for _, output := range cleaned.outputs {
+		output.BlueprintID = blueprintID
+		if err := queries.CreateBlueprintOutput(requestContext, output); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -697,7 +810,7 @@ func (service *Service) StartBuilding(requestContext context.Context, viewer Vie
 		if unfinished >= UnfinishedBuildingLimit {
 			return colonyOutcome{}, errBuildingLimit
 		}
-		costs, labor, err := blueprintLines(requestContext, queries, viewer.campaignID)
+		lines, err := readBlueprintLines(requestContext, queries, viewer.campaignID)
 		if err != nil {
 			return colonyOutcome{}, err
 		}
@@ -706,12 +819,12 @@ func (service *Service) StartBuilding(requestContext context.Context, viewer Vie
 			return colonyOutcome{}, err
 		}
 		cost := Effects{Resources: map[string]int64{}}
-		for _, line := range costs[blueprint.ID] {
+		for _, line := range lines.costs[blueprint.ID] {
 			cost.Resources[line.ResourceKey] = -int64(line.Amount)
 		}
 		buildingID := uuid.New()
-		project := game.Project{BuildingID: buildingID, Lines: []game.LaborLine{}, CompletionEffects: completion}
-		for _, line := range labor[blueprint.ID] {
+		project := game.Project{BuildingID: buildingID, Lines: []game.LaborLine{}, CompletionEffects: completion, Output: lines.outputs[blueprint.ID]}
+		for _, line := range lines.labor[blueprint.ID] {
 			project.Lines = append(project.Lines, game.LaborLine{RoleKey: line.RoleKey, Effort: int64(line.Effort), MaxCrew: int64Pointer(line.MaxCrew)})
 		}
 		result, err := game.StartProject(colony.state, project, cost, input.Crews)
@@ -848,7 +961,7 @@ func (service *Service) endBuilding(requestContext context.Context, viewer Viewe
 		if len(fieldErrors) > 0 {
 			return colonyOutcome{}, Invalid("Check the refund.", fieldErrors...)
 		}
-		result, err := game.ApplyEffects(colony.state, Effects{Resources: input.Refund}, game.Clamp)
+		result, err := game.ApplyEffects(game.WithoutBuilding(colony.state, buildingID), Effects{Resources: input.Refund}, game.Clamp)
 		if err != nil {
 			return colonyOutcome{}, gameError(err, map[string]string{"resources": "refund"})
 		}
@@ -860,7 +973,7 @@ func (service *Service) endBuilding(requestContext context.Context, viewer Viewe
 		if err != nil {
 			return colonyOutcome{}, err
 		}
-		before, err := snapshotBuilding(building.Building, toProject(buildingID, labor, Effects{}).Lines)
+		before, err := snapshotBuilding(building.Building, toProject(buildingID, labor, Effects{}, nil).Lines)
 		if err != nil {
 			return colonyOutcome{}, err
 		}
@@ -905,6 +1018,109 @@ func (service *Service) endBuilding(requestContext context.Context, viewer Viewe
 	})
 }
 
+// AddBuilding places a finished, Active building of a blueprint on today's day (DM, K19): no cost, no
+// labor and no completion Effects. Its storage bonus counts at once and its output runs from the next
+// day. A hidden blueprint's building is a hidden row like any other of it, and its BUILDING_ADDED entry
+// is PUBLIC the way BUILDING_FINISHED is: players see it only while the blueprint is revealed.
+func (service *Service) AddBuilding(requestContext context.Context, viewer Viewer, blueprintID uuid.UUID, input AddBuildingInput) (ColonyChange, error) {
+	return service.mutateColony(requestContext, viewer, input.ExpectedVersion, func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error) {
+		blueprint, err := queries.GetBlueprint(requestContext, store.GetBlueprintParams{CampaignID: viewer.campaignID, ID: blueprintID})
+		if err != nil {
+			return colonyOutcome{}, blueprintGone(err)
+		}
+		if blueprint.Archived {
+			return colonyOutcome{}, Conflict("The " + blueprint.Name + " blueprint is archived.")
+		}
+		lines, err := readBlueprintLines(requestContext, queries, viewer.campaignID)
+		if err != nil {
+			return colonyOutcome{}, err
+		}
+		buildingID := uuid.New()
+		if _, err := queries.CreateAddedBuilding(requestContext, store.CreateAddedBuildingParams{
+			CampaignID: viewer.campaignID, ID: buildingID, BlueprintID: blueprint.ID, Day: int32(colony.state.Day), StartedBy: memberReference(viewer),
+		}); err != nil {
+			return colonyOutcome{}, err
+		}
+		for _, line := range lines.labor[blueprint.ID] {
+			if err := queries.CreateBuildingLabor(requestContext, store.CreateBuildingLaborParams{
+				CampaignID: viewer.campaignID, BuildingID: buildingID, RoleKey: line.RoleKey, Effort: line.Effort, MaxCrew: line.MaxCrew, Progress: line.Effort,
+			}); err != nil {
+				return colonyOutcome{}, err
+			}
+		}
+		title := blueprint.Name + " added by the DM"
+		return colonyOutcome{
+			after: game.PlaceBuilding(colony.state, buildingID, lines.outputs[blueprint.ID]),
+			label: title,
+			entries: []plannedEntry{{
+				day:        colony.state.Day,
+				kind:       TimelineKindBuildingAdded,
+				title:      title,
+				visibility: TimelineVisibilityPublic,
+				buildingID: &buildingID,
+			}},
+			buildings: map[uuid.UUID]buildingBefore{buildingID: {Created: true}},
+		}, nil
+	})
+}
+
+// IdleBuilding switches a finished building Idle (DM): its daily output and storage bonus stop at once,
+// and stock above a cap that falls stays (K12, K13).
+func (service *Service) IdleBuilding(requestContext context.Context, viewer Viewer, buildingID uuid.UUID, input BuildingVersionInput) (ColonyChange, error) {
+	return service.switchBuilding(requestContext, viewer, buildingID, input, false)
+}
+
+// ActivateBuilding switches an Idle building Active again (DM): its output runs from the next day and
+// its storage bonus counts at once.
+func (service *Service) ActivateBuilding(requestContext context.Context, viewer Viewer, buildingID uuid.UUID, input BuildingVersionInput) (ColonyChange, error) {
+	return service.switchBuilding(requestContext, viewer, buildingID, input, true)
+}
+
+func (service *Service) switchBuilding(requestContext context.Context, viewer Viewer, buildingID uuid.UUID, input BuildingVersionInput, active bool) (ColonyChange, error) {
+	return service.mutateColony(requestContext, viewer, input.ExpectedVersion, func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error) {
+		building, err := visibleBuilding(requestContext, queries, viewer, buildingID)
+		if err != nil {
+			return colonyOutcome{}, err
+		}
+		name := building.BlueprintName
+		kind, title := TimelineKindBuildingIdled, name+" set Idle"
+		if active {
+			kind, title = TimelineKindBuildingActivated, name+" set Active"
+		}
+		switch {
+		case building.Building.Status != BuildingStatusFinished:
+			return colonyOutcome{}, Conflict("Only a finished building can be set Idle or Active.")
+		case building.Building.Active == active && active:
+			return colonyOutcome{}, Conflict("The " + name + " is already Active.")
+		case building.Building.Active == active:
+			return colonyOutcome{}, Conflict("The " + name + " is already Idle.")
+		}
+		after, err := game.SetBuildingActive(colony.state, buildingID, active)
+		if err != nil {
+			return colonyOutcome{}, gameError(err, nil)
+		}
+		before, err := snapshotBuilding(building.Building, nil)
+		if err != nil {
+			return colonyOutcome{}, err
+		}
+		if err := queries.SetBuildingActive(requestContext, store.SetBuildingActiveParams{CampaignID: viewer.campaignID, ID: buildingID, Active: active}); err != nil {
+			return colonyOutcome{}, err
+		}
+		return colonyOutcome{
+			after: after,
+			label: title,
+			entries: []plannedEntry{{
+				day:        colony.state.Day,
+				kind:       kind,
+				title:      title,
+				visibility: TimelineVisibilityDm,
+				buildingID: &buildingID,
+			}},
+			buildings: map[uuid.UUID]buildingBefore{buildingID: before},
+		}, nil
+	})
+}
+
 // visibleBuilding loads a building from the path with the viewer's campaign; a building of a hidden
 // blueprint is not found for players, exactly like a missing one.
 func visibleBuilding(requestContext context.Context, queries *store.Queries, viewer Viewer, buildingID uuid.UUID) (store.GetBuildingRow, error) {
@@ -920,7 +1136,8 @@ func projectOf(state game.State, buildingID uuid.UUID) game.Project {
 }
 
 func snapshotBuilding(row store.Building, lines []game.LaborLine) (buildingBefore, error) {
-	before := buildingBefore{Status: row.Status, FinishedDay: row.FinishedDay, EndedDay: row.EndedDay, Lines: map[string]laborBefore{}}
+	active := row.Active
+	before := buildingBefore{Status: row.Status, Active: &active, FinishedDay: row.FinishedDay, EndedDay: row.EndedDay, Lines: map[string]laborBefore{}}
 	if row.Refund != nil {
 		refund, err := decodeEffects(row.Refund)
 		if err != nil {
@@ -1073,6 +1290,11 @@ func restoreBuildings(requestContext context.Context, queries *store.Queries, co
 		}); err != nil {
 			return err
 		}
+		if before.Active != nil && *before.Active != building.Building.Active {
+			if err := queries.SetBuildingActive(requestContext, store.SetBuildingActiveParams{CampaignID: campaignID, ID: buildingID, Active: *before.Active}); err != nil {
+				return err
+			}
+		}
 		for _, roleKey := range slices.Sorted(maps.Keys(before.Lines)) {
 			line := before.Lines[roleKey]
 			if err := queries.SetBuildingLabor(requestContext, store.SetBuildingLaborParams{
@@ -1081,6 +1303,49 @@ func restoreBuildings(requestContext context.Context, queries *store.Queries, co
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// hiddenCreatedBuildings is the buildings an undo will delete (a Start's or an Add's) whose blueprint is
+// hidden, read before the delete takes the link that says so.
+func hiddenCreatedBuildings(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, befores map[uuid.UUID]buildingBefore) (map[uuid.UUID]bool, error) {
+	hidden := map[uuid.UUID]bool{}
+	for _, buildingID := range slices.SortedFunc(maps.Keys(befores), compareIDs) {
+		if !befores[buildingID].Created {
+			continue
+		}
+		building, err := queries.GetBuilding(requestContext, store.GetBuildingParams{CampaignID: campaignID, ID: buildingID})
+		if err != nil {
+			return nil, err
+		}
+		if !building.BlueprintRevealed {
+			hidden[buildingID] = true
+		}
+	}
+	return hidden, nil
+}
+
+// unlinkDeletedBuildings brings the undone rows in line with the delete, whose foreign key cleared
+// their link to a created building. With the link gone nothing keeps a hidden blueprint's PUBLIC row
+// (an Add's BUILDING_ADDED) from players, so it moves to DM, and the UNDO can't take it as the newest
+// public entry.
+func unlinkDeletedBuildings(requestContext context.Context, queries *store.Queries, campaignID uuid.UUID, undone []store.TimelineEvent,
+	befores map[uuid.UUID]buildingBefore, hiddenCreated map[uuid.UUID]bool,
+) error {
+	for index := range undone {
+		buildingID := undone[index].BuildingID
+		if buildingID == nil || !befores[*buildingID].Created {
+			continue
+		}
+		undone[index].BuildingID = nil
+		if !hiddenCreated[*buildingID] || undone[index].Visibility != TimelineVisibilityPublic {
+			continue
+		}
+		if err := queries.HideTimelineEvent(requestContext, store.HideTimelineEventParams{CampaignID: campaignID, ID: undone[index].ID}); err != nil {
+			return err
+		}
+		undone[index].Visibility = TimelineVisibilityDm
 	}
 	return nil
 }

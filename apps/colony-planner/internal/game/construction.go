@@ -20,6 +20,9 @@ type Project struct {
 	Lines []LaborLine
 	// CompletionEffects apply once, CLAMP, on the day the project finishes.
 	CompletionEffects Effects
+	// Output is its blueprint's live output, which it gives once it stands: its storage bonus from the
+	// end of its finish day, its daily output from the next day.
+	Output map[string]ResourceOutput
 }
 
 // LaborLine is one role's share of a project: Effort role-days, done at Progress, with Crew working.
@@ -49,7 +52,8 @@ type BuildingFinish struct {
 }
 
 // Construction is the daily step that builds: each unfinished line gains crew role-days, capped at
-// its effort, and a project finishing today applies its completion Effects after upkeep.
+// its effort, and a project finishing today stands from now and applies its completion Effects after
+// upkeep.
 type Construction struct{}
 
 func (construction Construction) Span(state *State, from int64, to int64, log *Log) {
@@ -77,7 +81,9 @@ func (construction Construction) Span(state *State, from int64, to int64, log *L
 		if finishDay == 0 || !allDone(project.Lines) {
 			continue
 		}
-		// NextBoundary ends every span on a finish day, so finishDay is to and upkeep has already run.
+		// NextBoundary ends every span on a finish day, so finishDay is to and upkeep has already run. The
+		// building stands first, so its completion Effects already fill its own storage.
+		standUp(state, *project)
 		applied, skipped := applyCompletion(state, project.CompletionEffects)
 		for key, delta := range project.CompletionEffects.Resources {
 			if !slices.Contains(skipped, key) {
@@ -95,8 +101,9 @@ func (construction Construction) Span(state *State, from int64, to int64, log *L
 	state.Projects = slices.DeleteFunc(state.Projects, func(project Project) bool { return allDone(project.Lines) })
 }
 
-// A finish changes crews, which the next span's progress reads, and the stock and headcounts upkeep
-// reads, so the next day any line finishes is a boundary. A line with no crew never finishes.
+// A finish changes crews, which the next span's progress reads, the stock and headcounts upkeep reads
+// and the standing buildings and caps output reads, so the next day any line finishes is a boundary.
+// A line with no crew never finishes.
 func (construction Construction) NextBoundary(state State, after int64) (int64, bool) {
 	next, found := int64(0), false
 	for _, project := range state.Projects {
@@ -122,9 +129,10 @@ func allDone(lines []LaborLine) bool {
 	return !slices.ContainsFunc(lines, func(line LaborLine) bool { return !line.done() })
 }
 
-// applyCompletion adds a finished project's completion Effects, each resource clamped to its bounds
-// and to what the column can store, and colonists into UNASSIGNED. A finish happens inside an advance
-// and can't be refused, so a resource archived since Start is skipped and named instead.
+// applyCompletion adds a finished project's completion Effects, each resource clamped to its minimum
+// and its effective max (never lowering, K13) or what the column can store, and colonists into
+// UNASSIGNED. A finish happens inside an advance and can't be refused, so a resource archived since
+// Start is skipped and named instead.
 func applyCompletion(state *State, effects Effects) (Effects, []string) {
 	applied := Effects{Resources: map[string]int64{}}
 	skipped := []string{}
@@ -134,11 +142,7 @@ func applyCompletion(state *State, effects Effects) (Effects, []string) {
 			skipped = append(skipped, key)
 			continue
 		}
-		upperBound := int64(MaxStored)
-		if resource.MaxAmount != nil {
-			upperBound = *resource.MaxAmount
-		}
-		newAmount := min(max(resource.Amount+effects.Resources[key], resource.MinAmount), upperBound)
+		newAmount := clampGain(resource.Amount, effects.Resources[key], resource.MinAmount, ceiling(*state, key))
 		if newAmount != resource.Amount {
 			applied.Resources[key] = newAmount - resource.Amount
 		}
@@ -319,6 +323,7 @@ func cloneProjects(projects []Project) []Project {
 			BuildingID:        project.BuildingID,
 			Lines:             slices.Clone(project.Lines),
 			CompletionEffects: Effects{Resources: maps.Clone(project.CompletionEffects.Resources), Colonists: project.CompletionEffects.Colonists},
+			Output:            maps.Clone(project.Output),
 		}
 		for lineIndex, line := range clones[index].Lines {
 			if line.MaxCrew != nil {
@@ -330,9 +335,12 @@ func cloneProjects(projects []Project) []Project {
 	return clones
 }
 
-// checkStoredProjects reports labor lines the database could never hold.
+// checkStoredProjects reports labor lines and output the database could never hold.
 func checkStoredProjects(projects []Project) bool {
 	for _, project := range projects {
+		if !checkStoredOutputs(project.Output) {
+			return false
+		}
 		for _, line := range project.Lines {
 			if line.Effort < 1 || line.Effort > MaxStored || line.Progress < 0 || line.Progress > line.Effort ||
 				line.Crew < 0 || line.Crew > MaxStored || (line.MaxCrew != nil && line.Crew > *line.MaxCrew) {

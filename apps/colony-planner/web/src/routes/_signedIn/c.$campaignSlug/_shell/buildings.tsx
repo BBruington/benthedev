@@ -5,9 +5,15 @@ import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
 import { problemMessage } from "@/api/problem";
 import { colonyBoardQuery, constructionQuery, settingsQuery } from "@/api/queries";
+import { AddBuildingDialog } from "@/buildings/add-building-dialog";
 import { BlueprintCard, type BlueprintControls } from "@/buildings/blueprint-card";
 import { BlueprintSheet } from "@/buildings/blueprint-sheet";
-import { PastBuildings, ProjectCard, StandingCard } from "@/buildings/building-cards";
+import {
+	activeButtonId,
+	PastBuildings,
+	ProjectCard,
+	StandingCard,
+} from "@/buildings/building-cards";
 import { CrewsSheet, StartSheet } from "@/buildings/crew-sheets";
 import { type RefundKind, RefundSheet } from "@/buildings/refund-sheet";
 import { BuildingsSection, CollapsibleGroup, RoleAvailability } from "@/buildings/sections";
@@ -26,6 +32,7 @@ import { groupBuildings, roleLabelOf } from "@/lib/construction";
 import { focusFirstVisible } from "@/lib/focus";
 import { focusAfterClose } from "@/people/colonist-actions";
 
+type Building = Schemas["Building"];
 type BuildingBlueprint = Schemas["BuildingBlueprint"];
 type ConstructionPage = Schemas["ConstructionPage"];
 
@@ -67,6 +74,7 @@ function BuildingsScreen() {
 	const crewsSheet = useSheetState<string>();
 	const refundSheet = useSheetState<{ buildingId: string; kind: RefundKind }>();
 	const blueprintSheet = useSheetState<BuildingBlueprint | "new">();
+	const addConfirm = useSheetState<BuildingBlueprint>();
 
 	function showBlueprint(saved: BuildingBlueprint) {
 		queryClient.setQueryData(
@@ -115,6 +123,7 @@ function BuildingsScreen() {
 	);
 
 	const blueprintControls: BlueprintControls = {
+		onAdd: addConfirm.show,
 		onArchive: (blueprint, archived) => {
 			archive.mutate({
 				body: { archived },
@@ -139,6 +148,51 @@ function BuildingsScreen() {
 					}
 				: null,
 	};
+
+	// One mutation serves every building, so all its buttons wait while any one saves.
+	const isSettingActive = changes.idleBuilding.isPending || changes.activateBuilding.isPending;
+
+	function setActive(building: Building, active: boolean, version: number) {
+		const mutation = active ? changes.activateBuilding : changes.idleBuilding;
+		mutation.mutate(
+			{
+				body: { expectedVersion: version },
+				params: { path: { ...changes.inCampaign.params.path, buildingId: building.id } },
+			},
+			{
+				onError: (error) => {
+					toast.error(
+						problemMessage(
+							error,
+							active
+								? `The ${building.name} couldn't be set Active.`
+								: `The ${building.name} couldn't be set Idle.`,
+						),
+					);
+				},
+				// The button is disabled while it saves, which drops focus; the frame waits for it to re-enable.
+				onSettled: () => {
+					requestAnimationFrame(() => {
+						focusFirstVisible(activeButtonId(building), standingHeadingId);
+					});
+				},
+			},
+		);
+	}
+
+	function addBuilding(blueprint: BuildingBlueprint, version: number) {
+		changes.addBuilding.mutate(
+			{
+				body: { expectedVersion: version },
+				params: { path: { ...changes.inCampaign.params.path, blueprintId: blueprint.id } },
+			},
+			{
+				onError: (error) => {
+					toast.error(problemMessage(error, `The ${blueprint.name} couldn't be added.`));
+				},
+			},
+		);
+	}
 
 	let body: React.ReactNode;
 	if (construction.isPending || board.isPending) {
@@ -240,9 +294,13 @@ function BuildingsScreen() {
 									blueprint={blueprintOf(building.blueprintId)}
 									building={building}
 									isDm={isDm}
+									isSettingActive={isSettingActive}
 									key={building.id}
 									onDemolish={(chosen) => {
 										refundSheet.show({ buildingId: chosen.id, kind: "demolish" });
+									}}
+									onSetActive={(chosen, active) => {
+										setActive(chosen, active, page.version);
 									}}
 									resources={colony.resources}
 								/>
@@ -339,6 +397,18 @@ function BuildingsScreen() {
 						open={refundSheet.open}
 						resources={colony.resources}
 						version={page.version}
+					/>
+				) : null}
+				{isDm && addConfirm.value ? (
+					<AddBuildingDialog
+						name={addConfirm.value.name}
+						onConfirm={() => {
+							if (addConfirm.value) {
+								addBuilding(addConfirm.value, page.version);
+							}
+						}}
+						onOpenChange={addConfirm.onOpenChange}
+						open={addConfirm.open}
 					/>
 				) : null}
 				{isDm && blueprintSheet.value ? (

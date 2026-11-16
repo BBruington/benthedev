@@ -666,13 +666,14 @@ var mixedIDFields = map[string]string{
 	"optionIds":      "uuids",
 	"bridgeEventId":  "uuid",
 	// Construction (docs/design/construction.md): a Start names its blueprint, and crews, refunds,
-	// blueprint costs and labor are keyed by role or resource.
+	// blueprint costs, labor and output are keyed by role or resource.
 	"blueprintId":         "uuid",
 	"constructionRoleKey": "key",
 	"crews":               "map",
 	"refund":              "map",
 	"cost":                "map",
 	"labor":               "map",
+	"output":              "map",
 	// Every Effects (rewardEffects, failureEffects, effects, appliedEffects) keys resources here.
 	"resources": "map",
 }
@@ -953,10 +954,17 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			"blueprintUpdatedAt": blueprint.UpdatedAt, "crews": map[string]any{},
 		}
 	}
+	validBodies["/construction/blueprints/{blueprintId}/buildings"] = func() map[string]any {
+		if _, err := testHarness.core.SetBlueprintArchived(testHarness.context, dmViewerA, blueprintA, false); err != nil {
+			t.Fatalf("unarchive A's blueprint: %v", err)
+		}
+		return map[string]any{"expectedVersion": boardOf(dmViewerA).Version}
+	}
 	validBodies["/construction/blueprints/{blueprintId}"] = func() map[string]any {
 		return map[string]any{
 			"name": "Granary", "description": "", "dmNotes": "", "sortOrder": 0, "cost": map[string]any{},
 			"labor": map[string]any{"BUILDER": map[string]any{"effort": 40, "maxCrew": 4}}, "completionEffects": effectsOfA(),
+			"output": map[string]any{},
 		}
 	}
 	// Pass 3 may have cancelled A's {buildingId} building, and crews, cancel and demolish each need one
@@ -998,7 +1006,7 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 		return map[string]any{
 			"name": "Pass Four", "description": "", "dmNotes": "", "revealed": false, "sortOrder": 0,
 			"cost": map[string]any{"gold": 1}, "labor": map[string]any{roleKeyA: map[string]any{"effort": 1, "maxCrew": nil}},
-			"completionEffects": effectsOfA(),
+			"completionEffects": effectsOfA(), "output": map[string]any{"gold": map[string]any{"dailyDelta": 1, "storageBonus": 0}},
 		}
 	}
 	validBodies["/market/items"] = marketItemOfA
@@ -1144,11 +1152,14 @@ func (testHarness *harness) sweepMixedIDs(t *testing.T, routes []sweepRoute, doc
 			substituted[fieldName] = true
 			eventOfB, answersOwnKind := bridgeEventOfB[strings.TrimPrefix(route.path, "/api/campaigns/{campaignId}")]
 			switch {
-			// Crews and labor are keyed by role, so B's own role reaches the lookup, with a valid labor line.
+			// Crews and labor are keyed by role, so B's own role reaches the lookup, with a valid labor line;
+			// output gets a valid line too, keyed by B's resource.
 			case fieldName == "crews":
 				setBodyField(body, field.path, map[string]any{campaignB.pathIDs["roleKey"]: 1})
 			case fieldName == "labor":
 				setBodyField(body, field.path, map[string]any{campaignB.pathIDs["roleKey"]: map[string]any{"effort": 1, "maxCrew": nil}})
+			case fieldName == "output":
+				setBodyField(body, field.path, map[string]any{keyOfB: map[string]any{"dailyDelta": 1, "storageBonus": 0}})
 			case field.kind == "map":
 				setBodyField(body, field.path, map[string]any{keyOfB: 1})
 			case fieldName == "bridgeEventId" && answersOwnKind:

@@ -37,6 +37,19 @@
         ],
         "type": "object"
       },
+      "AddBuildingInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "type": "object"
+      },
       "AdjustInput": {
         "additionalProperties": false,
         "properties": {
@@ -477,6 +490,13 @@
             "description": "1 to 80 characters, unique in the campaign",
             "type": "string"
           },
+          "output": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlueprintOutput"
+            },
+            "description": "Resource key to its daily change and storage bonus (0 or more), not both 0; {} for none. Required, since a full-record edit without it would clear the output",
+            "type": "object"
+          },
           "sortOrder": {
             "format": "int64",
             "type": "integer"
@@ -489,6 +509,7 @@
           "cost",
           "labor",
           "completionEffects",
+          "output",
           "sortOrder"
         ],
         "type": "object"
@@ -539,6 +560,26 @@
         "required": [
           "effort",
           "maxCrew"
+        ],
+        "type": "object"
+      },
+      "BlueprintOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "dailyDelta": {
+            "description": "Added each day, capped at the effective max; negative is upkeep, floored at the minimum",
+            "format": "int64",
+            "type": "integer"
+          },
+          "storageBonus": {
+            "description": "0 or more, added to the resource's max; nothing for a resource with no max",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dailyDelta",
+          "storageBonus"
         ],
         "type": "object"
       },
@@ -1048,6 +1089,14 @@
       "Building": {
         "additionalProperties": false,
         "properties": {
+          "active": {
+            "description": "Meaningful only while FINISHED: an Idle building (false) gives no output and no storage bonus",
+            "type": "boolean"
+          },
+          "added": {
+            "description": "The DM placed it with Add building, for free, rather than building it",
+            "type": "boolean"
+          },
           "blueprintId": {
             "format": "uuid",
             "type": "string"
@@ -1093,6 +1142,13 @@
           "name": {
             "type": "string"
           },
+          "output": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlueprintOutput"
+            },
+            "description": "Its blueprint's live output, which it gives while it stands Active",
+            "type": "object"
+          },
           "projectedFinishDay": {
             "description": "The finish day with the current crews; null when it isn't under construction or a line with work left has no crew",
             "format": "int64",
@@ -1125,6 +1181,9 @@
           "blueprintId",
           "name",
           "status",
+          "active",
+          "added",
+          "output",
           "startedDay",
           "finishedDay",
           "endedDay",
@@ -1174,6 +1233,13 @@
           "name": {
             "type": "string"
           },
+          "output": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlueprintOutput"
+            },
+            "description": "Resource key to what each Active standing building of it does for that resource; live, so an edit changes standing buildings from the next day",
+            "type": "object"
+          },
           "sortOrder": {
             "format": "int64",
             "type": "integer"
@@ -1190,6 +1256,7 @@
           "cost",
           "labor",
           "completionEffects",
+          "output",
           "archived",
           "sortOrder",
           "updatedAt"
@@ -1300,6 +1367,19 @@
           "DEMOLISHED"
         ],
         "type": "string"
+      },
+      "BuildingVersionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedVersion": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "type": "object"
       },
       "CalendarLink": {
         "additionalProperties": false,
@@ -1724,7 +1804,7 @@
             "type": "string"
           },
           "maxAmount": {
-            "description": "null when unbounded",
+            "description": "The effective max: the resource's own plus every Active standing building's storage bonus; null when unbounded. The amount may sit above it after a bonus ends",
             "format": "int64",
             "type": [
               "integer",
@@ -3287,6 +3367,13 @@
             "description": "1 to 80 characters, unique in the campaign",
             "type": "string"
           },
+          "output": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlueprintOutput"
+            },
+            "description": "Resource key to its daily change and storage bonus (0 or more), not both 0; {} for none. Required, since a full-record edit without it would clear the output",
+            "type": "object"
+          },
           "revealed": {
             "description": "Visible to players; the create form starts it off",
             "type": "boolean"
@@ -3304,6 +3391,7 @@
           "cost",
           "labor",
           "completionEffects",
+          "output",
           "sortOrder"
         ],
         "type": "object"
@@ -5522,7 +5610,7 @@
             "type": "string"
           },
           "maxAmount": {
-            "description": "null when unbounded",
+            "description": "The DM's own max; null when unbounded",
             "format": "int64",
             "type": [
               "integer",
@@ -5536,6 +5624,11 @@
           "sortOrder": {
             "format": "int64",
             "type": "integer"
+          },
+          "storageBonus": {
+            "description": "What every Active standing building adds to maxAmount (0 while maxAmount is null)",
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
@@ -5545,6 +5638,7 @@
           "amount",
           "minAmount",
           "maxAmount",
+          "storageBonus",
           "sortOrder",
           "isSystem",
           "archived"
@@ -6531,7 +6625,10 @@
           "BUILDING_CREWS_CHANGED",
           "BUILDING_CANCELLED",
           "BUILDING_DEMOLISHED",
-          "BUILDING_FINISHED"
+          "BUILDING_FINISHED",
+          "BUILDING_IDLED",
+          "BUILDING_ACTIVATED",
+          "BUILDING_ADDED"
         ],
         "type": "string"
       },
@@ -8603,6 +8700,70 @@
         "x-access": "dm"
       }
     },
+    "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/buildings": {
+      "post": {
+        "operationId": "addBuilding",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "blueprintId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddBuildingInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a finished, Active building of a blueprint at once and for free: no cost, labor or completion Effects; the DM may undo it",
+        "tags": [
+          "construction"
+        ],
+        "x-access": "dm"
+      }
+    },
     "/api/campaigns/{campaignId}/construction/blueprints/{blueprintId}/revealed": {
       "put": {
         "operationId": "setBlueprintRevealed",
@@ -8720,6 +8881,70 @@
           "construction"
         ],
         "x-access": "member"
+      }
+    },
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/activate": {
+      "post": {
+        "operationId": "activateBuilding",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "buildingId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildingVersionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set an Idle building Active again: its storage bonus counts at once and its output runs from the next day",
+        "tags": [
+          "construction"
+        ],
+        "x-access": "dm"
       }
     },
     "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/cancel": {
@@ -8908,6 +9133,70 @@
           }
         },
         "summary": "Demolish a finished building, giving back what the DM typed (capped)",
+        "tags": [
+          "construction"
+        ],
+        "x-access": "dm"
+      }
+    },
+    "/api/campaigns/{campaignId}/construction/buildings/{buildingId}/idle": {
+      "post": {
+        "operationId": "idleBuilding",
+        "parameters": [
+          {
+            "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "description": "The campaign's ID (GET /api/campaigns lists the caller's)",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "buildingId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildingVersionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColonyChange"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set a finished building Idle: its daily output and storage bonus stop, and stock above a cap that falls stays",
         "tags": [
           "construction"
         ],

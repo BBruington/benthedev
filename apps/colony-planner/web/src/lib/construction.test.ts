@@ -4,28 +4,37 @@ import {
 	amountsText,
 	amountsToDraft,
 	costShortfall,
+	dailyOutputText,
 	finishLine,
 	freeColonists,
 	groupBuildings,
 	laborText,
 	laborToDrafts,
 	newLaborDraft,
+	newOutputDraft,
 	otherWorkCount,
+	outputToDrafts,
 	parseAmounts,
 	parseCrews,
 	parseLabor,
+	parseOutput,
+	pastHistory,
 	progressPercent,
 	progressText,
 	projectedFinishText,
 	refundPrefill,
 	roleCount,
 	roleLabelOf,
+	standingSince,
+	storageBonusText,
 } from "./construction";
 
 type Building = Schemas["Building"];
 
 function building(change: Partial<Building>): Building {
 	return {
+		active: true,
+		added: false,
 		blueprintId: "00000000-0000-4000-8000-000000000001",
 		completionEffects: {},
 		cost: { materials: 30 },
@@ -34,6 +43,7 @@ function building(change: Partial<Building>): Building {
 		id: "00000000-0000-4000-8000-000000000002",
 		labor: [{ crew: 4, effort: 60, maxCrew: 4, progress: 45, roleKey: "BUILDER" }],
 		name: "Granary",
+		output: {},
 		projectedFinishDay: 52,
 		refund: null,
 		startedDay: 40,
@@ -114,6 +124,37 @@ describe("grouping", () => {
 		expect(groups.constructing.map((item) => item.id)).toEqual(["a"]);
 		expect(groups.standing.map((item) => item.id)).toEqual(["b"]);
 		expect(groups.past.map((item) => item.id)).toEqual(["c", "d"]);
+	});
+});
+
+describe("standing and past buildings", () => {
+	test("an added building reads as added, a built one by its finish day", () => {
+		const added = building({ added: true, finishedDay: 22, startedDay: 22, status: "FINISHED" });
+		const built = building({ finishedDay: 47, startedDay: 40, status: "FINISHED" });
+		expect(standingSince(added)).toBe("Added on Day 22");
+		expect(standingSince(built)).toBe("Finished on Day 47");
+	});
+
+	test("a past building's history names how it came to stand", () => {
+		expect(
+			pastHistory(
+				building({
+					added: true,
+					endedDay: 30,
+					finishedDay: 22,
+					startedDay: 22,
+					status: "DEMOLISHED",
+				}),
+			),
+		).toBe("Added on Day 22");
+		expect(
+			pastHistory(
+				building({ endedDay: 50, finishedDay: 47, startedDay: 40, status: "DEMOLISHED" }),
+			),
+		).toBe("Started on Day 40, finished on Day 47");
+		expect(pastHistory(building({ endedDay: 41, startedDay: 40, status: "CANCELLED" }))).toBe(
+			"Started on Day 40",
+		);
 	});
 });
 
@@ -227,6 +268,84 @@ describe("labor", () => {
 	test("saved labor reads back as text", () => {
 		expect(laborToDrafts([{ effort: 40, maxCrew: null, roleKey: "BUILDER" }])).toEqual([
 			{ effortText: "40", maxCrewText: "", roleKey: "BUILDER", rowKey: "saved-BUILDER" },
+		]);
+	});
+});
+
+describe("output", () => {
+	const food = { amount: 50, key: "food", label: "Food", minAmount: 0 };
+	const stocked = [food, ...resources];
+
+	test("the daily change reads in board order, with signs, leaving out storage-only lines", () => {
+		const output = {
+			food: { dailyDelta: 6, storageBonus: 0 },
+			gold: { dailyDelta: 0, storageBonus: 50 },
+			materials: { dailyDelta: -1, storageBonus: 0 },
+			stone: { dailyDelta: 2, storageBonus: 0 },
+		};
+		expect(dailyOutputText(output, stocked)).toBe("Food +6, Materials −1, Stone +2");
+		expect(dailyOutputText({}, stocked)).toBe("");
+	});
+
+	test("storage bonuses read as plain words, joined with and", () => {
+		expect(storageBonusText({ food: { dailyDelta: 0, storageBonus: 200 } }, stocked)).toBe(
+			"Stores 200 more Food",
+		);
+		expect(
+			storageBonusText(
+				{
+					food: { dailyDelta: 6, storageBonus: 200 },
+					gold: { dailyDelta: 0, storageBonus: 10 },
+					materials: { dailyDelta: 0, storageBonus: 1500 },
+				},
+				stocked,
+			),
+		).toBe("Stores 200 more Food, 1,500 more Materials and 10 more Gold");
+		expect(storageBonusText({ food: { dailyDelta: 6, storageBonus: 0 } }, stocked)).toBe("");
+	});
+
+	test("lines parse to an output map, a blank as 0", () => {
+		const mill = { ...newOutputDraft("food"), dailyText: "+6" };
+		const upkeep = { ...newOutputDraft("materials"), dailyText: "\u22121" };
+		const granary = { ...newOutputDraft("gold"), bonusText: "200" };
+		expect(parseOutput([mill, upkeep, granary])).toEqual({
+			output: {
+				food: { dailyDelta: 6, storageBonus: 0 },
+				gold: { dailyDelta: 0, storageBonus: 200 },
+				materials: { dailyDelta: -1, storageBonus: 0 },
+			},
+			problems: {},
+		});
+		expect(parseOutput([])).toEqual({ output: {}, problems: {} });
+	});
+
+	test("a line changes something, takes whole numbers, a bonus of 0 or more, and its own resource", () => {
+		const blank = newOutputDraft("food");
+		const zero = { ...newOutputDraft("gold"), bonusText: "0", dailyText: "0" };
+		const badDaily = { ...newOutputDraft("materials"), dailyText: "lots" };
+		const badBonus = { ...newOutputDraft("stone"), bonusText: "-5" };
+		expect(parseOutput([blank, zero, badDaily, badBonus]).problems).toEqual({
+			[badBonus.rowKey]: "A storage bonus is a whole number, 0 or more.",
+			[badDaily.rowKey]: "Enter the daily change as a whole number, such as +6 or -1.",
+			[blank.rowKey]: "Give it a daily change or a storage bonus, or remove the line.",
+			[zero.rowKey]: "Give it a daily change or a storage bonus, or remove the line.",
+		});
+		const first = { ...newOutputDraft("food"), dailyText: "3" };
+		const twice = { ...newOutputDraft("food"), dailyText: "4" };
+		expect(parseOutput([first, twice]).problems).toEqual({
+			[twice.rowKey]: "This resource already has a line. Use one line per resource.",
+		});
+	});
+
+	test("saved output reads back as text, zeros as blanks", () => {
+		expect(
+			outputToDrafts({
+				food: { dailyDelta: -2, storageBonus: 0 },
+				gold: { dailyDelta: 0, storageBonus: 50 },
+			}),
+		).toEqual([
+			{ bonusText: "", dailyText: "-2", resourceKey: "food", rowKey: "saved-food" },
+			{ bonusText: "50", dailyText: "", resourceKey: "gold", rowKey: "saved-gold" },
 		]);
 	});
 });

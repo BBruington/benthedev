@@ -20,7 +20,8 @@ type Mode int
 
 const (
 	// Clamp is for quest rewards, DM adjustments and cargo: each resource becomes
-	// clamp(old + Δ, min, max), and only the applied delta is logged.
+	// clamp(old + Δ, min, max), where max is the effective max and a gain never lowers an amount above
+	// it (K13), and only the applied delta is logged.
 	Clamp Mode = iota + 1
 	// Strict is for what a player's request spends: a negative delta that would take a resource below
 	// its minimum rejects the whole operation with the shortfall named. Positive deltas still cap.
@@ -83,12 +84,11 @@ func ApplyEffects(state State, effects Effects, mode Mode) (EffectsResult, error
 		if delta < MinStored-MaxStored || delta > MaxStored-MinStored {
 			return EffectsResult{}, invalid("resources", "That much "+resourceName(key, resource, false)+" can't be stored")
 		}
-		upperBound := int64(MaxStored)
-		if resource.MaxAmount != nil {
-			upperBound = *resource.MaxAmount
-		} else if delta > MaxStored-resource.Amount {
+		if resource.MaxAmount == nil && delta > MaxStored-resource.Amount {
 			return EffectsResult{}, invalid("resources", "That much "+resourceName(key, resource, false)+" can't be stored")
 		}
+		// A gain never lowers an amount above a cap that fell (K13).
+		upperBound := max(ceiling(state, key), resource.Amount)
 		newAmount := resource.Amount + delta
 		switch {
 		case delta < resource.MinAmount-resource.Amount:

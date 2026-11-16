@@ -1477,6 +1477,8 @@ type Building struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	CampaignID        uuid.UUID
+	Active            bool
+	Added             bool
 }
 
 type BuildingBlueprint struct {
@@ -1506,6 +1508,14 @@ type BuildingBlueprintLabor struct {
 	Effort      int32
 	MaxCrew     *int32
 	CampaignID  uuid.UUID
+}
+
+type BuildingBlueprintOutput struct {
+	BlueprintID  uuid.UUID
+	ResourceKey  string
+	DailyDelta   int32
+	StorageBonus int32
+	CampaignID   uuid.UUID
 }
 
 type BuildingLabor struct {

@@ -54,6 +54,50 @@ func (q *Queries) CountUnfinishedBuildings(ctx context.Context, campaignID uuid.
 	return count, err
 }
 
+const createAddedBuilding = `-- name: CreateAddedBuilding :one
+INSERT INTO building (campaign_id, id, blueprint_id, status, added, cost, completion_effects, started_day, finished_day, started_by)
+VALUES ($1, $2, $3, 'FINISHED', true, '{}', '{}', $4, $4, $5)
+RETURNING id, blueprint_id, status, cost, completion_effects, started_day, finished_day, ended_day, refund, started_by, created_at, updated_at, campaign_id, active, added
+`
+
+type CreateAddedBuildingParams struct {
+	CampaignID  uuid.UUID
+	ID          uuid.UUID
+	BlueprintID uuid.UUID
+	Day         int32
+	StartedBy   *uuid.UUID
+}
+
+// The DM's Add building (K19): standing at once on today's day, with nothing taken and nothing to apply.
+func (q *Queries) CreateAddedBuilding(ctx context.Context, arg CreateAddedBuildingParams) (Building, error) {
+	row := q.db.QueryRow(ctx, createAddedBuilding,
+		arg.CampaignID,
+		arg.ID,
+		arg.BlueprintID,
+		arg.Day,
+		arg.StartedBy,
+	)
+	var i Building
+	err := row.Scan(
+		&i.ID,
+		&i.BlueprintID,
+		&i.Status,
+		&i.Cost,
+		&i.CompletionEffects,
+		&i.StartedDay,
+		&i.FinishedDay,
+		&i.EndedDay,
+		&i.Refund,
+		&i.StartedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CampaignID,
+		&i.Active,
+		&i.Added,
+	)
+	return i, err
+}
+
 const createBlueprint = `-- name: CreateBlueprint :one
 INSERT INTO building_blueprint (campaign_id, name, description, dm_notes, revealed, completion_effects, sort_order)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -143,10 +187,34 @@ func (q *Queries) CreateBlueprintLabor(ctx context.Context, arg CreateBlueprintL
 	return err
 }
 
+const createBlueprintOutput = `-- name: CreateBlueprintOutput :exec
+INSERT INTO building_blueprint_output (campaign_id, blueprint_id, resource_key, daily_delta, storage_bonus)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type CreateBlueprintOutputParams struct {
+	CampaignID   uuid.UUID
+	BlueprintID  uuid.UUID
+	ResourceKey  string
+	DailyDelta   int32
+	StorageBonus int32
+}
+
+func (q *Queries) CreateBlueprintOutput(ctx context.Context, arg CreateBlueprintOutputParams) error {
+	_, err := q.db.Exec(ctx, createBlueprintOutput,
+		arg.CampaignID,
+		arg.BlueprintID,
+		arg.ResourceKey,
+		arg.DailyDelta,
+		arg.StorageBonus,
+	)
+	return err
+}
+
 const createBuilding = `-- name: CreateBuilding :one
 INSERT INTO building (campaign_id, id, blueprint_id, cost, completion_effects, started_day, started_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, blueprint_id, status, cost, completion_effects, started_day, finished_day, ended_day, refund, started_by, created_at, updated_at, campaign_id
+RETURNING id, blueprint_id, status, cost, completion_effects, started_day, finished_day, ended_day, refund, started_by, created_at, updated_at, campaign_id, active, added
 `
 
 type CreateBuildingParams struct {
@@ -185,13 +253,15 @@ func (q *Queries) CreateBuilding(ctx context.Context, arg CreateBuildingParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CampaignID,
+		&i.Active,
+		&i.Added,
 	)
 	return i, err
 }
 
 const createBuildingLabor = `-- name: CreateBuildingLabor :exec
 INSERT INTO building_labor (campaign_id, building_id, role_key, effort, max_crew, progress, crew)
-VALUES ($1, $2, $3, $4, $5, 0, $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type CreateBuildingLaborParams struct {
@@ -200,9 +270,11 @@ type CreateBuildingLaborParams struct {
 	RoleKey    string
 	Effort     int32
 	MaxCrew    *int32
+	Progress   int32
 	Crew       int32
 }
 
+// An added building's lines are done from the start (K19), so progress is the effort there and 0 for a Start.
 func (q *Queries) CreateBuildingLabor(ctx context.Context, arg CreateBuildingLaborParams) error {
 	_, err := q.db.Exec(ctx, createBuildingLabor,
 		arg.CampaignID,
@@ -210,6 +282,7 @@ func (q *Queries) CreateBuildingLabor(ctx context.Context, arg CreateBuildingLab
 		arg.RoleKey,
 		arg.Effort,
 		arg.MaxCrew,
+		arg.Progress,
 		arg.Crew,
 	)
 	return err
@@ -240,6 +313,20 @@ type DeleteBlueprintLaborParams struct {
 
 func (q *Queries) DeleteBlueprintLabor(ctx context.Context, arg DeleteBlueprintLaborParams) error {
 	_, err := q.db.Exec(ctx, deleteBlueprintLabor, arg.CampaignID, arg.BlueprintID)
+	return err
+}
+
+const deleteBlueprintOutputs = `-- name: DeleteBlueprintOutputs :exec
+DELETE FROM building_blueprint_output WHERE campaign_id = $1 AND blueprint_id = $2
+`
+
+type DeleteBlueprintOutputsParams struct {
+	CampaignID  uuid.UUID
+	BlueprintID uuid.UUID
+}
+
+func (q *Queries) DeleteBlueprintOutputs(ctx context.Context, arg DeleteBlueprintOutputsParams) error {
+	_, err := q.db.Exec(ctx, deleteBlueprintOutputs, arg.CampaignID, arg.BlueprintID)
 	return err
 }
 
@@ -289,7 +376,7 @@ func (q *Queries) GetBlueprint(ctx context.Context, arg GetBlueprintParams) (Bui
 }
 
 const getBuilding = `-- name: GetBuilding :one
-SELECT building.id, building.blueprint_id, building.status, building.cost, building.completion_effects, building.started_day, building.finished_day, building.ended_day, building.refund, building.started_by, building.created_at, building.updated_at, building.campaign_id, building_blueprint.name AS blueprint_name, building_blueprint.revealed AS blueprint_revealed
+SELECT building.id, building.blueprint_id, building.status, building.cost, building.completion_effects, building.started_day, building.finished_day, building.ended_day, building.refund, building.started_by, building.created_at, building.updated_at, building.campaign_id, building.active, building.added, building_blueprint.name AS blueprint_name, building_blueprint.revealed AS blueprint_revealed
 FROM building
 JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
 WHERE building.campaign_id = $1
@@ -327,6 +414,8 @@ func (q *Queries) GetBuilding(ctx context.Context, arg GetBuildingParams) (GetBu
 		&i.Building.CreatedAt,
 		&i.Building.UpdatedAt,
 		&i.Building.CampaignID,
+		&i.Building.Active,
+		&i.Building.Added,
 		&i.BlueprintName,
 		&i.BlueprintRevealed,
 	)
@@ -400,6 +489,36 @@ func (q *Queries) ListBlueprintLabor(ctx context.Context, campaignID uuid.UUID) 
 			&i.RoleKey,
 			&i.Effort,
 			&i.MaxCrew,
+			&i.CampaignID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBlueprintOutputs = `-- name: ListBlueprintOutputs :many
+SELECT blueprint_id, resource_key, daily_delta, storage_bonus, campaign_id FROM building_blueprint_output WHERE campaign_id = $1 ORDER BY blueprint_id, resource_key
+`
+
+func (q *Queries) ListBlueprintOutputs(ctx context.Context, campaignID uuid.UUID) ([]BuildingBlueprintOutput, error) {
+	rows, err := q.db.Query(ctx, listBlueprintOutputs, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BuildingBlueprintOutput
+	for rows.Next() {
+		var i BuildingBlueprintOutput
+		if err := rows.Scan(
+			&i.BlueprintID,
+			&i.ResourceKey,
+			&i.DailyDelta,
+			&i.StorageBonus,
 			&i.CampaignID,
 		); err != nil {
 			return nil, err
@@ -493,7 +612,7 @@ func (q *Queries) ListBuildingLabor(ctx context.Context, campaignID uuid.UUID) (
 }
 
 const listBuildings = `-- name: ListBuildings :many
-SELECT building.id, building.blueprint_id, building.status, building.cost, building.completion_effects, building.started_day, building.finished_day, building.ended_day, building.refund, building.started_by, building.created_at, building.updated_at, building.campaign_id, building_blueprint.name AS blueprint_name, building_blueprint.revealed AS blueprint_revealed
+SELECT building.id, building.blueprint_id, building.status, building.cost, building.completion_effects, building.started_day, building.finished_day, building.ended_day, building.refund, building.started_by, building.created_at, building.updated_at, building.campaign_id, building.active, building.added, building_blueprint.name AS blueprint_name, building_blueprint.revealed AS blueprint_revealed
 FROM building
 JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
 WHERE building.campaign_id = $1
@@ -537,6 +656,8 @@ func (q *Queries) ListBuildings(ctx context.Context, arg ListBuildingsParams) ([
 			&i.Building.CreatedAt,
 			&i.Building.UpdatedAt,
 			&i.Building.CampaignID,
+			&i.Building.Active,
+			&i.Building.Added,
 			&i.BlueprintName,
 			&i.BlueprintRevealed,
 		); err != nil {
@@ -587,8 +708,41 @@ func (q *Queries) ListLaborOfBuilding(ctx context.Context, arg ListLaborOfBuildi
 	return items, nil
 }
 
+const listStandingBuildings = `-- name: ListStandingBuildings :many
+SELECT id, blueprint_id, active FROM building
+WHERE campaign_id = $1 AND status = 'FINISHED'
+ORDER BY id
+`
+
+type ListStandingBuildingsRow struct {
+	ID          uuid.UUID
+	BlueprintID uuid.UUID
+	Active      bool
+}
+
+// The standing buildings, Idle ones included, which game.State carries with their blueprints' output.
+func (q *Queries) ListStandingBuildings(ctx context.Context, campaignID uuid.UUID) ([]ListStandingBuildingsRow, error) {
+	rows, err := q.db.Query(ctx, listStandingBuildings, campaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStandingBuildingsRow
+	for rows.Next() {
+		var i ListStandingBuildingsRow
+		if err := rows.Scan(&i.ID, &i.BlueprintID, &i.Active); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnfinishedBuildingLabor = `-- name: ListUnfinishedBuildingLabor :many
-SELECT building_labor.building_id, building_labor.role_key, building_labor.effort, building_labor.max_crew, building_labor.progress, building_labor.crew, building_labor.campaign_id, building.completion_effects
+SELECT building_labor.building_id, building_labor.role_key, building_labor.effort, building_labor.max_crew, building_labor.progress, building_labor.crew, building_labor.campaign_id, building.completion_effects, building.blueprint_id
 FROM building_labor
 JOIN building ON building.campaign_id = building_labor.campaign_id AND building.id = building_labor.building_id
 WHERE building_labor.campaign_id = $1
@@ -600,6 +754,7 @@ ORDER BY building_labor.building_id, building_labor.role_key
 type ListUnfinishedBuildingLaborRow struct {
 	BuildingLabor     BuildingLabor
 	CompletionEffects []byte
+	BlueprintID       uuid.UUID
 }
 
 // The unfinished projects' labor lines, which game.State carries (readColony).
@@ -621,6 +776,7 @@ func (q *Queries) ListUnfinishedBuildingLabor(ctx context.Context, campaignID uu
 			&i.BuildingLabor.Crew,
 			&i.BuildingLabor.CampaignID,
 			&i.CompletionEffects,
+			&i.BlueprintID,
 		); err != nil {
 			return nil, err
 		}
@@ -718,6 +874,22 @@ func (q *Queries) SetBlueprintRevealed(ctx context.Context, arg SetBlueprintReve
 	return i, err
 }
 
+const setBuildingActive = `-- name: SetBuildingActive :exec
+UPDATE building SET active = $1, updated_at = now()
+WHERE campaign_id = $2 AND id = $3
+`
+
+type SetBuildingActiveParams struct {
+	Active     bool
+	CampaignID uuid.UUID
+	ID         uuid.UUID
+}
+
+func (q *Queries) SetBuildingActive(ctx context.Context, arg SetBuildingActiveParams) error {
+	_, err := q.db.Exec(ctx, setBuildingActive, arg.Active, arg.CampaignID, arg.ID)
+	return err
+}
+
 const setBuildingLabor = `-- name: SetBuildingLabor :exec
 UPDATE building_labor SET progress = $1, crew = $2
 WHERE campaign_id = $3 AND building_id = $4 AND role_key = $5
@@ -769,6 +941,40 @@ func (q *Queries) SetBuildingStatus(ctx context.Context, arg SetBuildingStatusPa
 		arg.ID,
 	)
 	return err
+}
+
+const standingBuildingNamingResource = `-- name: StandingBuildingNamingResource :one
+SELECT building_blueprint.name AS blueprint_name, building_blueprint_output.daily_delta
+FROM building
+JOIN building_blueprint ON building_blueprint.campaign_id = building.campaign_id AND building_blueprint.id = building.blueprint_id
+JOIN building_blueprint_output ON building_blueprint_output.campaign_id = building.campaign_id
+    AND building_blueprint_output.blueprint_id = building.blueprint_id
+WHERE building.campaign_id = $1
+  AND building_blueprint.campaign_id = $1
+  AND building_blueprint_output.campaign_id = $1
+  AND building.status = 'FINISHED'
+  AND building_blueprint_output.resource_key = $2
+ORDER BY building.created_at, building.id
+LIMIT 1
+`
+
+type StandingBuildingNamingResourceParams struct {
+	CampaignID  uuid.UUID
+	ResourceKey string
+}
+
+type StandingBuildingNamingResourceRow struct {
+	BlueprintName string
+	DailyDelta    int32
+}
+
+// A resource can't be archived while a standing building's blueprint output names it, Idle ones
+// included; the oldest such building names the refusal.
+func (q *Queries) StandingBuildingNamingResource(ctx context.Context, arg StandingBuildingNamingResourceParams) (StandingBuildingNamingResourceRow, error) {
+	row := q.db.QueryRow(ctx, standingBuildingNamingResource, arg.CampaignID, arg.ResourceKey)
+	var i StandingBuildingNamingResourceRow
+	err := row.Scan(&i.BlueprintName, &i.DailyDelta)
+	return i, err
 }
 
 const updateBlueprint = `-- name: UpdateBlueprint :one

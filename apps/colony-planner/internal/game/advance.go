@@ -22,9 +22,9 @@ type Step interface {
 	NextBoundary(state State, after int64) (day int64, ok bool)
 }
 
-// DailySteps is the pipeline, in order. A future step is appended only if its rules need one; Phase 2
-// of construction puts BuildingOutput first (docs/design/construction.md §4.1).
-var DailySteps = []Step{Upkeep{}, Shipments{}, Construction{}}
+// DailySteps is the pipeline, in order (docs/design/construction.md §4.1). A future step is appended
+// only if its rules need one.
+var DailySteps = []Step{BuildingOutput{}, Upkeep{}, Shipments{}, Construction{}}
 
 // ArrivalRun is the arithmetic run of shipment arrival days First, First+Every, … (Count of them).
 // Its JSON is the `data` of a folded SHIPMENT_ARRIVED entry: {first, every, count}.
@@ -42,7 +42,8 @@ func (run ArrivalRun) Last() int64 {
 // Log collects what the steps did across every span of one advance.
 type Log struct {
 	resourceDeltas map[string]int64
-	// requestedDeltas is what upkeep and completion Effects asked of each resource before bounds cut it.
+	// requestedDeltas is what output, upkeep and completion Effects asked of each resource before bounds
+	// cut it.
 	requestedDeltas map[string]int64
 	arrivalRuns     []ArrivalRun
 	finishes        []BuildingFinish
@@ -101,38 +102,27 @@ func (log *Log) RecordArrivals(run ArrivalRun) {
 }
 
 // Upkeep eats FoodPerColonistPerDay food per colonist per day, floored at food's minimum. Nothing
-// else happens at the floor (spec §5.2, decisions 4 and 5).
+// else happens at the floor (spec §5.2, decisions 4 and 5). Food's building output lands first each
+// day (K14), so this step applies both: they meet in one day map, which no span may split.
 type Upkeep struct{}
 
 func (upkeep Upkeep) Span(state *State, from int64, to int64, log *Log) {
 	food, found := state.Resources[FoodResourceKey]
-	if !found {
+	days := to - from
+	if !found || days <= 0 {
 		return
 	}
 	eaters := Colonists(state.Roles) * FoodPerColonistPerDay
-	days := to - from
-	if eaters > 0 && days > 0 {
-		if days > math.MaxInt64/eaters {
-			log.RecordRequested(FoodResourceKey, -math.MaxInt64)
-		} else {
-			log.RecordRequested(FoodResourceKey, -eaters*days)
-		}
-	}
-	spare := food.Amount - food.MinAmount
-	if eaters <= 0 || days <= 0 || spare <= 0 {
-		return
-	}
-	newAmount := food.MinAmount
-	// Dividing first keeps eaters × days from overflowing int64 for any N.
-	if days <= spare/eaters {
-		newAmount = food.Amount - eaters*days
-	}
+	output := dailyOutputs(*state)[FoodResourceKey]
+	log.RecordRequested(FoodResourceKey, saturatingProduct(output, days))
+	log.RecordRequested(FoodResourceKey, saturatingProduct(-eaters, days))
+	newAmount := amountAfterDays(food.Amount, output, eaters, food.MinAmount, ceiling(*state, FoodResourceKey), days)
 	log.RecordResourceDelta(FoodResourceKey, newAmount-food.Amount)
 	food.Amount = newAmount
 	state.Resources[FoodResourceKey] = food
 }
 
-// Upkeep changes only food, which no other step reads.
+// Upkeep changes only food, which no other step reads but a finish's completion Effects at a span's end.
 func (upkeep Upkeep) NextBoundary(State, int64) (int64, bool) {
 	return 0, false
 }
@@ -178,10 +168,12 @@ type AdvanceResult struct {
 	After  State
 	// Colonists is the headcount upkeep started with; a finish's completion Effects may add to it.
 	Colonists int64
-	// Applied holds the applied resource deltas only (zero ones omitted): the DAYS_ADVANCED deltas.
+	// Applied holds the applied resource deltas only (zero ones omitted), building output included: the
+	// DAYS_ADVANCED deltas.
 	Applied Effects
-	// Requested is what upkeep and every finish's completion Effects asked of each resource, before
-	// bounds cut it, so the preview marks a resource clamped only when a bound stopped a change.
+	// Requested is what building output, upkeep and every finish's completion Effects asked of each
+	// resource, before bounds cut it, so the preview marks a resource clamped only when a bound stopped
+	// a change.
 	Requested map[string]int64
 	// Arrivals are every arrival in (Before.Day, After.Day], as runs; ArrivalCount is their total.
 	Arrivals     []ArrivalRun

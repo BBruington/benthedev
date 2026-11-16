@@ -104,6 +104,9 @@ const (
 	TimelineKindBuildingCancelled       TimelineKind = "BUILDING_CANCELLED"
 	TimelineKindBuildingDemolished      TimelineKind = "BUILDING_DEMOLISHED"
 	TimelineKindBuildingFinished        TimelineKind = "BUILDING_FINISHED"
+	TimelineKindBuildingIdled           TimelineKind = "BUILDING_IDLED"
+	TimelineKindBuildingActivated       TimelineKind = "BUILDING_ACTIVATED"
+	TimelineKindBuildingAdded           TimelineKind = "BUILDING_ADDED"
 )
 
 // AllTimelineKinds lists every kind, for the API's enum schema and the DM's filter chips.
@@ -138,6 +141,9 @@ func AllTimelineKinds() []TimelineKind {
 		TimelineKindBuildingCancelled,
 		TimelineKindBuildingDemolished,
 		TimelineKindBuildingFinished,
+		TimelineKindBuildingIdled,
+		TimelineKindBuildingActivated,
+		TimelineKindBuildingAdded,
 	}
 }
 

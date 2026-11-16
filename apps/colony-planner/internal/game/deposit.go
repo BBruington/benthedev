@@ -27,9 +27,9 @@ func Deposit(state State, gold int64) (DepositResult, error) {
 	if resource.Archived {
 		return DepositResult{}, invalid("gold", resourceName(GoldResourceKey, resource, true)+" is archived")
 	}
-	if resource.MaxAmount != nil && gold > *resource.MaxAmount-resource.Amount {
+	if effective := EffectiveMax(state, GoldResourceKey); effective != nil && gold > *effective-resource.Amount {
 		return DepositResult{}, invalid("gold", "Colony "+resourceName(GoldResourceKey, resource, false)+" would pass its max of "+
-			strconv.FormatInt(*resource.MaxAmount, 10)+". Raise the max on Settings, or dismiss the deposit to return the coins")
+			strconv.FormatInt(*effective, 10)+". Raise the max on Settings, or dismiss the deposit to return the coins")
 	}
 	if gold > MaxStored-resource.Amount {
 		return DepositResult{}, invalid("gold", "Colony "+resourceName(GoldResourceKey, resource, false)+

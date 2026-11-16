@@ -1,9 +1,16 @@
 // Pure helpers for the Buildings page (docs/design/construction.md): text, grouping and the parsing of
 // its sheets. No React, no I/O, so each one has a unit test in construction.test.ts.
 import type { Schemas } from "@/api/client";
-import { dayName, formatNumber, labelFromResourceKey, parseWholeNumber } from "./colony";
+import {
+	dayName,
+	formatDelta,
+	formatNumber,
+	labelFromResourceKey,
+	parseWholeNumber,
+} from "./colony";
 
 type Building = Schemas["Building"];
+type BlueprintOutput = Schemas["BlueprintOutput"];
 type ConstructionRole = Schemas["ConstructionRole"];
 type Labelled = { key: string; label: string };
 type StockedResource = Labelled & { amount: number; minAmount: number };
@@ -80,24 +87,88 @@ export function otherWorkCount(role: ConstructionRole): number {
 	return Math.max(0, role.headcount - role.crewed - role.idle);
 }
 
-/** "Materials 30 · Gold 20", in board order; a resource the board no longer lists is named from its key. */
-export function amountsText(amounts: Record<string, number>, resources: readonly Labelled[]) {
-	const parts: string[] = [];
+/**
+ * Each value of a map by resource key with its label, in board order; a resource the board no longer
+ * lists (archived) comes last, named from its key.
+ */
+function inBoardOrder<Value>(
+	values: Record<string, Value>,
+	resources: readonly Labelled[],
+): { label: string; value: Value }[] {
+	const ordered: { label: string; value: Value }[] = [];
 	const known = new Set<string>();
 	for (const resource of resources) {
 		known.add(resource.key);
-		const amount = amounts[resource.key];
-		if (amount !== undefined && amount !== 0) {
-			parts.push(`${resource.label} ${formatNumber(amount)}`);
+		const value = values[resource.key];
+		if (value !== undefined) {
+			ordered.push({ label: resource.label, value });
 		}
 	}
-	for (const key of Object.keys(amounts).sort()) {
-		const amount = amounts[key];
-		if (!known.has(key) && amount !== undefined && amount !== 0) {
-			parts.push(`${labelFromResourceKey(key)} ${formatNumber(amount)}`);
+	for (const key of Object.keys(values).sort()) {
+		const value = values[key];
+		if (!known.has(key) && value !== undefined) {
+			ordered.push({ label: labelFromResourceKey(key), value });
 		}
 	}
-	return parts.join(" · ");
+	return ordered;
+}
+
+/** "Materials 30 · Gold 20", in board order; a resource the board no longer lists is named from its key. */
+export function amountsText(amounts: Record<string, number>, resources: readonly Labelled[]) {
+	return inBoardOrder(amounts, resources)
+		.filter(({ value }) => value !== 0)
+		.map(({ label, value }) => `${label} ${formatNumber(value)}`)
+		.join(" · ");
+}
+
+/** "Food +6, Materials −1": what a building makes and uses each day, or "" for nothing. */
+export function dailyOutputText(
+	output: Record<string, BlueprintOutput>,
+	resources: readonly Labelled[],
+) {
+	return inBoardOrder(output, resources)
+		.filter(({ value }) => value.dailyDelta !== 0)
+		.map(({ label, value }) => `${label} ${formatDelta(value.dailyDelta)}`)
+		.join(", ");
+}
+
+/** "Stores 200 more Food and 50 more Materials", or "" when it stores nothing more. */
+export function storageBonusText(
+	output: Record<string, BlueprintOutput>,
+	resources: readonly Labelled[],
+) {
+	const parts = inBoardOrder(output, resources)
+		.filter(({ value }) => value.storageBonus > 0)
+		.map(({ label, value }) => `${formatNumber(value.storageBonus)} more ${label}`);
+	if (parts.length === 0) {
+		return "";
+	}
+	return `Stores ${joinWithAnd(parts)}`;
+}
+
+function joinWithAnd(parts: readonly string[]): string {
+	if (parts.length <= 1) {
+		return parts.join("");
+	}
+	return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+}
+
+/** "Added on Day 22" or "Finished on Day 47": tells two standing buildings of one blueprint apart. */
+export function standingSince(building: Building): string {
+	const day = dayName(building.finishedDay ?? building.startedDay);
+	return building.added ? `Added on ${day}` : `Finished on ${day}`;
+}
+
+/** "Started on Day 14, finished on Day 40", "Started on Day 14" or "Added on Day 22", for a past building. */
+export function pastHistory(building: Building): string {
+	if (building.added) {
+		return `Added on ${dayName(building.startedDay)}`;
+	}
+	const started = `Started on ${dayName(building.startedDay)}`;
+	if (building.finishedDay === null) {
+		return started;
+	}
+	return `${started}, finished on ${dayName(building.finishedDay)}`;
 }
 
 export type BuildingGroups = {
@@ -296,4 +367,65 @@ export function parseLabor(drafts: readonly LaborDraft[]): {
 			"Add at least one role's work. A building that needs none is a stock adjustment.";
 	}
 	return { labor, problems };
+}
+
+/** An output line as typed in the blueprint sheet; rowKey keys it while it's edited. */
+export type OutputDraft = {
+	resourceKey: string;
+	dailyText: string;
+	bonusText: string;
+	rowKey: string;
+};
+
+let outputRowCount = 0;
+
+export function newOutputDraft(resourceKey: string): OutputDraft {
+	outputRowCount += 1;
+	return { bonusText: "", dailyText: "", resourceKey, rowKey: `new-${outputRowCount}` };
+}
+
+export function outputToDrafts(output: Record<string, BlueprintOutput>): OutputDraft[] {
+	return Object.keys(output)
+		.sort()
+		.map((resourceKey) => {
+			const line = output[resourceKey] ?? { dailyDelta: 0, storageBonus: 0 };
+			return {
+				bonusText: line.storageBonus === 0 ? "" : String(line.storageBonus),
+				dailyText: line.dailyDelta === 0 ? "" : String(line.dailyDelta),
+				resourceKey,
+				rowKey: `saved-${resourceKey}`,
+			};
+		});
+}
+
+/**
+ * The output map to save ({} for none), or the problem with each row by rowKey. Blank reads as 0, and
+ * a line must change something.
+ */
+export function parseOutput(drafts: readonly OutputDraft[]): {
+	output: Record<string, BlueprintOutput>;
+	problems: Record<string, string>;
+} {
+	const output: Record<string, BlueprintOutput> = {};
+	const problems: Record<string, string> = {};
+	for (const draft of drafts) {
+		// The cards show a true minus sign, so one copied from them reads as a minus too.
+		const dailyDelta = parseWholeNumber(draft.dailyText.replace("\u2212", "-"));
+		const storageBonus = parseWholeNumber(draft.bonusText);
+		if (draft.resourceKey in output) {
+			problems[draft.rowKey] = "This resource already has a line. Use one line per resource.";
+		} else if (dailyDelta === "invalid") {
+			problems[draft.rowKey] = "Enter the daily change as a whole number, such as +6 or -1.";
+		} else if (
+			storageBonus === "invalid" ||
+			(typeof storageBonus === "number" && storageBonus < 0)
+		) {
+			problems[draft.rowKey] = "A storage bonus is a whole number, 0 or more.";
+		} else if ((dailyDelta ?? 0) === 0 && (storageBonus ?? 0) === 0) {
+			problems[draft.rowKey] = "Give it a daily change or a storage bonus, or remove the line.";
+		} else {
+			output[draft.resourceKey] = { dailyDelta: dailyDelta ?? 0, storageBonus: storageBonus ?? 0 };
+		}
+	}
+	return { output, problems };
 }

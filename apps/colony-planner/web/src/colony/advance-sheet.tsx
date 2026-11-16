@@ -99,7 +99,7 @@ export function AdvanceSheet({
 
 	return (
 		<BottomSheet
-			description="Upkeep is taken for every day, ships arrive on schedule and crewed buildings make progress, finishing on their day. Nothing else happens."
+			description="For every day, Active buildings make and use resources, upkeep is taken, ships arrive on schedule and crewed buildings make progress, finishing on their day. Nothing else happens."
 			onOpenChange={onOpenChange}
 			open={open}
 			title="Advance the clock"

@@ -157,15 +157,20 @@ func TestSeedFillsAFreshDatabaseOnce(t *testing.T) {
 			len(playerTimeline.Entries), len(dmTimeline.Entries), err)
 	}
 
-	// Construction: the Granary and Palisade revealed, the Warded Tower hidden, and the Palisade 10 of
-	// 60 Builder-days in with all 3 Builders on it.
+	// Construction: the Granary, Palisade and Mill revealed, the Warded Tower hidden, and the Palisade
+	// 10 of 60 Builder-days in with all 3 Builders on it.
 	for _, check := range []struct {
 		viewer     core.Viewer
 		blueprints int
-	}{{dm, 3}, {player, 2}} {
+	}{{dm, 4}, {player, 3}} {
 		page, err := service.ListConstruction(testContext, check.viewer)
 		if err != nil || len(page.Blueprints) != check.blueprints || len(page.Buildings) != 1 {
 			t.Fatalf("construction = %+v (%v)", page, err)
+		}
+		mill := page.Blueprints[slices.IndexFunc(page.Blueprints, func(blueprint core.BuildingBlueprint) bool { return blueprint.Name == "Mill" })]
+		if mill.Output["food"] != (core.BlueprintOutput{DailyDelta: 6}) || mill.Output["materials"] != (core.BlueprintOutput{DailyDelta: -1}) ||
+			mill.Labor[0] != (core.BlueprintLabor{RoleKey: "BUILDER", Effort: 30, MaxCrew: mill.Labor[0].MaxCrew}) || *mill.Labor[0].MaxCrew != 3 {
+			t.Fatalf("the Mill = %+v", mill)
 		}
 		palisade := page.Buildings[0]
 		if palisade.Name != "Palisade" || palisade.Status != core.BuildingStatusConstructing || palisade.StartedDay != 14 ||

@@ -22,7 +22,71 @@ func equivalenceStates() map[string]State {
 		"next arrival far in future": colony(1, 1000, exampleBRoles(), &Schedule{IntervalDays: 3, NextDay: 50}),
 		"one project":                constructionExample(),
 		"projects that feed upkeep":  projectsThatFeedUpkeep(),
+		"output at floors and caps":  outputAtFloorsAndCaps(),
+		"stock above its cap":        stockAboveItsCap(),
+		"finishes that raise caps":   finishesThatRaiseCaps(),
+		"food output beside upkeep":  foodOutputBesideUpkeep(),
 	}
+}
+
+// outputAtFloorsAndCaps has standing buildings whose output runs materials down to its floor, morale
+// up to its cap, gold (no cap) up and food up less than the colony eats, beside an Idle building
+// whose output must change nothing.
+func outputAtFloorsAndCaps() State {
+	state := colony(8, 20, unassignedOnly(3), &Schedule{IntervalDays: 5, NextDay: 10})
+	state.Resources["materials"] = Resource{Label: "Materials", Amount: 30, MinAmount: 4}
+	state.Resources["morale"] = Resource{Label: "Morale", Amount: 81, MaxAmount: pointer(int64(100))}
+	state.Resources[FoodResourceKey] = Resource{Label: "Food", Amount: 20, MaxAmount: pointer(int64(50))}
+	state.Buildings = []StandingBuilding{
+		{BuildingID: buildingID(1), Active: true, Output: map[string]ResourceOutput{"materials": {DailyDelta: -3}, "morale": {DailyDelta: 4}}},
+		{BuildingID: buildingID(2), Active: true, Output: map[string]ResourceOutput{"gold": {DailyDelta: 7}, FoodResourceKey: {DailyDelta: 2}}},
+		{BuildingID: buildingID(3), Output: map[string]ResourceOutput{"materials": {DailyDelta: 50}, FoodResourceKey: {DailyDelta: 40, StorageBonus: 100}}},
+	}
+	return state
+}
+
+// stockAboveItsCap is the K13 case: an Idle Granary left food and materials above their caps, a Mill
+// still makes food and a quarry materials, so food falls by what the colony eats until it is under
+// its cap, and materials stay where they are.
+func stockAboveItsCap() State {
+	state := colony(30, 250, unassignedOnly(5), nil)
+	state.Resources[FoodResourceKey] = Resource{Label: "Food", Amount: 250, MaxAmount: pointer(int64(100))}
+	state.Resources["materials"] = Resource{Label: "Materials", Amount: 90, MaxAmount: pointer(int64(60))}
+	state.Buildings = []StandingBuilding{
+		{BuildingID: buildingID(1), Output: map[string]ResourceOutput{FoodResourceKey: {StorageBonus: 200}, "materials": {StorageBonus: 50}}},
+		{BuildingID: buildingID(2), Active: true, Output: map[string]ResourceOutput{FoodResourceKey: {DailyDelta: 10}, "materials": {DailyDelta: 2}}},
+	}
+	return state
+}
+
+// finishesThatRaiseCaps has a Mill standing and two projects: a Granary whose storage bonus raises
+// food's cap from the end of its finish day and whose own output starts the day after, and a
+// feast hall finishing later whose completion food fills the raised cap.
+func finishesThatRaiseCaps() State {
+	state := colony(2, 95, map[string]Role{
+		"BUILDER":         {Label: "Builder", UnnamedCount: 3},
+		UnassignedRoleKey: {Label: "Unassigned", UnnamedCount: 1},
+	}, nil)
+	state.Resources[FoodResourceKey] = Resource{Label: "Food", Amount: 95, MaxAmount: pointer(int64(100))}
+	state.Buildings = []StandingBuilding{{BuildingID: buildingID(9), Active: true, Output: map[string]ResourceOutput{FoodResourceKey: {DailyDelta: 9}}}}
+	state.Projects = []Project{
+		{BuildingID: buildingID(1), Lines: []LaborLine{{RoleKey: "BUILDER", Effort: 8, Crew: 2}},
+			Output: map[string]ResourceOutput{FoodResourceKey: {StorageBonus: 200}, "gold": {DailyDelta: -6}}},
+		{BuildingID: buildingID(2), Lines: []LaborLine{{RoleKey: "BUILDER", Effort: 11, Crew: 1}},
+			CompletionEffects: Effects{Resources: map[string]int64{FoodResourceKey: 500}}},
+	}
+	return state
+}
+
+// foodOutputBesideUpkeep has food made faster than it is eaten, toward a cap it then sits just under.
+func foodOutputBesideUpkeep() State {
+	state := colony(0, 3, unassignedOnly(4), &Schedule{IntervalDays: 2, NextDay: 1})
+	state.Resources[FoodResourceKey] = Resource{Label: "Food", Amount: 3, MinAmount: 1, MaxAmount: pointer(int64(60))}
+	state.Buildings = []StandingBuilding{
+		{BuildingID: buildingID(1), Active: true, Output: map[string]ResourceOutput{FoodResourceKey: {DailyDelta: 6}}},
+		{BuildingID: buildingID(2), Active: true, Output: map[string]ResourceOutput{FoodResourceKey: {DailyDelta: 5}, "morale": {DailyDelta: -1}}},
+	}
+	return state
 }
 
 // projectsThatFeedUpkeep has two projects, one with two lines finishing on different days, whose
@@ -49,15 +113,44 @@ func projectsThatFeedUpkeep() State {
 	return state
 }
 
-// referenceAdvance is the naive day-by-day loop the closed forms must match: upkeep, shipments, then
-// each line's crew working one day, a finished line freeing its crew and a finished project applying
-// its completion Effects.
+// referenceAdvance is the naive day-by-day loop the closed forms must match: each resource's building
+// output (never lowering an amount above its cap), upkeep, shipments, then each line's crew working one
+// day, a finished line freeing its crew and a finished project standing and applying its completion
+// Effects.
 func referenceAdvance(state State, days int64) (State, []int64, []BuildingFinish) {
 	after := state.Clone()
 	arrivals := []int64{}
 	finishes := []BuildingFinish{}
 	for range days {
 		after.Day++
+		outputs := map[string]int64{}
+		for _, building := range after.Buildings {
+			for key, output := range building.Output {
+				if building.Active {
+					outputs[key] += output.DailyDelta
+				}
+			}
+		}
+		caps := map[string]int64{}
+		for key := range outputs {
+			caps[key] = MaxStored
+			if effective := EffectiveMax(after, key); effective != nil {
+				caps[key] = *effective
+			}
+		}
+		for key, delta := range outputs {
+			resource, found := after.Resources[key]
+			if !found || resource.Archived {
+				continue
+			}
+			switch {
+			case delta > 0 && resource.Amount < caps[key]:
+				resource.Amount = min(resource.Amount+delta, caps[key])
+			case delta < 0:
+				resource.Amount = max(resource.Amount+delta, resource.MinAmount)
+			}
+			after.Resources[key] = resource
+		}
 		food := after.Resources[FoodResourceKey]
 		food.Amount = max(food.Amount-Colonists(after.Roles)*FoodPerColonistPerDay, food.MinAmount)
 		after.Resources[FoodResourceKey] = food
@@ -80,6 +173,7 @@ func referenceAdvance(state State, days int64) (State, []int64, []BuildingFinish
 				}
 			}
 			if finishedToday && allDone(project.Lines) {
+				standUp(&after, *project)
 				applied, skipped := applyCompletion(&after, project.CompletionEffects)
 				finishes = append(finishes, BuildingFinish{BuildingID: project.BuildingID, Day: after.Day, Applied: applied, Skipped: skipped, Lines: slices.Clone(project.Lines)})
 			}
@@ -116,13 +210,15 @@ func TestSpanEngineMatchesTheDayByDayReference(t *testing.T) {
 			if !reflect.DeepEqual(result.Finishes, wantFinishes) {
 				t.Fatalf("%s, advance %d: finishes %+v, reference %+v", name, days, result.Finishes, wantFinishes)
 			}
-			// A finish's completion Effects are its own entry's deltas, not the advance's.
-			wantFoodDelta := food(wantState) - food(state)
-			for _, finish := range wantFinishes {
-				wantFoodDelta -= finish.Applied.Resources[FoodResourceKey]
-			}
-			if result.Applied.Resources[FoodResourceKey] != wantFoodDelta {
-				t.Fatalf("%s, advance %d: food delta %d, want %d", name, days, result.Applied.Resources[FoodResourceKey], wantFoodDelta)
+			// A finish's completion Effects are its own entry's deltas, not the advance's; output is the advance's.
+			for key, resource := range wantState.Resources {
+				wantDelta := resource.Amount - state.Resources[key].Amount
+				for _, finish := range wantFinishes {
+					wantDelta -= finish.Applied.Resources[key]
+				}
+				if result.Applied.Resources[key] != wantDelta {
+					t.Fatalf("%s, advance %d: %s delta %d, want %d", name, days, key, result.Applied.Resources[key], wantDelta)
+				}
 			}
 		}
 	}

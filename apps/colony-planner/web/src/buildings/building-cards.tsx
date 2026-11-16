@@ -1,14 +1,20 @@
-import { BanIcon, BrickWallIcon, HardHatIcon, HouseIcon } from "lucide-react";
+import { BanIcon, BrickWallIcon, HardHatIcon, HouseIcon, PauseIcon, PlayIcon } from "lucide-react";
 import type { Schemas } from "@/api/client";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { dayName, formatNumber } from "@/lib/colony";
 import {
 	amountsText,
+	dailyOutputText,
 	isLineDone,
+	pastHistory,
 	progressPercent,
 	progressText,
 	projectedFinishText,
+	standingSince,
+	storageBonusText,
 } from "@/lib/construction";
+import { cn } from "@/lib/utils";
 import { HiddenBadge } from "@/people/people-sections";
 import { effectsText } from "@/ventures/venture-parts";
 
@@ -110,21 +116,37 @@ export function ProjectCard({
 	);
 }
 
-/** A finished building: a record of what stands, with Demolish for the DM. */
+/** The id of a standing building's Set Idle or Set Active button, where focus returns once it saves. */
+export function activeButtonId(building: Building): string {
+	return `building-active-${building.id}`;
+}
+
+/**
+ * A finished building: what it stands for and does each day, with Set Idle or Set Active and
+ * Demolish for the DM. An Idle one gives no output and no storage bonus.
+ */
 export function StandingCard({
 	building,
 	blueprint,
 	resources,
 	isDm,
+	isSettingActive,
+	onSetActive,
 	onDemolish,
 }: {
 	building: Building;
 	blueprint: { dm?: { revealed: boolean } } | undefined;
 	resources: readonly Labelled[];
 	isDm: boolean;
+	/** True while any building's Set Idle or Set Active saves. */
+	isSettingActive: boolean;
+	onSetActive: (building: Building, active: boolean) => void;
 	onDemolish: (building: Building) => void;
 }) {
 	const completion = effectsText(building.completionEffects, resources, "");
+	const daily = dailyOutputText(building.output, resources);
+	const storage = storageBonusText(building.output, resources);
+	const hasOutput = daily !== "" || storage !== "";
 	return (
 		<li className="flex flex-col gap-3 rounded-xl border border-moss/35 bg-card p-4 shadow-card sm:p-5">
 			<div className="space-y-1">
@@ -133,13 +155,43 @@ export function StandingCard({
 					{building.name}
 				</h3>
 				<p className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
-					Finished on {dayName(building.finishedDay ?? building.startedDay)}
+					{standingSince(building)}
 					{blueprint ? <HiddenBadge item={blueprint} /> : null}
+					{building.active ? null : (
+						<Badge variant="muted">
+							<PauseIcon />
+							Idle
+						</Badge>
+					)}
 				</p>
 				{completion ? <p className="text-sm tabular-nums">When finished: {completion}</p> : null}
+				{daily ? (
+					<p className={cn("text-sm tabular-nums", !building.active && "text-muted-foreground")}>
+						Each day: {daily}
+					</p>
+				) : null}
+				{storage ? (
+					<p className={cn("text-sm tabular-nums", !building.active && "text-muted-foreground")}>
+						{storage}
+					</p>
+				) : null}
+				{hasOutput && !building.active ? (
+					<p className="text-muted-foreground text-sm">Idle, so it gives none of its output.</p>
+				) : null}
 			</div>
 			{isDm ? (
 				<div className="flex flex-wrap gap-2">
+					<Button
+						disabled={isSettingActive}
+						id={activeButtonId(building)}
+						onClick={() => {
+							onSetActive(building, !building.active);
+						}}
+						variant="outline"
+					>
+						{building.active ? <PauseIcon /> : <PlayIcon />}
+						{building.active ? "Set Idle" : "Set Active"}
+					</Button>
 					<Button
 						onClick={() => {
 							onDemolish(building);
@@ -176,10 +228,7 @@ export function PastBuildings({
 							{building.name} · {status}
 						</p>
 						<p className="text-muted-foreground text-sm tabular-nums">
-							Started on {dayName(building.startedDay)}
-							{building.finishedDay === null
-								? ""
-								: `, finished on ${dayName(building.finishedDay)}`}
+							{pastHistory(building)}
 							{refund ? ` · gave back ${refund}` : " · gave back nothing"}
 						</p>
 					</li>
