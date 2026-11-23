@@ -30,7 +30,7 @@ type ColonyBoard struct {
 	// Version goes back as expectedVersion on every form that changes the colony (spec §5.1).
 	Version   int64             `json:"version"`
 	Shipments *ShipmentSchedule `json:"shipments" doc:"null when no shipment schedule is set"`
-	Resources []ColonyResource  `json:"resources" doc:"Unarchived resources in board order"`
+	Resources []ColonyResource  `json:"resources" doc:"Unarchived resources in board order; players don't get hidden ones"`
 	// Colonists is never stored: game.Colonists sums every role's headcount, Unassigned included.
 	Colonists  int64           `json:"colonists"`
 	Unassigned int64           `json:"unassigned"`
@@ -55,7 +55,13 @@ type ColonyResource struct {
 	MinAmount int64      `json:"minAmount"`
 	MaxAmount *int64     `json:"maxAmount" doc:"The effective max: the resource's own plus every Active standing building's storage bonus; null when unbounded. The amount may sit above it after a bonus ends"`
 	// IsSystem marks a resource a rule reads (food, for upkeep).
-	IsSystem bool `json:"isSystem"`
+	IsSystem bool              `json:"isSystem"`
+	Dm       *ColonyResourceDm `json:"dm,omitempty"`
+}
+
+// ColonyResourceDm is a board resource's DM-only flag; players never get a hidden resource at all.
+type ColonyResourceDm struct {
+	Hidden bool `json:"hidden"`
 }
 
 type RoleHeadcount struct {
@@ -342,7 +348,7 @@ func (service *Service) Advance(requestContext context.Context, viewer Viewer, i
 			day:        result.After.Day,
 			kind:       TimelineKindDaysAdvanced,
 			title:      title,
-			body:       joinParts(appliedEffectsText(result.Applied, colony.order, colony.labels), arrivalsSentence(result.Arrivals, result.ArrivalCount)),
+			body:       joinParts(appliedEffectsText(result.Applied, colony.publicOrder, colony.labels), arrivalsSentence(result.Arrivals, result.ArrivalCount)),
 			visibility: TimelineVisibilityPublic,
 			deltas:     result.Applied,
 		})
@@ -409,7 +415,7 @@ func (service *Service) AdjustStock(requestContext context.Context, viewer Viewe
 		if len(applied.Resources) == 0 && applied.Colonists == 0 {
 			return colonyOutcome{}, Invalid("Nothing would change: every amount is already where that would put it.")
 		}
-		summary := appliedEffectsText(applied, colony.order, colony.labels)
+		summary := appliedEffectsText(applied, colony.publicOrder, colony.labels)
 		entry := plannedEntry{
 			day:        colony.state.Day,
 			kind:       TimelineKindStockAdjusted,
@@ -418,7 +424,8 @@ func (service *Service) AdjustStock(requestContext context.Context, viewer Viewe
 			visibility: TimelineVisibilityDm,
 			deltas:     applied,
 		}
-		if input.Public {
+		// An entry whose every change is hidden stays DM-only, or players would learn something moved.
+		if input.Public && summary != "" {
 			entry.visibility = TimelineVisibilityPublic
 		}
 		if planned.arrival != nil {
@@ -626,7 +633,7 @@ func (service *Service) UndoLastChange(requestContext context.Context, viewer Vi
 			return err
 		}
 		groupID := uuid.New()
-		entries, err := writeEntries(requestContext, queries, groupID, viewer, []plannedEntry{entry})
+		entries, err := writeEntries(requestContext, queries, groupID, viewer, colony, []plannedEntry{entry})
 		if err != nil {
 			return err
 		}
@@ -808,8 +815,11 @@ type colonySnapshot struct {
 	resources  map[string]store.Resource
 	roles      map[string]store.Role
 	// order is every resource key in board order, so text lists resources the way the board does.
-	order  []string
-	labels resourceLabels
+	order []string
+	// publicOrder leaves out hidden resources, whose changes writeEntries puts in the DM note instead.
+	publicOrder []string
+	hiddenOrder []string
+	labels      resourceLabels
 }
 
 // readColony loads one campaign's colony, locking its row first when a mutation will follow (one lock
@@ -860,6 +870,11 @@ func readColony(requestContext context.Context, queries *store.Queries, campaign
 		}
 		snapshot.resources[resource.Key] = resource
 		snapshot.order = append(snapshot.order, resource.Key)
+		if resource.Hidden {
+			snapshot.hiddenOrder = append(snapshot.hiddenOrder, resource.Key)
+		} else {
+			snapshot.publicOrder = append(snapshot.publicOrder, resource.Key)
+		}
 		snapshot.labels[resource.Key] = resource.Label
 	}
 	for _, row := range roles {
@@ -1048,7 +1063,7 @@ func (service *Service) runColonyMutation(requestContext context.Context, viewer
 		if _, err := queries.SaveColonyChange(requestContext, saveColonyParameters(viewer.campaignID, outcome.after, record)); err != nil {
 			return err
 		}
-		entries, err := writeEntries(requestContext, queries, groupID, viewer, outcome.entries)
+		entries, err := writeEntries(requestContext, queries, groupID, viewer, colony, outcome.entries)
 		if err != nil {
 			return err
 		}
@@ -1216,22 +1231,18 @@ func saveColonyParameters(campaignID uuid.UUID, state game.State, lastChange []b
 }
 
 // writeEntries inserts the entries in order, all sharing groupID.
-func writeEntries(requestContext context.Context, queries *store.Queries, groupID uuid.UUID, viewer Viewer, planned []plannedEntry) ([]TimelineEntry, error) {
+// Hidden resources' changes go in the DM note, since bodies leave them out (publicOrder).
+func writeEntries(requestContext context.Context, queries *store.Queries, groupID uuid.UUID, viewer Viewer, colony colonySnapshot, planned []plannedEntry) ([]TimelineEntry, error) {
 	entries := make([]TimelineEntry, 0, len(planned))
 	for _, entry := range planned {
 		deltas, err := json.Marshal(entry.deltas)
 		if err != nil {
 			return nil, fmt.Errorf("core: encode timeline deltas: %w", err)
 		}
-		data := []byte("{}")
-		if entry.data == nil && entry.dmNote != "" {
-			entry.data = dmNoteData{DmNote: entry.dmNote}
-		}
-		if entry.data != nil {
-			data, err = json.Marshal(entry.data)
-			if err != nil {
-				return nil, fmt.Errorf("core: encode timeline data: %w", err)
-			}
+		hiddenText := appliedEffectsText(Effects{Resources: entry.deltas.Resources}, colony.hiddenOrder, colony.labels)
+		data, err := entryData(entry.data, joinLines(entry.dmNote, hiddenText))
+		if err != nil {
+			return nil, err
 		}
 		row, err := queries.CreateTimelineEvent(requestContext, store.CreateTimelineEventParams{
 			CampaignID: viewer.campaignID,
@@ -1259,9 +1270,44 @@ func writeEntries(requestContext context.Context, queries *store.Queries, groupI
 		if err != nil {
 			return nil, err
 		}
+		if !viewer.SeesDmFields() {
+			dropHiddenDeltas(&converted, colony.hiddenOrder)
+		}
 		entries = append(entries, converted)
 	}
 	return entries, nil
+}
+
+// entryData is an entry's kind-specific data with dmNote added, so an entry of any kind can carry one.
+func entryData(kindData any, dmNote string) ([]byte, error) {
+	if kindData == nil && dmNote == "" {
+		return []byte("{}"), nil
+	}
+	fields := map[string]json.RawMessage{}
+	if kindData != nil {
+		encoded, err := json.Marshal(kindData)
+		if err != nil {
+			return nil, fmt.Errorf("core: encode timeline data: %w", err)
+		}
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			return nil, fmt.Errorf("core: timeline data is not an object: %w", err)
+		}
+	}
+	if dmNote != "" {
+		encoded, err := json.Marshal(dmNote)
+		if err != nil {
+			return nil, fmt.Errorf("core: encode timeline dm note: %w", err)
+		}
+		fields["dmNote"] = encoded
+	}
+	return json.Marshal(fields)
+}
+
+// dropHiddenDeltas takes hidden resources out of a player's copy of an entry.
+func dropHiddenDeltas(entry *TimelineEntry, hiddenKeys []string) {
+	for _, key := range hiddenKeys {
+		delete(entry.Deltas.Resources, key)
+	}
 }
 
 // memberReference is the viewer's membership ID for created_by, or nil for a viewer with no
@@ -1535,7 +1581,7 @@ func toColonyBoard(colony store.Colony, campaignName string, resources []store.R
 		Dm:           &ColonyBoardDm{BridgeInbox: []BridgeInboxItem{}},
 	}
 	for _, resource := range resources {
-		if resource.Archived {
+		if resource.Archived || (resource.Hidden && !dmProjection) {
 			continue
 		}
 		board.Resources = append(board.Resources, ColonyResource{
@@ -1546,6 +1592,7 @@ func toColonyBoard(colony store.Colony, campaignName string, resources []store.R
 			MinAmount: int64(resource.MinAmount),
 			MaxAmount: maxes[resource.Key],
 			IsSystem:  resource.IsSystem,
+			Dm:        &ColonyResourceDm{Hidden: resource.Hidden},
 		})
 	}
 	headcounts := make(map[string]game.Role, len(roles))

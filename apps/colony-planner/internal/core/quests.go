@@ -496,7 +496,7 @@ func (service *Service) resolveQuestMutation(requestContext context.Context, vie
 			day:        colony.state.Day,
 			kind:       resolution.kind,
 			title:      resolution.titlePrefix + quest.Title,
-			body:       appliedEffectsText(result.Effects.Applied, colony.order, colony.labels),
+			body:       appliedEffectsText(result.Effects.Applied, colony.publicOrder, colony.labels),
 			visibility: questEntryVisibility(quest.Revealed),
 			deltas:     result.Effects.Applied,
 			questID:    &quest.ID,

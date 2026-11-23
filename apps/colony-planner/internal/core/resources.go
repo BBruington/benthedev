@@ -32,6 +32,7 @@ type ResourceSettings struct {
 	// IsSystem marks a resource a rule reads (food); it can be renamed but not archived.
 	IsSystem bool `json:"isSystem"`
 	Archived bool `json:"archived"`
+	Hidden   bool `json:"hidden" doc:"Players don't see it on the board, and new timeline entries name its changes only to the DM"`
 }
 
 // ResourceList is every resource, archived ones included, in board order.
@@ -46,6 +47,7 @@ type NewResourceInput struct {
 	Icon      ColonyIcon `json:"icon"`
 	MinAmount int64      `json:"minAmount"`
 	MaxAmount *int64     `json:"maxAmount" doc:"null for no maximum; at least minAmount"`
+	Hidden    bool       `json:"hidden"`
 }
 
 // ResourceInput replaces a resource's settings (PUT semantics). New bounds must hold the current
@@ -57,6 +59,7 @@ type ResourceInput struct {
 	MaxAmount *int64     `json:"maxAmount" doc:"null for no maximum; at least minAmount"`
 	SortOrder int64      `json:"sortOrder"`
 	Archived  bool       `json:"archived" doc:"A system resource (food) can't be archived"`
+	Hidden    bool       `json:"hidden"`
 }
 
 // ListResources is the DM's resource list on /settings.
@@ -122,6 +125,7 @@ func (service *Service) CreateResource(requestContext context.Context, viewer Vi
 			MinAmount:  int32(input.MinAmount),
 			MaxAmount:  int32PointerOf(input.MaxAmount),
 			SortOrder:  sortOrder,
+			Hidden:     input.Hidden,
 		})
 		if err != nil {
 			return err
@@ -197,6 +201,9 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 				fieldErrors = append(fieldErrors, *fieldError)
 			}
 		}
+		if input.Hidden && resourceKey == game.GoldResourceKey {
+			fieldErrors = append(fieldErrors, FieldError{Field: "hidden", Message: current.Label + " pays for the market and upkeep, which players see, so it can't be hidden."})
+		}
 		if current.IsSystem && input.Archived {
 			fieldErrors = append(fieldErrors, FieldError{Field: "archived", Message: current.Label + " is used by upkeep, so it can't be archived."})
 		}
@@ -212,6 +219,7 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 			MaxAmount:  int32PointerOf(input.MaxAmount),
 			SortOrder:  int32(input.SortOrder),
 			Archived:   input.Archived,
+			Hidden:     input.Hidden,
 		})
 		if err != nil {
 			return err
@@ -372,5 +380,6 @@ func toResourceSettings(row store.Resource, storage game.State) ResourceSettings
 		SortOrder:    int64(row.SortOrder),
 		IsSystem:     row.IsSystem,
 		Archived:     row.Archived,
+		Hidden:       row.Hidden,
 	}
 }

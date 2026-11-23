@@ -1648,7 +1648,7 @@
             "$ref": "#/components/schemas/ColonyBoardDm"
           },
           "resources": {
-            "description": "Unarchived resources in board order",
+            "description": "Unarchived resources in board order; players don't get hidden ones",
             "items": {
               "$ref": "#/components/schemas/ColonyResource"
             },
@@ -1791,6 +1791,9 @@
             "format": "int64",
             "type": "integer"
           },
+          "dm": {
+            "$ref": "#/components/schemas/ColonyResourceDm"
+          },
           "icon": {
             "$ref": "#/components/schemas/ColonyIcon"
           },
@@ -1824,6 +1827,18 @@
           "minAmount",
           "maxAmount",
           "isSystem"
+        ],
+        "type": "object"
+      },
+      "ColonyResourceDm": {
+        "additionalProperties": false,
+        "properties": {
+          "hidden": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hidden"
         ],
         "type": "object"
       },
@@ -3818,6 +3833,9 @@
       "NewResourceInput": {
         "additionalProperties": false,
         "properties": {
+          "hidden": {
+            "type": "boolean"
+          },
           "icon": {
             "$ref": "#/components/schemas/ColonyIcon"
           },
@@ -3842,7 +3860,8 @@
           "label",
           "icon",
           "minAmount",
-          "maxAmount"
+          "maxAmount",
+          "hidden"
         ],
         "type": "object"
       },
@@ -5543,6 +5562,9 @@
             "description": "A system resource (food) can't be archived",
             "type": "boolean"
           },
+          "hidden": {
+            "type": "boolean"
+          },
           "icon": {
             "$ref": "#/components/schemas/ColonyIcon"
           },
@@ -5573,7 +5595,8 @@
           "minAmount",
           "maxAmount",
           "sortOrder",
-          "archived"
+          "archived",
+          "hidden"
         ],
         "type": "object"
       },
@@ -5600,6 +5623,10 @@
             "type": "integer"
           },
           "archived": {
+            "type": "boolean"
+          },
+          "hidden": {
+            "description": "Players don't see it on the board, and new timeline entries name its changes only to the DM",
             "type": "boolean"
           },
           "icon": {
@@ -5646,7 +5673,8 @@
           "storageBonus",
           "sortOrder",
           "isSystem",
-          "archived"
+          "archived",
+          "hidden"
         ],
         "type": "object"
       },

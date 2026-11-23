@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArchiveIcon, BoxesIcon, PenLineIcon, PlusIcon } from "lucide-react";
+import { ArchiveIcon, BoxesIcon, EyeOffIcon, PenLineIcon, PlusIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { api, type Schemas } from "@/api/client";
@@ -71,8 +71,9 @@ export function ResourceSettingsCard() {
 						Resources
 					</h2>
 					<p className="mt-1 max-w-prose text-muted-foreground text-sm">
-						What the colony stockpiles. Players see every amount on the board. Archiving hides a
-						resource without losing its history; food can't be archived, since upkeep eats it.
+						What the colony stockpiles. Players see every amount on the board unless you hide it
+						from them. Archiving hides a resource without losing its history; food can't be
+						archived, since upkeep eats it.
 					</p>
 				</div>
 				<Button
@@ -159,6 +160,12 @@ function ResourceList({
 								{resource.label}
 							</span>
 							{resource.isSystem ? <Badge variant="verdigris">Used by upkeep</Badge> : null}
+							{resource.hidden ? (
+								<Badge variant="muted">
+									<EyeOffIcon />
+									Hidden from players
+								</Badge>
+							) : null}
 							{resource.archived ? (
 								<Badge variant="muted">
 									<ArchiveIcon />
@@ -205,6 +212,8 @@ function ResourceSheet({
 		existing?.maxAmount === null || existing === null ? "" : String(existing.maxAmount),
 	);
 	const [archived, setArchived] = useState(existing?.archived ?? false);
+	const [hidden, setHidden] = useState(existing?.hidden ?? false);
+	const isGold = existing?.key === "gold";
 
 	const campaignId = useCampaignId();
 	function settle() {
@@ -250,7 +259,7 @@ function ResourceSheet({
 		if (!canSave || typeof minAmount !== "number" || maxAmount === "invalid") {
 			return;
 		}
-		const common = { icon, label: label.trim(), maxAmount, minAmount };
+		const common = { hidden, icon, label: label.trim(), maxAmount, minAmount };
 		if (existing) {
 			update.mutate(
 				{
@@ -346,6 +355,25 @@ function ResourceSheet({
 							value={maxText}
 						/>
 					</Field>
+				</div>
+				<div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-3">
+					<Label className="grid gap-0.5" htmlFor="resource-hidden">
+						<span>Hidden from players</span>
+						<span className="font-normal text-muted-foreground text-sm">
+							{isGold
+								? "Players pay in gold at the market, so it stays visible."
+								: "Off their board, /colony and Foundry. New timeline entries show its changes only to you; entries already written keep their text."}
+						</span>
+					</Label>
+					<Switch
+						checked={hidden}
+						disabled={isGold}
+						id="resource-hidden"
+						onCheckedChange={(checked) => {
+							setHidden(checked);
+							edited();
+						}}
+					/>
 				</div>
 				{existing ? (
 					<div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-3">

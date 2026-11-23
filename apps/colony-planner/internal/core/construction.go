@@ -867,7 +867,7 @@ func (service *Service) StartBuilding(requestContext context.Context, viewer Vie
 				day:        colony.state.Day,
 				kind:       TimelineKindBuildingStarted,
 				title:      title,
-				body:       joinParts(appliedEffectsText(result.Applied, colony.order, colony.labels), crewsText(colony, started.Lines)),
+				body:       joinParts(appliedEffectsText(result.Applied, colony.publicOrder, colony.labels), crewsText(colony, started.Lines)),
 				visibility: TimelineVisibilityDm,
 				deltas:     result.Applied,
 				buildingID: &buildingID,
@@ -997,7 +997,7 @@ func (service *Service) endBuilding(requestContext context.Context, viewer Viewe
 		if to == BuildingStatusDemolished {
 			kind, title = TimelineKindBuildingDemolished, name+" demolished"
 		}
-		body := appliedEffectsText(result.Applied, colony.order, colony.labels)
+		body := appliedEffectsText(result.Applied, colony.publicOrder, colony.labels)
 		if body == "" {
 			body = "Nothing given back"
 		}
@@ -1207,7 +1207,7 @@ func advanceBuildings(requestContext context.Context, queries *store.Queries, co
 			day:        finish.Day,
 			kind:       TimelineKindBuildingFinished,
 			title:      "The " + building.BlueprintName + " is finished",
-			body:       appliedEffectsText(finish.Applied, colony.order, colony.labels),
+			body:       appliedEffectsText(finish.Applied, colony.publicOrder, colony.labels),
 			visibility: TimelineVisibilityPublic,
 			deltas:     finish.Applied,
 			buildingID: &buildingID,

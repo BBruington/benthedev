@@ -224,6 +224,26 @@ var secrecyFixtures = []secrecyFixture{
 			if _, err := testHarness.core.UndoLastChange(testHarness.context, dmViewer, core.UndoInput{GroupID: undone.GroupID}); err != nil {
 				t.Fatalf("undo it: %v", err)
 			}
+			// A hidden resource's label and key are DM-only, and a PUBLIC entry naming its change must
+			// keep both out of the body and players' deltas.
+			omen, err := testHarness.core.CreateResource(testHarness.context, dmViewer, core.NewResourceInput{
+				Label:  "Omen " + side.dmSecret,
+				Icon:   core.ColonyIconDroplets,
+				Hidden: true,
+			})
+			if err != nil {
+				t.Fatalf("add a hidden resource: %v", err)
+			}
+			side.campaign.hiddenIDs = append(side.campaign.hiddenIDs, omen.Key)
+			if _, err := testHarness.core.AdjustStock(testHarness.context, dmViewer, core.AdjustInput{
+				ExpectedVersion: version(),
+				Source:          core.AdjustSourceAdjustment,
+				Deltas:          map[string]int64{resourceKey: 2, omen.Key: 5},
+				SetTo:           map[string]int64{},
+				Public:          true,
+			}); err != nil {
+				t.Fatalf("plant a public adjustment of a hidden resource: %v", err)
+			}
 			if _, err := testHarness.core.AdjustStock(testHarness.context, dmViewer, core.AdjustInput{
 				ExpectedVersion: version(),
 				Source:          core.AdjustSourceAdjustment,

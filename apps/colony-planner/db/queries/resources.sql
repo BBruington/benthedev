@@ -11,8 +11,8 @@ UPDATE resource SET amount = @amount WHERE campaign_id = @campaign_id AND key = 
 SELECT (COALESCE(max(sort_order), 0) + 10)::integer FROM resource WHERE campaign_id = @campaign_id;
 
 -- name: CreateResource :one
-INSERT INTO resource (campaign_id, key, label, icon, amount, min_amount, max_amount, sort_order)
-VALUES (@campaign_id, @key, @label, @icon, @amount, @min_amount, sqlc.narg(max_amount), @sort_order)
+INSERT INTO resource (campaign_id, key, label, icon, amount, min_amount, max_amount, sort_order, hidden)
+VALUES (@campaign_id, @key, @label, @icon, @amount, @min_amount, sqlc.narg(max_amount), @sort_order, @hidden)
 RETURNING *;
 
 -- Replaces a resource's settings (PUT semantics). The amount changes only through colony mutations.
@@ -23,6 +23,7 @@ SET label = @label,
     min_amount = @min_amount,
     max_amount = sqlc.narg(max_amount),
     sort_order = @sort_order,
-    archived = @archived
+    archived = @archived,
+    hidden = @hidden
 WHERE campaign_id = @campaign_id AND key = @key
 RETURNING *;

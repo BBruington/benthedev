@@ -3201,7 +3201,7 @@ export interface components {
             /** Format: int64 */
             day: number;
             dm?: components["schemas"]["ColonyBoardDm"];
-            /** @description Unarchived resources in board order */
+            /** @description Unarchived resources in board order; players don't get hidden ones */
             resources: components["schemas"]["ColonyResource"][];
             /** @description Unarchived roles in display order, Unassigned included */
             roles: components["schemas"]["RoleHeadcount"][];
@@ -3232,6 +3232,7 @@ export interface components {
         ColonyResource: {
             /** Format: int64 */
             amount: number;
+            dm?: components["schemas"]["ColonyResourceDm"];
             icon: components["schemas"]["ColonyIcon"];
             isSystem: boolean;
             key: string;
@@ -3243,6 +3244,9 @@ export interface components {
             maxAmount: number | null;
             /** Format: int64 */
             minAmount: number;
+        };
+        ColonyResourceDm: {
+            hidden: boolean;
         };
         ColonyRoleReference: {
             icon: components["schemas"]["ColonyIcon"];
@@ -3962,6 +3966,7 @@ export interface components {
             title: string;
         };
         NewResourceInput: {
+            hidden: boolean;
             icon: components["schemas"]["ColonyIcon"];
             /** @description 1 to 40 characters after trimming */
             label: string;
@@ -4557,6 +4562,7 @@ export interface components {
         ResourceInput: {
             /** @description A system resource (food) can't be archived */
             archived: boolean;
+            hidden: boolean;
             icon: components["schemas"]["ColonyIcon"];
             /** @description 1 to 40 characters after trimming */
             label: string;
@@ -4577,6 +4583,8 @@ export interface components {
             /** Format: int64 */
             amount: number;
             archived: boolean;
+            /** @description Players don't see it on the board, and new timeline entries name its changes only to the DM */
+            hidden: boolean;
             icon: components["schemas"]["ColonyIcon"];
             isSystem: boolean;
             key: string;

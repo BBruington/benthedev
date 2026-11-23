@@ -480,6 +480,51 @@ func TestTimelineProjection(t *testing.T) {
 	}
 }
 
+// A hidden resource leaves players' board, and a public entry names its change only in the DM note.
+func TestHiddenResourceProjection(t *testing.T) {
+	test := newColonyTest(t)
+	omen, err := test.service.CreateResource(test.context, test.dm, core.NewResourceInput{Label: "Omen", Icon: core.ColonyIconDroplets, Hidden: true})
+	if err != nil {
+		t.Fatalf("add a hidden resource: %v", err)
+	}
+	change := test.must(test.service.AdjustStock(test.context, test.dm, core.AdjustInput{
+		ExpectedVersion: test.board().Version,
+		Source:          core.AdjustSourceAdjustment,
+		Deltas:          map[string]int64{"food": 4, omen.Key: 5},
+		SetTo:           map[string]int64{},
+		Public:          true,
+	}))
+	written := change.Entries[0]
+	if written.Body != "Food +4" || written.Dm.Note != "Omen +5" || written.Deltas.Resources[omen.Key] != 5 {
+		t.Errorf("the DM's entry is body %q, note %q, deltas %v; want Food +4, Omen +5 and both deltas", written.Body, written.Dm.Note, written.Deltas.Resources)
+	}
+	if !slices.ContainsFunc(test.board().Resources, func(resource core.ColonyResource) bool { return resource.Key == omen.Key && resource.Dm.Hidden }) {
+		t.Error("the DM's board leaves out the hidden resource")
+	}
+
+	viewingAsPlayer := test.dmCaller
+	viewingAsPlayer.ViewAsPlayer = true
+	dmAsPlayer := test.enter(viewingAsPlayer, test.campaignID)
+	for name, viewer := range map[string]core.Viewer{"player": test.player, "DM viewing as player": dmAsPlayer} {
+		board, err := test.service.GetColonyBoard(test.context, viewer)
+		if err != nil {
+			t.Fatalf("%s: read the board: %v", name, err)
+		}
+		if slices.ContainsFunc(board.Resources, func(resource core.ColonyResource) bool { return resource.Key == omen.Key }) {
+			t.Errorf("%s sees the hidden resource on the board", name)
+		}
+		recent, err := test.service.RecentTimeline(test.context, viewer)
+		if err != nil {
+			t.Fatalf("%s: recent: %v", name, err)
+		}
+		for _, entry := range append(test.timeline(viewer, 0, 6), recent.Entries...) {
+			if _, found := entry.Deltas.Resources[omen.Key]; found {
+				t.Errorf("%s sees the hidden resource's delta: %+v", name, entry)
+			}
+		}
+	}
+}
+
 // Auto-logged entries are editable, never deletable; CUSTOM ones move and delete (spec §5.8).
 func TestTimelineEditingRules(t *testing.T) {
 	test := newColonyTest(t)
