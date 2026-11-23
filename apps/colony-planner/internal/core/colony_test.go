@@ -502,6 +502,26 @@ func TestHiddenResourceProjection(t *testing.T) {
 		t.Error("the DM's board leaves out the hidden resource")
 	}
 
+	stream, _, err := test.service.Subscribe(test.player, "")
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer stream.Close()
+	if _, err := test.service.UpdateResource(test.context, test.dm, omen.Key, core.ResourceInput{
+		Label: omen.Label, Icon: omen.Icon, MinAmount: omen.MinAmount, MaxAmount: omen.MaxAmount, SortOrder: omen.SortOrder, Hidden: false,
+	}); err != nil {
+		t.Fatalf("reveal the resource: %v", err)
+	}
+	if message := <-stream.Messages(); !slices.Contains(message.Data.Topics, core.TopicTimeline) {
+		t.Errorf("revealing a resource published %v; want the timeline too, since players' deltas change", message.Data.Topics)
+	}
+	if _, err := test.service.UpdateResource(test.context, test.dm, omen.Key, core.ResourceInput{
+		Label: omen.Label, Icon: omen.Icon, MinAmount: omen.MinAmount, MaxAmount: omen.MaxAmount, SortOrder: omen.SortOrder, Hidden: true,
+	}); err != nil {
+		t.Fatalf("hide the resource again: %v", err)
+	}
+	<-stream.Messages()
+
 	viewingAsPlayer := test.dmCaller
 	viewingAsPlayer.ViewAsPlayer = true
 	dmAsPlayer := test.enter(viewingAsPlayer, test.campaignID)

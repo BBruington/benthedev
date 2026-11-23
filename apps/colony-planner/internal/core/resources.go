@@ -159,6 +159,7 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 	var row store.Resource
 	var storage game.State
 	bridged := false
+	visibilityChanged := false
 	err := service.inTransaction(requestContext, func(queries *store.Queries) error {
 		// Locked first so no colony mutation changes the amount between the bounds check and the save.
 		if _, err := queries.GetColonyForUpdate(requestContext, viewer.campaignID); err != nil {
@@ -174,6 +175,7 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 			return NotFound("That resource doesn't exist.")
 		}
 		current := existing[index]
+		visibilityChanged = current.Hidden != input.Hidden
 		storage, err = storageState(requestContext, queries, viewer.campaignID, existing)
 		if err != nil {
 			return err
@@ -230,7 +232,12 @@ func (service *Service) UpdateResource(requestContext context.Context, viewer Vi
 	if err != nil {
 		return ResourceSettings{}, err
 	}
-	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, TopicResources, TopicColony)...)
+	topics := []Topic{TopicResources, TopicColony}
+	if visibilityChanged {
+		// Players' entry deltas follow the flag, so open timelines refetch.
+		topics = append(topics, TopicTimeline)
+	}
+	service.broker.Publish(viewer.campaignID, withBridgeTopic(bridged, topics...)...)
 	return toResourceSettings(row, storage), nil
 }
 
