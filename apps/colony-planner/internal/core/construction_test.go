@@ -536,3 +536,29 @@ func TestNamedColonistsCannotStrandCrews(t *testing.T) {
 	test.leave(mason.ID, core.LeaveModeReturnToPool)
 	test.join(mason.ID, "BUILDER", core.JoinModePromoteUnnamed)
 }
+
+// A member-level change answers a player without the hidden resource's delta.
+func TestPlayersStartingABuildingDontSeeAHiddenCost(t *testing.T) {
+	test := newConstructionTest(t)
+	resources, err := test.service.ListResources(test.context, test.dm)
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+	index := slices.IndexFunc(resources.Resources, func(resource core.ResourceSettings) bool { return resource.Key == "morale" })
+	morale := resources.Resources[index]
+	if _, err := test.service.UpdateResource(test.context, test.dm, "morale", core.ResourceInput{
+		Label: morale.Label, Icon: morale.Icon, MinAmount: morale.MinAmount, MaxAmount: morale.MaxAmount, SortOrder: morale.SortOrder, Hidden: true,
+	}); err != nil {
+		t.Fatalf("hide morale: %v", err)
+	}
+	input := granary(true)
+	input.Cost = map[string]int64{"materials": 30, "morale": 3}
+	blueprint := test.blueprint(input)
+	started := test.must(test.startBuilding(test.player, blueprint.ID, map[string]int64{"BUILDER": 2}))
+	if _, found := started.Entries[0].Deltas.Resources["morale"]; found || started.Entries[0].Deltas.Resources["materials"] != -30 {
+		t.Errorf("the player's Start entry has deltas %v; want materials only", started.Entries[0].Deltas.Resources)
+	}
+	if test.amount("morale") != 77 {
+		t.Errorf("morale is %d; want 77 after the hidden cost", test.amount("morale"))
+	}
+}

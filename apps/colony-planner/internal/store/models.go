@@ -1839,6 +1839,7 @@ type Resource struct {
 	IsSystem   bool
 	Archived   bool
 	CampaignID uuid.UUID
+	Hidden     bool
 }
 
 type Role struct {

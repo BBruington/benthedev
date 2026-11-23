@@ -87,6 +87,7 @@ export function StatTile({
 	tone = "gilt",
 	caption,
 	className,
+	variant = "tile",
 }: {
 	label: string;
 	value: number;
@@ -94,10 +95,52 @@ export function StatTile({
 	tone?: Tone;
 	caption?: string;
 	className?: string;
+	/** A row is one line of a list: icon and label on the left, the number on the right. */
+	variant?: "tile" | "row";
 }) {
 	const displayed = useCountedValue(value);
 	const delta = useDelta(value);
 	const tones = toneClasses[tone];
+	const deltaChip = delta ? (
+		<span
+			className={cn(
+				"inline-flex animate-chip-in items-center rounded-full px-2 py-0.5 font-semibold text-xs tabular-nums",
+				delta.amount > 0 ? "bg-moss/15 text-moss-ink" : "bg-ember/15 text-ember-ink",
+			)}
+			key={delta.id}
+		>
+			{formatDelta(delta.amount)}
+		</span>
+	) : null;
+	if (variant === "row") {
+		return (
+			<div
+				className={cn("flex min-w-0 items-center gap-3 px-3.5 py-2.5 sm:px-4", className)}
+				data-slot="stat-row"
+			>
+				{Icon ? (
+					<span
+						aria-hidden="true"
+						className={cn(
+							"inline-flex size-8 shrink-0 items-center justify-center rounded-lg",
+							tones.icon,
+						)}
+					>
+						<Icon className="size-4" />
+					</span>
+				) : null}
+				<div className="min-w-0 flex-1">
+					<p className="truncate font-medium">{label}</p>
+					{caption ? <p className="truncate text-muted-foreground text-sm">{caption}</p> : null}
+				</div>
+				{deltaChip}
+				<p className={cn("font-bold font-sans text-xl tabular-nums leading-none", tones.value)}>
+					<span aria-hidden="true">{numberFormat.format(displayed)}</span>
+					<span className="sr-only">{numberFormat.format(value)}</span>
+				</p>
+			</div>
+		);
+	}
 	return (
 		<div
 			className={cn(
@@ -127,17 +170,7 @@ export function StatTile({
 					<span aria-hidden="true">{numberFormat.format(displayed)}</span>
 					<span className="sr-only">{numberFormat.format(value)}</span>
 				</p>
-				{delta ? (
-					<span
-						className={cn(
-							"inline-flex animate-chip-in items-center rounded-full px-2 py-0.5 font-semibold text-xs tabular-nums",
-							delta.amount > 0 ? "bg-moss/15 text-moss-ink" : "bg-ember/15 text-ember-ink",
-						)}
-						key={delta.id}
-					>
-						{formatDelta(delta.amount)}
-					</span>
-				) : null}
+				{deltaChip}
 			</div>
 			{caption ? <p className="text-muted-foreground text-sm">{caption}</p> : null}
 		</div>

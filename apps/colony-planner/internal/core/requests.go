@@ -478,7 +478,7 @@ func (service *Service) grant(requestContext context.Context, queries *store.Que
 	if request.PatronName != nil {
 		patronName = *request.PatronName
 	}
-	effectsText := appliedEffectsText(result.Effects.Applied, colony.order, colony.labels)
+	effectsText := appliedEffectsText(result.Effects.Applied, colony.publicOrder, colony.labels)
 	body := effectsText
 	switch {
 	case cost > 0 && effectsText == "":

@@ -169,7 +169,7 @@ func (service *Service) ListTimeline(requestContext context.Context, viewer View
 	if err != nil {
 		return TimelinePage{}, err
 	}
-	entries, err := toTimelineEntries(rows)
+	entries, err := service.timelineEntriesFor(requestContext, viewer, rows)
 	if err != nil {
 		return TimelinePage{}, err
 	}
@@ -211,7 +211,7 @@ func (service *Service) RecentTimeline(requestContext context.Context, viewer Vi
 	if err != nil {
 		return RecentTimeline{}, err
 	}
-	entries, err := toTimelineEntries(rows)
+	entries, err := service.timelineEntriesFor(requestContext, viewer, rows)
 	if err != nil {
 		return RecentTimeline{}, err
 	}
@@ -487,6 +487,28 @@ func cleanTimelineEntryInput(input TimelineEntryInput) (TimelineEntryInput, erro
 	return TimelineEntryInput{Day: input.Day, Title: title, Body: body, Visibility: input.Visibility}, nil
 }
 
+// timelineEntriesFor converts rows for the viewer: a player's copy drops hidden resources from the deltas.
+func (service *Service) timelineEntriesFor(requestContext context.Context, viewer Viewer, rows []store.TimelineEvent) ([]TimelineEntry, error) {
+	entries, err := toTimelineEntries(rows)
+	if err != nil || viewer.SeesDmFields() {
+		return entries, err
+	}
+	resources, err := service.queries.ListResources(requestContext, viewer.campaignID)
+	if err != nil {
+		return nil, err
+	}
+	var hiddenKeys []string
+	for _, resource := range resources {
+		if resource.Hidden {
+			hiddenKeys = append(hiddenKeys, resource.Key)
+		}
+	}
+	for index := range entries {
+		dropHiddenDeltas(&entries[index], hiddenKeys)
+	}
+	return entries, nil
+}
+
 func toTimelineEntries(rows []store.TimelineEvent) ([]TimelineEntry, error) {
 	entries := make([]TimelineEntry, 0, len(rows))
 	for _, row := range rows {
@@ -545,13 +567,13 @@ func toTimelineEntry(row store.TimelineEvent) (TimelineEntry, error) {
 			arrivalEntryID := data.ArrivalEntryID
 			entry.ArrivalEntryID = &arrivalEntryID
 		}
-	case TimelineKindQuestCompleted, TimelineKindQuestFailed, TimelineKindBuildingFinished:
-		var data dmNoteData
-		if err := json.Unmarshal(row.Data, &data); err != nil {
-			return TimelineEntry{}, fmt.Errorf("core: decode timeline_event %s data: %w", row.ID, err)
-		}
-		entry.Dm.Note = data.DmNote
 	}
+	// Any kind may carry a DM note: writeEntries puts hidden resources' changes there.
+	var note dmNoteData
+	if err := json.Unmarshal(row.Data, &note); err != nil {
+		return TimelineEntry{}, fmt.Errorf("core: decode timeline_event %s data: %w", row.ID, err)
+	}
+	entry.Dm.Note = note.DmNote
 	return entry, nil
 }
 

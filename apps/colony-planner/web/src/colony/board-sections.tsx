@@ -38,6 +38,14 @@ const resourceTones: Record<string, Tone> = {
 };
 
 function resourceCaption(resource: ColonyResource): string | undefined {
+	const bounds = boundsCaption(resource);
+	if (!resource.dm?.hidden) {
+		return bounds;
+	}
+	return bounds ? `Hidden from players · ${bounds}` : "Hidden from players";
+}
+
+function boundsCaption(resource: ColonyResource): string | undefined {
 	if (resource.maxAmount !== null) {
 		// Stock stays above a cap that fell (a building set Idle or demolished), so "250 out of 100" can't read right.
 		if (resource.amount > resource.maxAmount) {
@@ -51,13 +59,37 @@ function resourceCaption(resource: ColonyResource): string | undefined {
 	return undefined;
 }
 
-/** The stockpile: one tile per resource, counting to new values with a delta chip (spec §6.3). */
+// Past four, tiles wrap into a second row on wide screens and a third on phones, so a list reads better.
+const maxResourceTiles = 4;
+
+/** The stockpile: one tile per resource, or a list past four, counting to new values with a delta chip (spec §6.3). */
 export function ResourceTiles({ resources }: { resources: readonly ColonyResource[] }) {
 	if (resources.length === 0) {
 		return (
 			<p className="rounded-xl border border-border border-dashed px-4 py-6 text-center text-muted-foreground">
 				The colony keeps no stock yet.
 			</p>
+		);
+	}
+	if (resources.length > maxResourceTiles) {
+		return (
+			<ul
+				aria-label="Stockpile"
+				className="divide-y divide-border rounded-xl border border-border bg-card shadow-card"
+			>
+				{resources.map((resource) => (
+					<li key={resource.key}>
+						<StatTile
+							caption={resourceCaption(resource)}
+							icon={colonyIcons[resource.icon]}
+							label={resource.label}
+							tone={resourceTones[resource.key] ?? "gilt"}
+							value={resource.amount}
+							variant="row"
+						/>
+					</li>
+				))}
+			</ul>
 		);
 	}
 	return (

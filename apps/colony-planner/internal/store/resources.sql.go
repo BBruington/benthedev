@@ -12,9 +12,9 @@ import (
 )
 
 const createResource = `-- name: CreateResource :one
-INSERT INTO resource (campaign_id, key, label, icon, amount, min_amount, max_amount, sort_order)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id
+INSERT INTO resource (campaign_id, key, label, icon, amount, min_amount, max_amount, sort_order, hidden)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id, hidden
 `
 
 type CreateResourceParams struct {
@@ -26,6 +26,7 @@ type CreateResourceParams struct {
 	MinAmount  int32
 	MaxAmount  *int32
 	SortOrder  int32
+	Hidden     bool
 }
 
 func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) (Resource, error) {
@@ -38,6 +39,7 @@ func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) 
 		arg.MinAmount,
 		arg.MaxAmount,
 		arg.SortOrder,
+		arg.Hidden,
 	)
 	var i Resource
 	err := row.Scan(
@@ -51,12 +53,13 @@ func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) 
 		&i.IsSystem,
 		&i.Archived,
 		&i.CampaignID,
+		&i.Hidden,
 	)
 	return i, err
 }
 
 const listResources = `-- name: ListResources :many
-SELECT key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id FROM resource WHERE campaign_id = $1 ORDER BY sort_order, key
+SELECT key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id, hidden FROM resource WHERE campaign_id = $1 ORDER BY sort_order, key
 `
 
 // Every resource, archived ones included, in board order. The board shows the unarchived ones;
@@ -81,6 +84,7 @@ func (q *Queries) ListResources(ctx context.Context, campaignID uuid.UUID) ([]Re
 			&i.IsSystem,
 			&i.Archived,
 			&i.CampaignID,
+			&i.Hidden,
 		); err != nil {
 			return nil, err
 		}
@@ -126,9 +130,10 @@ SET label = $1,
     min_amount = $3,
     max_amount = $4,
     sort_order = $5,
-    archived = $6
-WHERE campaign_id = $7 AND key = $8
-RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id
+    archived = $6,
+    hidden = $7
+WHERE campaign_id = $8 AND key = $9
+RETURNING key, label, icon, amount, min_amount, max_amount, sort_order, is_system, archived, campaign_id, hidden
 `
 
 type UpdateResourceParams struct {
@@ -138,6 +143,7 @@ type UpdateResourceParams struct {
 	MaxAmount  *int32
 	SortOrder  int32
 	Archived   bool
+	Hidden     bool
 	CampaignID uuid.UUID
 	Key        string
 }
@@ -151,6 +157,7 @@ func (q *Queries) UpdateResource(ctx context.Context, arg UpdateResourceParams) 
 		arg.MaxAmount,
 		arg.SortOrder,
 		arg.Archived,
+		arg.Hidden,
 		arg.CampaignID,
 		arg.Key,
 	)
@@ -166,6 +173,7 @@ func (q *Queries) UpdateResource(ctx context.Context, arg UpdateResourceParams) 
 		&i.IsSystem,
 		&i.Archived,
 		&i.CampaignID,
+		&i.Hidden,
 	)
 	return i, err
 }

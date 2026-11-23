@@ -174,6 +174,8 @@ web/src/** -> web/src/api -> the Go API
     name while a known name is set (`npcEntryRefusal` in `internal/core/timeline.go`). A rename that does
     this moves the NPC's PUBLIC entries to DM, and deleting a hidden NPC moves theirs to DM. Workforce
     entries count in role totals, never unnamed.
+    A hidden resource (`resource.hidden`) is absent from players' board (so from Beny Bot and Foundry's
+    summary) and from their entry deltas; entry bodies leave it out and its changes go in the DM note.
     Beny Bot builds every reply from the player projection, even for the DM. The one exception is a
     request prompt: it goes only to the campaign's DM channel (through `postToCampaign`), so core builds
     it from the DM's projection.
