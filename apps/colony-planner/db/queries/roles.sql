@@ -27,8 +27,8 @@ ORDER BY lower(display_name), created_at, id;
 SELECT (COALESCE(max(sort_order), 0) + 10)::integer FROM role WHERE campaign_id = @campaign_id;
 
 -- name: CreateRole :one
-INSERT INTO role (campaign_id, key, label, icon, sort_order)
-VALUES (@campaign_id, @key, @label, @icon, @sort_order)
+INSERT INTO role (campaign_id, key, label, icon, sort_order, upkeep_silver)
+VALUES (@campaign_id, @key, @label, @icon, @sort_order, @upkeep_silver)
 RETURNING *;
 
 -- Replaces a role's settings (PUT semantics). Headcounts change only through colony mutations; the
@@ -38,6 +38,7 @@ UPDATE role
 SET label = @label,
     icon = @icon,
     sort_order = @sort_order,
+    upkeep_silver = @upkeep_silver,
     archived = @archived
 WHERE campaign_id = @campaign_id AND key = @key
 RETURNING *;

@@ -3977,6 +3977,11 @@ export interface components {
             icon: components["schemas"]["ColonyIcon"];
             /** @description 1 to 40 characters after trimming */
             label: string;
+            /**
+             * Format: int64
+             * @description Silver per colonist per day, 0 or more; 0 when left out
+             */
+            upkeepSilver?: number;
         };
         NextSession: {
             /** @description The next scheduled date that hasn't started; null when none is planned */
@@ -4628,6 +4633,11 @@ export interface components {
             label: string;
             /** Format: int64 */
             sortOrder: number;
+            /**
+             * Format: int64
+             * @description Silver per colonist per day, 0 or more
+             */
+            upkeepSilver: number;
         };
         RoleList: {
             roles: components["schemas"]["RoleSettings"][];
@@ -4649,6 +4659,11 @@ export interface components {
             sortOrder: number;
             /** Format: int64 */
             unnamedCount: number;
+            /**
+             * Format: int64
+             * @description Silver each colonist in the role costs per day; Advance pays the total in gold, rounded up
+             */
+            upkeepSilver: number;
         };
         Session: {
             /**
@@ -5039,6 +5054,11 @@ export interface components {
             unassigned: number;
             /**
              * Format: int64
+             * @description Every role's silver a day, before Advance rounds the bill up to gold
+             */
+            upkeepSilverPerDay: number;
+            /**
+             * Format: int64
              * @description The colony version this read saw; workforce forms send it as expectedVersion
              */
             version: number;
@@ -5059,6 +5079,16 @@ export interface components {
              * @description For players, hidden named colonists are counted here
              */
             unnamedCount: number;
+            /**
+             * Format: int64
+             * @description Silver each colonist in the role costs per day
+             */
+            upkeepSilver: number;
+            /**
+             * Format: int64
+             * @description The role's silver a day: UpkeepSilver for each of its colonists
+             */
+            upkeepSilverPerDay: number;
         };
         WorldMap: {
             dm?: components["schemas"]["WorldMapDm"];

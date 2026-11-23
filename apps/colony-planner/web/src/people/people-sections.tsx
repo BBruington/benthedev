@@ -23,7 +23,7 @@ const numberCell = "px-2 py-3 text-right tabular-nums sm:px-4";
 /**
  * Every role's headcount: unnamed + named = total for the DM, and the totals alone for players
  * (spec §5.5). Unassigned stands out while anyone waits there, and the total row is the board's
- * Colonists tile.
+ * Colonists tile. Once any role has upkeep, everyone sees each role's silver a day (spec §5.2).
  */
 export function RoleTable({
 	workforce,
@@ -36,6 +36,7 @@ export function RoleTable({
 	onSetCount: (roleKey: string) => void;
 	onTransferFrom: (roleKey: string) => void;
 }) {
+	const showsUpkeep = workforce.roles.some((role) => role.upkeepSilver > 0);
 	return (
 		<section
 			aria-labelledby={roleTableHeadingId}
@@ -61,6 +62,7 @@ export function RoleTable({
 					{isDm
 						? "Colonists by role: unnamed, named and total"
 						: "Colonists by role, with each role's total"}
+					{showsUpkeep ? ", and each role's upkeep in silver a day" : null}
 				</caption>
 				<thead>
 					<tr className="border-border border-b text-muted-foreground text-xs uppercase sm:tracking-[0.12em]">
@@ -80,6 +82,11 @@ export function RoleTable({
 						<th className="px-2 py-2 text-right font-medium sm:px-4" scope="col">
 							Total
 						</th>
+						{showsUpkeep ? (
+							<th className="px-2 py-2 text-right font-medium sm:px-4" scope="col">
+								Silver a day
+							</th>
+						) : null}
 						{isDm ? (
 							<th className="hidden w-0 px-2 py-2 sm:table-cell sm:pr-4" scope="col">
 								<span className="sr-only">Actions</span>
@@ -116,6 +123,18 @@ export function RoleTable({
 									</>
 								) : null}
 								<td className={cn(numberCell, "font-semibold")}>{formatNumber(role.total)}</td>
+								{showsUpkeep ? (
+									<td className={numberCell}>
+										<span className="grid">
+											{formatNumber(role.upkeepSilverPerDay)}
+											{role.upkeepSilver > 0 ? (
+												<span className="text-muted-foreground text-sm">
+													{formatNumber(role.upkeepSilver)} each
+												</span>
+											) : null}
+										</span>
+									</td>
+								) : null}
 								{isDm ? (
 									<td className="hidden px-1 py-1 sm:table-cell sm:pr-3">
 										<div className="flex justify-end">
@@ -156,6 +175,11 @@ export function RoleTable({
 						<td className={cn(numberCell, "font-bold text-lg")}>
 							{formatNumber(workforce.colonists)}
 						</td>
+						{showsUpkeep ? (
+							<td className={cn(numberCell, "font-bold text-lg")}>
+								{formatNumber(workforce.upkeepSilverPerDay)}
+							</td>
+						) : null}
 						{isDm ? <td className="hidden sm:table-cell" /> : null}
 					</tr>
 				</tfoot>

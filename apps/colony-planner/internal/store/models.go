@@ -1850,6 +1850,7 @@ type Role struct {
 	IsSystem     bool
 	Archived     bool
 	CampaignID   uuid.UUID
+	UpkeepSilver int32
 }
 
 type Session struct {

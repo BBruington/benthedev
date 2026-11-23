@@ -29,7 +29,9 @@ const rolesHeadingId = "roles-heading";
 
 function headcountText(role: RoleSettings): string {
 	const named = role.namedCount > 0 ? ` (${formatNumber(role.namedCount)} named)` : "";
-	return `${countOf(role.headcount, "colonist")}${named} · position ${role.sortOrder}`;
+	const upkeep =
+		role.upkeepSilver > 0 ? ` · ${formatNumber(role.upkeepSilver)} silver a day each` : "";
+	return `${countOf(role.headcount, "colonist")}${named}${upkeep} · position ${role.sortOrder}`;
 }
 
 /**
@@ -203,6 +205,7 @@ function RoleSheet({
 	const [label, setLabel] = useState(existing?.label ?? "");
 	const [icon, setIcon] = useState<ColonyIconName>(existing?.icon ?? "Users");
 	const [sortOrderText, setSortOrderText] = useState(String(existing?.sortOrder ?? ""));
+	const [upkeepText, setUpkeepText] = useState(String(existing?.upkeepSilver ?? 0));
 	const [archived, setArchived] = useState(existing?.archived ?? false);
 
 	const campaignId = useCampaignId();
@@ -226,7 +229,14 @@ function RoleSheet({
 	if (existing && typeof sortOrder !== "number") {
 		sortOrderError = "Enter a whole number.";
 	}
-	const canSave = label.trim() !== "" && sortOrderError === undefined && !isSaving;
+	const typedUpkeep = parseWholeNumber(upkeepText);
+	const upkeepSilver = typeof typedUpkeep === "number" && typedUpkeep >= 0 ? typedUpkeep : null;
+	const upkeepError =
+		upkeepSilver === null
+			? "Enter a whole number of silver, 0 or more."
+			: serverErrors.upkeepSilver;
+	const canSave =
+		label.trim() !== "" && sortOrderError === undefined && upkeepError === undefined && !isSaving;
 	const showGeneralError = error !== null && Object.keys(serverErrors).length === 0;
 
 	function edited() {
@@ -235,7 +245,7 @@ function RoleSheet({
 
 	function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
-		if (!canSave) {
+		if (!canSave || upkeepSilver === null) {
 			return;
 		}
 		if (existing) {
@@ -246,6 +256,7 @@ function RoleSheet({
 						icon,
 						label: label.trim(),
 						sortOrder: typeof sortOrder === "number" ? sortOrder : existing.sortOrder,
+						upkeepSilver,
 					},
 					params: { path: { campaignId, roleKey: existing.key } },
 				},
@@ -259,7 +270,7 @@ function RoleSheet({
 			return;
 		}
 		create.mutate(
-			{ body: { icon, label: label.trim() }, params: { path: { campaignId } } },
+			{ body: { icon, label: label.trim(), upkeepSilver }, params: { path: { campaignId } } },
 			{
 				onSuccess: (saved) => {
 					toast.success(`${saved.label} added. Transfer colonists into it from People.`);
@@ -307,6 +318,23 @@ function RoleSheet({
 					}}
 					value={icon}
 				/>
+				<Field
+					description="Silver a day for each colonist in this role. Advancing adds it up over the days advanced and takes it from gold, rounded up to whole gold (10 silver is 1 gold)."
+					error={upkeepError}
+					id="role-upkeep"
+					label="Upkeep per colonist"
+				>
+					<Input
+						{...fieldInputProps("role-upkeep", upkeepError, true)}
+						autoComplete="off"
+						inputMode="numeric"
+						onChange={(event) => {
+							setUpkeepText(event.target.value);
+							edited();
+						}}
+						value={upkeepText}
+					/>
+				</Field>
 				{existing ? (
 					<>
 						<Field

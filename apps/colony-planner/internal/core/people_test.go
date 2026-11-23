@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -490,6 +491,48 @@ func TestRoleSettings(t *testing.T) {
 	}
 	if _, err := test.service.ListRoles(test.context, test.player); !isKind(err, core.KindForbidden) {
 		t.Fatalf("a player listing role settings: %v", err)
+	}
+}
+
+func TestRoleUpkeepIsSavedAndPaidByAdvance(t *testing.T) {
+	test := newColonyTest(t)
+	for _, upkeep := range []int64{-1, math.MaxInt32 + 1} {
+		if _, err := test.service.UpdateRole(test.context, test.dm, "FARMER", core.RoleInput{Label: "Farmer", Icon: core.ColonyIconWheat, UpkeepSilver: upkeep}); !isKind(err, core.KindInvalid) {
+			t.Fatalf("upkeep %d: %v", upkeep, err)
+		}
+	}
+	farmer, err := test.service.UpdateRole(test.context, test.dm, "FARMER", core.RoleInput{Label: "Farmer", Icon: core.ColonyIconWheat, UpkeepSilver: 4})
+	if err != nil || farmer.UpkeepSilver != 4 {
+		t.Fatalf("farmer = %+v, %v", farmer, err)
+	}
+	guard, err := test.service.CreateRole(test.context, test.dm, core.NewRoleInput{Label: "Guard", Icon: core.ColonyIconSword, UpkeepSilver: 7})
+	if err != nil || guard.UpkeepSilver != 7 {
+		t.Fatalf("guard = %+v, %v", guard, err)
+	}
+	test.setHeadcounts(map[string]int32{"FARMER": 3})
+	test.setTo(map[string]int64{"gold": 50})
+
+	workforce, err := test.service.GetWorkforce(test.context, test.player)
+	if err != nil || workforce.UpkeepSilverPerDay != 12 {
+		t.Fatalf("the player's workforce = %+v, %v", workforce, err)
+	}
+	index := slices.IndexFunc(workforce.Roles, func(role core.WorkforceRole) bool { return role.Key == "FARMER" })
+	if index < 0 || workforce.Roles[index].UpkeepSilver != 4 || workforce.Roles[index].UpkeepSilverPerDay != 12 {
+		t.Fatalf("the player's farmers = %+v", workforce.Roles)
+	}
+
+	// 3 Farmers at 4 silver for 2 days is 24 silver, which rounds up to 3 gold.
+	preview, err := test.service.PreviewAdvance(test.context, test.dm, core.AdvancePreviewInput{Days: 2})
+	if err != nil || !strings.Contains(preview.Summary, "Gold 50 → 47") {
+		t.Fatalf("preview = %q, %v", preview.Summary, err)
+	}
+	advanced := test.advance(2)
+	if gold := test.amount("gold"); gold != 47 {
+		t.Fatalf("gold after the advance = %d, want 47", gold)
+	}
+	test.must(test.service.UndoLastChange(test.context, test.dm, core.UndoInput{GroupID: advanced.GroupID}))
+	if gold := test.amount("gold"); gold != 50 {
+		t.Fatalf("gold after undo = %d, want 50", gold)
 	}
 }
 

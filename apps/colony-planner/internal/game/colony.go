@@ -25,6 +25,8 @@ const (
 	UnassignedRoleKey = "UNASSIGNED"
 	// FoodPerColonistPerDay is the old app's upkeep rule, kept as is (spec §5.2).
 	FoodPerColonistPerDay = 1
+	// SilverPerGold is what role upkeep divides by when an advance pays its silver in gold.
+	SilverPerGold = 10
 )
 
 // State is everything the colony rules read and change. Handlers load it from the colony, resource and
@@ -70,6 +72,8 @@ type Role struct {
 	// `npc.colony_role_key`.
 	NamedCount int64
 	Archived   bool
+	// UpkeepSilver is the silver each colonist in this role costs per day (spec §5.2).
+	UpkeepSilver int64
 }
 
 // Colonists is the colony's population, which is never stored: the sum over every role, UNASSIGNED
@@ -128,6 +132,9 @@ func checkStoredState(state State) error {
 	for key, role := range state.Roles {
 		if role.UnnamedCount < 0 || role.NamedCount < 0 {
 			return fmt.Errorf("game: role %q has a negative headcount", key)
+		}
+		if role.UpkeepSilver < 0 || role.UpkeepSilver > MaxStored {
+			return fmt.Errorf("game: role %q upkeep %d is out of range", key, role.UpkeepSilver)
 		}
 	}
 	if !checkStoredProjects(state.Projects) {
