@@ -116,7 +116,8 @@ type AdvancePreview struct {
 	FromDay   int64 `json:"fromDay"`
 	ToDay     int64 `json:"toDay"`
 	Colonists int64 `json:"colonists" doc:"The headcount upkeep used"`
-	// Resources lists every resource the advance changes: food, and whatever building output moves.
+	// Resources lists every resource the advance changes: food, gold when roles have upkeep, and whatever
+	// building output moves.
 	Resources       []ResourceChangePreview `json:"resources"`
 	ArrivalCount    int64                   `json:"arrivalCount"`
 	Arrivals        []ArrivalRun            `json:"arrivals" doc:"Every arrival day in the span, as runs"`
@@ -279,7 +280,7 @@ func (service *Service) PreviewAdvance(requestContext context.Context, viewer Vi
 	return advancePreview(colony, result, marketDocksDays, finishes), nil
 }
 
-// Advance moves the clock N days: upkeep, then shipments (spec §5.2), on the write path of §5.1.
+// Advance moves the clock N days: the daily steps, then role upkeep in gold (spec §5.2), on the write path of §5.1.
 func (service *Service) Advance(requestContext context.Context, viewer Viewer, input AdvanceInput) (ColonyChange, error) {
 	return service.mutateColony(requestContext, viewer, input.ExpectedVersion, func(colony colonySnapshot, queries *store.Queries) (colonyOutcome, error) {
 		result, err := game.Advance(colony.state, input.Days)
@@ -862,7 +863,10 @@ func readColony(requestContext context.Context, queries *store.Queries, campaign
 		snapshot.labels[resource.Key] = resource.Label
 	}
 	for _, row := range roles {
-		snapshot.state.Roles[row.Role.Key] = game.Role{Label: row.Role.Label, UnnamedCount: int64(row.Role.UnnamedCount), NamedCount: row.NamedCount, Archived: row.Role.Archived}
+		snapshot.state.Roles[row.Role.Key] = game.Role{
+			Label: row.Role.Label, UnnamedCount: int64(row.Role.UnnamedCount), NamedCount: row.NamedCount, Archived: row.Role.Archived,
+			UpkeepSilver: int64(row.Role.UpkeepSilver),
+		}
 		snapshot.roles[row.Role.Key] = row.Role
 	}
 	outputs, err := readBlueprintOutputs(requestContext, queries, campaignID)

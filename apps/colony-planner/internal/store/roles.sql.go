@@ -12,17 +12,18 @@ import (
 )
 
 const createRole = `-- name: CreateRole :one
-INSERT INTO role (campaign_id, key, label, icon, sort_order)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id
+INSERT INTO role (campaign_id, key, label, icon, sort_order, upkeep_silver)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id, upkeep_silver
 `
 
 type CreateRoleParams struct {
-	CampaignID uuid.UUID
-	Key        string
-	Label      string
-	Icon       ColonyIcon
-	SortOrder  int32
+	CampaignID   uuid.UUID
+	Key          string
+	Label        string
+	Icon         ColonyIcon
+	SortOrder    int32
+	UpkeepSilver int32
 }
 
 func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error) {
@@ -32,6 +33,7 @@ func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (Role, e
 		arg.Label,
 		arg.Icon,
 		arg.SortOrder,
+		arg.UpkeepSilver,
 	)
 	var i Role
 	err := row.Scan(
@@ -43,6 +45,7 @@ func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (Role, e
 		&i.IsSystem,
 		&i.Archived,
 		&i.CampaignID,
+		&i.UpkeepSilver,
 	)
 	return i, err
 }
@@ -110,7 +113,7 @@ func (q *Queries) ListNamedColonists(ctx context.Context, arg ListNamedColonists
 }
 
 const listRoles = `-- name: ListRoles :many
-SELECT role.key, role.label, role.icon, role.sort_order, role.unnamed_count, role.is_system, role.archived, role.campaign_id,
+SELECT role.key, role.label, role.icon, role.sort_order, role.unnamed_count, role.is_system, role.archived, role.campaign_id, role.upkeep_silver,
        (SELECT count(*) FROM npc
         WHERE npc.campaign_id = role.campaign_id AND npc.colony_role_key = role.key)::bigint AS named_count,
        (SELECT count(*) FROM npc
@@ -147,6 +150,7 @@ func (q *Queries) ListRoles(ctx context.Context, campaignID uuid.UUID) ([]ListRo
 			&i.Role.IsSystem,
 			&i.Role.Archived,
 			&i.Role.CampaignID,
+			&i.Role.UpkeepSilver,
 			&i.NamedCount,
 			&i.RevealedNamedCount,
 		); err != nil {
@@ -192,18 +196,20 @@ UPDATE role
 SET label = $1,
     icon = $2,
     sort_order = $3,
-    archived = $4
-WHERE campaign_id = $5 AND key = $6
-RETURNING key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id
+    upkeep_silver = $4,
+    archived = $5
+WHERE campaign_id = $6 AND key = $7
+RETURNING key, label, icon, sort_order, unnamed_count, is_system, archived, campaign_id, upkeep_silver
 `
 
 type UpdateRoleParams struct {
-	Label      string
-	Icon       ColonyIcon
-	SortOrder  int32
-	Archived   bool
-	CampaignID uuid.UUID
-	Key        string
+	Label        string
+	Icon         ColonyIcon
+	SortOrder    int32
+	UpkeepSilver int32
+	Archived     bool
+	CampaignID   uuid.UUID
+	Key          string
 }
 
 // Replaces a role's settings (PUT semantics). Headcounts change only through colony mutations; the
@@ -213,6 +219,7 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, e
 		arg.Label,
 		arg.Icon,
 		arg.SortOrder,
+		arg.UpkeepSilver,
 		arg.Archived,
 		arg.CampaignID,
 		arg.Key,
@@ -227,6 +234,7 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, e
 		&i.IsSystem,
 		&i.Archived,
 		&i.CampaignID,
+		&i.UpkeepSilver,
 	)
 	return i, err
 }

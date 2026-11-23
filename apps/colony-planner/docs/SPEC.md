@@ -384,7 +384,7 @@ All tables live in one Postgres database:
 |---|---|---|
 | `colony` (one per campaign) | `campaign_id PK`, `name`, `day int ≥ 0`, `version bigint`, `shipment_interval_days int NULL CHECK (≥ 1)`, `next_shipment_day int NULL`, `last_change jsonb NULL`, `updated_at` | `CHECK ((shipment_interval_days IS NULL) = (next_shipment_day IS NULL))` and `CHECK (next_shipment_day > day)`, so the stall is impossible. `version` increments on every colony mutation. `last_change` holds the undo snapshot (§5.1). Every member reads `name` and the campaign name on the board; the DM edits both on `/settings`, which is not a colony mutation. |
 | `resource` | `PRIMARY KEY (campaign_id, key)`, `label`, `icon colony_icon` (a curated lucide list, as a Postgres enum), `amount int`, `min_amount int DEFAULT 0`, `max_amount int NULL`, `sort_order`, `is_system bool`, `archived bool` | `CHECK (amount >= min_amount AND (max_amount IS NULL OR amount <= max_amount))`. Seeds: `gold`, `food` (system; used by upkeep), `materials`, and `morale` (max 100, starts at 100). The DM adds resources with no code change. |
-| `role` | `PRIMARY KEY (campaign_id, key)`, `label`, `icon`, `sort_order`, `unnamed_count int CHECK (≥ 0)`, `is_system bool`, `archived bool` | Seeds use the old icons: FARMER (Wheat), HEALER (HeartPulse), BLACKSMITH (Hammer), SOLDIER (Sword), MINER (Pickaxe), BUILDER (HardHat), SCHOLAR (BookOpen), MAGE (Wand2, stored as `WandSparkles`, lucide's current name for it), plus the system role **UNASSIGNED** (Users). A role can be archived only when its headcount is 0. |
+| `role` | `PRIMARY KEY (campaign_id, key)`, `label`, `icon`, `sort_order`, `unnamed_count int CHECK (≥ 0)`, `upkeep_silver int DEFAULT 0 CHECK (≥ 0)` (silver per colonist per day, §5.2), `is_system bool`, `archived bool` | Seeds use the old icons: FARMER (Wheat), HEALER (HeartPulse), BLACKSMITH (Hammer), SOLDIER (Sword), MINER (Pickaxe), BUILDER (HardHat), SCHOLAR (BookOpen), MAGE (Wand2, stored as `WandSparkles`, lucide's current name for it), plus the system role **UNASSIGNED** (Users). A role can be archived only when its headcount is 0. |
 
 The **colonist total is never stored**. `game.Colonists` and this query compute it:
 
@@ -529,7 +529,7 @@ commit → stream.Publish(topics…) → best-effort Discord post
 **Daily-step pipeline.** Steps run in a fixed order each day, and that order is a rule:
 
 ```go
-var DailySteps = []Step{BuildingOutput{}, Upkeep{}, Shipments{}, Construction{}} // construction design §4.1
+var DailySteps = []Step{BuildingOutput{}, Upkeep{}, RoleUpkeep{}, Shipments{}, Construction{}} // construction design §4.1
 
 type Step interface {
     // Apply this step to every day in (from, to], given that no other step changes
@@ -545,6 +545,11 @@ type Step interface {
   - **Upkeep:** `food = max(food − colonists × N, food.min_amount)`. This is the old rule of 1 food per colonist per day (`game.FoodPerColonistPerDay`), in closed form.
   - **Shipments:** the arrivals in `(old, new]` are the arithmetic run `D, D+I, …`, counted rather than looped. Afterwards `D` becomes the first value greater than the new day.
 - A future step that changes state every day reports a boundary every day, and the walk becomes a day-by-day loop.
+- **Role upkeep (the author's rule, 2026-11-23).** Each role has `upkeep_silver`, the silver one colonist in it costs per day, which the DM sets per role on `/settings` (default 0, so nothing is paid until it is set).
+  - Each day adds Σ over roles of `headcount × upkeep_silver` (unnamed and named colonists) to the advance's bill. Colonists a finish brings cost from the day after, as with food.
+  - The bill is paid **once, at the end of the advance**: `gold = max(gold − ceil(silver ÷ 10), gold.min_amount)`. 10 silver is 1 gold (`game.SilverPerGold`), and the rounding up happens once per advance, not once per day.
+  - The payment is part of the `DAYS_ADVANCED` entry's deltas ("Gold −3") and of the preview, which marks gold floored when it can't pay it all. Nothing else happens at the floor (decision 5). An archived gold resource is left alone.
+  - Everyone sees it on `/people`: once any role has upkeep, the role table adds a "Silver a day" column (each role's rate × its total, with the rate per colonist) and the colony's daily total. Hidden named colonists cost the same and are already in players' totals, so nothing hints at them.
 - **Writes are bounded for any N:**
   - one `DAYS_ADVANCED` entry at the new day, e.g. "3 days pass · Day 44" with body "Food −39 · Shipment arrived Day 42";
   - one `SHIPMENT_ARRIVED` entry per arrival day when there are **12 or fewer arrivals**;
@@ -557,6 +562,7 @@ type Step interface {
   - advancing one day N times gives the same state as advancing N days once;
   - `Advance(a+b) == Advance(Advance(a), b)`;
   - the span engine matches a naive day-by-day reference implementation.
+  - **The one exception is role upkeep**, because it rounds up once per advance: 1 colonist at 1 silver costs 1 gold for one 7-day advance and 7 gold for seven 1-day advances. The first two guarantees hold for everything else, and for gold whenever no role has upkeep.
 - **Nothing else happens** (decisions 4 and 5):
   - workers produce nothing;
   - there are no consequences at 0 food or low morale;
@@ -633,7 +639,7 @@ type Step interface {
   - entry text names an NPC by `displayName`, even in DM-only entries. That is the true name while `known_name` is blank, so an entry about an NPC carries `npc_id` and `npc_name`, the display name it was written with. It can be switched to PUBLIC only while the NPC is revealed. Its text can't be PUBLIC (switched, edited while PUBLIC, or repeated by a public UNDO) while it names the NPC by `npc_name` once that is no longer the display name, or by the true name while a known name is set ("This entry names them by a name the party doesn't know; edit the text first."). Names match as whole words, ignoring case and spacing, and not inside the display name itself ("Tam" in "Old Tam"); other spellings the DM types are the DM's call. Players see an entry about an NPC only while that NPC is revealed, so hiding an NPC later hides their entries too. Every UNDO that repeats such an entry's title carries its `npc_id` and `npc_name`, DM-only ones included, and a public UNDO whose repeated title would break the rule reads "The DM rewound a change to the colony";
   - renaming an NPC (a new true name or known name) moves their PUBLIC entries whose text now breaks that rule to DM, so a known name set after a reveal takes the true name off the players' timeline. Deleting a hidden NPC moves their PUBLIC entries to DM before the link is cleared, so they stay hidden. After any delete, an entry can't go PUBLIC while it names the NPC by `npc_name`, unless that was the name players knew a revealed NPC by;
   - for players, a hidden named colonist counts as one of their role's unnamed colonists, so totals are right and nothing hints at them. For the same reason a **Set count** entry reads in role totals ("Builder: 4 → 6 colonists"), which are the same for the DM and players;
-  - **Roles** are managed on `/settings` like resources: add, rename, icon, position, and archive only when the headcount (unnamed + named) is 0. UNASSIGNED can't be renamed or archived; its icon and position can change.
+  - **Roles** are managed on `/settings` like resources: add, rename, icon, position, upkeep in silver per colonist per day (§5.2), and archive only when the headcount (unnamed + named) is 0. UNASSIGNED can't be renamed or archived; its icon and position can change.
 
 ### 5.6 Quests
 
@@ -947,7 +953,7 @@ Since M1.5 (F8) every route below lives under `/c/{slug}` (`/c/{slug}/timeline`,
 | `/login` | "Sign in with Discord" over darkened Eldari art; one-line privacy note. Devauth builds add a **Dev sign-in** list of members (§8.5). | same |
 | `/pending` | — | "Waiting for the DM to let you in". Opens live when approved. "You don't have access" if removed or denied, including after signing in again. Sign out. |
 | `/` Colony board | Day dial ("Day 44 · next ship Day 47, in 3 days"); resource tiles with live delta chips; colonists strip ("62 colonists · 5 unassigned"); **Advance** chips (+1 / +3 / +7 / Custom) → preview sheet → confirm; Adjust; Shipments; Correct day; **Undo last change** (shows what it undoes); pending requests with Review; last 5 timeline entries; next session; last recap snippet | Same information, read-only; "Ask a patron"; my requests |
-| `/people` | Role table (unnamed + named = total), Unassigned highlighted when > 0; transfer and set-count dialogs; named roster with join, change role and leave | Role totals; revealed named colonists |
+| `/people` | Role table (unnamed + named = total), Unassigned highlighted when > 0; transfer and set-count dialogs; named roster with join, change role and leave | Role totals and silver a day; revealed named colonists |
 | `/timeline` | All entries (DM-only marked with an eye-slash; undone struck through); session bands; add a CUSTOM entry on any day; edit text and visibility; delete CUSTOM entries; filters; jump to day. An entry about an NPC links to their page (here and on the board) | PUBLIC entries, session bands, "Jump to today"; links to the pages of revealed NPCs |
 | `/quests`, `/quests/$questId` | All quests by status; create (with the Visible switch and "Post to timeline"); reveal; reward editor (Effects + favor + loot); giver pickers; **Complete** (preview sheet), **Fail**, **Reopen** (failed only); `dm_notes` | Visible quests: Active / Done / Failed; description; reward; giver if revealed |
 | `/patrons`, `/patrons/$patronId` | All patrons with favor; edit; archive; adjust favor; define and archive actions; request history; **Use action now** (on behalf of a player) | Visible patrons; favor; action cards (cost → effects) with **Request** (with a note); request history |

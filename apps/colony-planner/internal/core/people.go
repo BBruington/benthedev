@@ -16,21 +16,25 @@ import (
 // colonists. Players see every role's total; named colonists are listed only when revealed, and a
 // hidden one is counted among the unnamed (roleHeadcount), so the numbers never hint at them.
 type Workforce struct {
-	Version    int64           `json:"version" doc:"The colony version this read saw; workforce forms send it as expectedVersion"`
-	Colonists  int64           `json:"colonists"`
-	Unassigned int64           `json:"unassigned" doc:"The Unassigned role's total"`
-	Roles      []WorkforceRole `json:"roles" doc:"Unarchived roles in display order, Unassigned included"`
+	Version            int64           `json:"version" doc:"The colony version this read saw; workforce forms send it as expectedVersion"`
+	Colonists          int64           `json:"colonists"`
+	Unassigned         int64           `json:"unassigned" doc:"The Unassigned role's total"`
+	Roles              []WorkforceRole `json:"roles" doc:"Unarchived roles in display order, Unassigned included"`
+	UpkeepSilverPerDay int64           `json:"upkeepSilverPerDay" doc:"Every role's silver a day, before Advance rounds the bill up to gold"`
 }
 
 type WorkforceRole struct {
-	Key            string         `json:"key"`
-	Label          string         `json:"label"`
-	Icon           ColonyIcon     `json:"icon"`
-	UnnamedCount   int64          `json:"unnamedCount" doc:"For players, hidden named colonists are counted here"`
-	NamedCount     int64          `json:"namedCount"`
-	Total          int64          `json:"total"`
-	IsSystem       bool           `json:"isSystem" doc:"Marks UNASSIGNED, where new colonists land"`
-	NamedColonists []NpcReference `json:"namedColonists"`
+	Key          string     `json:"key"`
+	Label        string     `json:"label"`
+	Icon         ColonyIcon `json:"icon"`
+	UnnamedCount int64      `json:"unnamedCount" doc:"For players, hidden named colonists are counted here"`
+	NamedCount   int64      `json:"namedCount"`
+	Total        int64      `json:"total"`
+	IsSystem     bool       `json:"isSystem" doc:"Marks UNASSIGNED, where new colonists land"`
+	UpkeepSilver int64      `json:"upkeepSilver" doc:"Silver each colonist in the role costs per day"`
+	// UpkeepSilverPerDay counts every colonist, hidden ones too, which Total already does for players.
+	UpkeepSilverPerDay int64          `json:"upkeepSilverPerDay" doc:"The role's silver a day: UpkeepSilver for each of its colonists"`
+	NamedColonists     []NpcReference `json:"namedColonists"`
 }
 
 // TransferInput moves unnamed colonists between roles; WORKFORCE_CHANGED is DM-only unless Public.
@@ -95,7 +99,11 @@ func (service *Service) GetWorkforce(requestContext context.Context, viewer View
 	workforce := Workforce{Version: colony.Version, Roles: make([]WorkforceRole, 0, len(roles))}
 	headcounts := make(map[string]game.Role, len(roles))
 	for _, row := range roles {
-		headcounts[row.Role.Key] = game.Role{UnnamedCount: int64(row.Role.UnnamedCount), NamedCount: row.NamedCount}
+		headcounts[row.Role.Key] = game.Role{
+			UnnamedCount: int64(row.Role.UnnamedCount),
+			NamedCount:   row.NamedCount,
+			UpkeepSilver: int64(row.Role.UpkeepSilver),
+		}
 		headcount := roleHeadcount(row, viewer.SeesDmFields())
 		if row.Role.Key == game.UnassignedRoleKey {
 			workforce.Unassigned = headcount.Total
@@ -104,14 +112,16 @@ func (service *Service) GetWorkforce(requestContext context.Context, viewer View
 			continue
 		}
 		role := WorkforceRole{
-			Key:            headcount.Key,
-			Label:          headcount.Label,
-			Icon:           headcount.Icon,
-			UnnamedCount:   headcount.UnnamedCount,
-			NamedCount:     headcount.NamedCount,
-			Total:          headcount.Total,
-			IsSystem:       headcount.IsSystem,
-			NamedColonists: []NpcReference{},
+			Key:                headcount.Key,
+			Label:              headcount.Label,
+			Icon:               headcount.Icon,
+			UnnamedCount:       headcount.UnnamedCount,
+			NamedCount:         headcount.NamedCount,
+			Total:              headcount.Total,
+			IsSystem:           headcount.IsSystem,
+			UpkeepSilver:       int64(row.Role.UpkeepSilver),
+			UpkeepSilverPerDay: headcounts[row.Role.Key].DailyUpkeepSilver(),
+			NamedColonists:     []NpcReference{},
 		}
 		for _, npc := range named {
 			if npc.ColonyRoleKey != nil && *npc.ColonyRoleKey == role.Key {
@@ -121,6 +131,7 @@ func (service *Service) GetWorkforce(requestContext context.Context, viewer View
 		workforce.Roles = append(workforce.Roles, role)
 	}
 	workforce.Colonists = game.Colonists(headcounts)
+	workforce.UpkeepSilverPerDay = game.DailyUpkeepSilver(headcounts)
 	return workforce, nil
 }
 
@@ -322,6 +333,7 @@ type RoleSettings struct {
 	UnnamedCount int64      `json:"unnamedCount"`
 	NamedCount   int64      `json:"namedCount"`
 	Headcount    int64      `json:"headcount" doc:"unnamedCount + namedCount; a role can be archived only at 0"`
+	UpkeepSilver int64      `json:"upkeepSilver" doc:"Silver each colonist in the role costs per day; Advance pays the total in gold, rounded up"`
 	// IsSystem marks UNASSIGNED, where new colonists land: it keeps its name and can't be archived.
 	IsSystem bool `json:"isSystem"`
 	Archived bool `json:"archived"`
@@ -332,16 +344,18 @@ type RoleList struct {
 }
 
 type NewRoleInput struct {
-	Label string     `json:"label" doc:"1 to 40 characters after trimming"`
-	Icon  ColonyIcon `json:"icon"`
+	Label        string     `json:"label" doc:"1 to 40 characters after trimming"`
+	Icon         ColonyIcon `json:"icon"`
+	UpkeepSilver int64      `json:"upkeepSilver,omitempty" doc:"Silver per colonist per day, 0 or more; 0 when left out"`
 }
 
 // RoleInput replaces a role's settings (PUT semantics).
 type RoleInput struct {
-	Label     string     `json:"label" doc:"1 to 40 characters after trimming; Unassigned keeps its name"`
-	Icon      ColonyIcon `json:"icon"`
-	SortOrder int64      `json:"sortOrder"`
-	Archived  bool       `json:"archived" doc:"Only when nobody is in the role; Unassigned can't be archived"`
+	Label        string     `json:"label" doc:"1 to 40 characters after trimming; Unassigned keeps its name"`
+	Icon         ColonyIcon `json:"icon"`
+	SortOrder    int64      `json:"sortOrder"`
+	UpkeepSilver int64      `json:"upkeepSilver" doc:"Silver per colonist per day, 0 or more"`
+	Archived     bool       `json:"archived" doc:"Only when nobody is in the role; Unassigned can't be archived"`
 }
 
 const roleLabelMaxLength = 40
@@ -367,7 +381,7 @@ func (service *Service) CreateRole(requestContext context.Context, viewer Viewer
 	if err := requireDm(viewer); err != nil {
 		return RoleSettings{}, err
 	}
-	label, fieldErrors := checkRoleSettings(input.Label, input.Icon)
+	label, fieldErrors := checkRoleSettings(input.Label, input.Icon, input.UpkeepSilver)
 	if len(fieldErrors) > 0 {
 		return RoleSettings{}, Invalid("The role needs fixing.", fieldErrors...)
 	}
@@ -395,11 +409,12 @@ func (service *Service) CreateRole(requestContext context.Context, viewer Viewer
 			taken[role.Role.Key] = true
 		}
 		row, err = queries.CreateRole(requestContext, store.CreateRoleParams{
-			CampaignID: viewer.campaignID,
-			Key:        uniqueKey(strings.ToUpper(keyBase(label, "role")), taken),
-			Label:      label,
-			Icon:       input.Icon,
-			SortOrder:  sortOrder,
+			CampaignID:   viewer.campaignID,
+			Key:          uniqueKey(strings.ToUpper(keyBase(label, "role")), taken),
+			Label:        label,
+			Icon:         input.Icon,
+			SortOrder:    sortOrder,
+			UpkeepSilver: int32(input.UpkeepSilver),
 		})
 		if err != nil {
 			return err
@@ -423,7 +438,7 @@ func (service *Service) UpdateRole(requestContext context.Context, viewer Viewer
 	if err := requireDm(viewer); err != nil {
 		return RoleSettings{}, err
 	}
-	label, fieldErrors := checkRoleSettings(input.Label, input.Icon)
+	label, fieldErrors := checkRoleSettings(input.Label, input.Icon, input.UpkeepSilver)
 	if input.SortOrder < game.MinStored || input.SortOrder > game.MaxStored {
 		fieldErrors = append(fieldErrors, FieldError{Field: "sortOrder", Message: "That position can't be stored."})
 	}
@@ -471,12 +486,13 @@ func (service *Service) UpdateRole(requestContext context.Context, viewer Viewer
 			return Invalid("The role needs fixing.", fieldErrors...)
 		}
 		row, err := queries.UpdateRole(requestContext, store.UpdateRoleParams{
-			CampaignID: viewer.campaignID,
-			Key:        roleKey,
-			Label:      label,
-			Icon:       input.Icon,
-			SortOrder:  int32(input.SortOrder),
-			Archived:   input.Archived,
+			CampaignID:   viewer.campaignID,
+			Key:          roleKey,
+			Label:        label,
+			Icon:         input.Icon,
+			SortOrder:    int32(input.SortOrder),
+			UpkeepSilver: int32(input.UpkeepSilver),
+			Archived:     input.Archived,
 		})
 		if err != nil {
 			return err
@@ -513,7 +529,7 @@ func roleArchiveConstructionErrors(requestContext context.Context, queries *stor
 	return fieldErrors, nil
 }
 
-func checkRoleSettings(rawLabel string, icon ColonyIcon) (string, []FieldError) {
+func checkRoleSettings(rawLabel string, icon ColonyIcon, upkeepSilver int64) (string, []FieldError) {
 	var fieldErrors []FieldError
 	label, fieldError := cleanText("label", rawLabel, roleLabelMaxLength)
 	switch {
@@ -524,6 +540,12 @@ func checkRoleSettings(rawLabel string, icon ColonyIcon) (string, []FieldError) 
 	}
 	if !slices.Contains(AllColonyIconValues(), icon) {
 		fieldErrors = append(fieldErrors, FieldError{Field: "icon", Message: "Pick one of the listed icons."})
+	}
+	switch {
+	case upkeepSilver < 0:
+		fieldErrors = append(fieldErrors, FieldError{Field: "upkeepSilver", Message: "Upkeep is 0 or more silver."})
+	case upkeepSilver > game.MaxStored:
+		fieldErrors = append(fieldErrors, FieldError{Field: "upkeepSilver", Message: "That much upkeep can't be stored."})
 	}
 	return label, fieldErrors
 }
@@ -547,6 +569,7 @@ func toRoleSettings(row store.Role, namedCount int64) RoleSettings {
 		UnnamedCount: int64(row.UnnamedCount),
 		NamedCount:   namedCount,
 		Headcount:    int64(row.UnnamedCount) + namedCount,
+		UpkeepSilver: int64(row.UpkeepSilver),
 		IsSystem:     row.IsSystem,
 		Archived:     row.Archived,
 	}

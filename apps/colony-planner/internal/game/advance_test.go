@@ -352,3 +352,84 @@ func TestAdvanceRefusesAnImpossibleState(t *testing.T) {
 		t.Fatal("advancing without a food resource must be refused")
 	}
 }
+
+func TestRoleUpkeepIsPaidInGoldOncePerAdvance(t *testing.T) {
+	// Farmer 3 unnamed + 1 named at 2 silver, Soldier 2 at 3 silver, Unassigned free: 14 silver a day.
+	paidRoles := func() map[string]Role {
+		return map[string]Role{
+			"FARMER":          {UnnamedCount: 3, NamedCount: 1, UpkeepSilver: 2},
+			"SOLDIER":         {UnnamedCount: 2, UpkeepSilver: 3},
+			UnassignedRoleKey: {UnnamedCount: 3},
+		}
+	}
+	floored := colony(0, 100, paidRoles(), nil)
+	floored.Resources[GoldResourceKey] = Resource{Label: "Gold", Amount: 50, MinAmount: 47}
+	archived := colony(0, 100, paidRoles(), nil)
+	archived.Resources[GoldResourceKey] = Resource{Label: "Gold", Amount: 50, Archived: true}
+	// The Builder finishes on Day 2 and brings 4 colonists into Unassigned, who cost from Day 3.
+	arrivals := colony(0, 100, map[string]Role{
+		"BUILDER":         {UnnamedCount: 1},
+		UnassignedRoleKey: {UpkeepSilver: 5},
+	}, nil)
+	arrivals.Projects = []Project{{
+		BuildingID:        buildingID(1),
+		Lines:             []LaborLine{{RoleKey: "BUILDER", Effort: 2, Crew: 1}},
+		CompletionEffects: Effects{Colonists: 4},
+	}}
+	crowded := colony(0, 100, map[string]Role{
+		UnassignedRoleKey: {UnnamedCount: MaxStored, UpkeepSilver: MaxStored},
+		"FARMER":          {UnnamedCount: MaxStored, UpkeepSilver: MaxStored},
+	}, nil)
+
+	// A mint makes 7 gold a day, capped at 60, before the week's 10 gold of upkeep is paid.
+	minted := colony(0, 100, paidRoles(), nil)
+	minted.Resources[GoldResourceKey] = Resource{Label: "Gold", Amount: 50, MaxAmount: pointer(int64(60))}
+	minted.Buildings = []StandingBuilding{{BuildingID: buildingID(1), Active: true, Output: map[string]ResourceOutput{GoldResourceKey: {DailyDelta: 7}}}}
+
+	tests := []struct {
+		name          string
+		state         State
+		days          int64
+		wantGold      int64
+		wantRequested int64
+	}{
+		{"one day rounds 14 silver up to 2 gold", colony(0, 100, paidRoles(), nil), 1, 48, -2},
+		{"a week rounds 98 silver up to 10 gold", colony(0, 100, paidRoles(), nil), 7, 40, -10},
+		{"five days are exactly 7 gold", colony(0, 100, paidRoles(), nil), 5, 43, -7},
+		{"no upkeep set", colony(0, 100, exampleBRoles(), nil), 30, 50, 0},
+		{"gold stops at its minimum", floored, 7, 47, -10},
+		{"archived gold is left alone", archived, 7, 50, 0},
+		{"new colonists cost from the next day", arrivals, 4, 46, -4},
+		{"gold output lands before the payment", minted, 7, 50, 39},
+		{"the largest bill does not overflow", crowded, MaxStored, 0, -(math.MaxInt64-1)/SilverPerGold - 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := mustAdvance(t, test.state, test.days)
+			if gold := result.After.Resources[GoldResourceKey].Amount; gold != test.wantGold {
+				t.Errorf("gold %d, want %d", gold, test.wantGold)
+			}
+			if requested := result.Requested[GoldResourceKey]; requested != test.wantRequested {
+				t.Errorf("requested %d, want %d", requested, test.wantRequested)
+			}
+			if applied := result.Applied.Resources[GoldResourceKey]; applied != test.wantGold-test.state.Resources[GoldResourceKey].Amount {
+				t.Errorf("applied %d, want %d", applied, test.wantGold-test.state.Resources[GoldResourceKey].Amount)
+			}
+		})
+	}
+}
+
+// Rounding once per advance is the one place advancing in parts differs from advancing once.
+func TestRoleUpkeepRoundsEachAdvanceOnItsOwn(t *testing.T) {
+	state := colony(0, 100, map[string]Role{UnassignedRoleKey: {UnnamedCount: 1, UpkeepSilver: 1}}, nil)
+	stepped := state
+	for range 7 {
+		stepped = mustAdvance(t, stepped, 1).After
+	}
+	if gold := stepped.Resources[GoldResourceKey].Amount; gold != 43 {
+		t.Errorf("seven one-day advances leave %d gold, want 43", gold)
+	}
+	if gold := mustAdvance(t, state, 7).After.Resources[GoldResourceKey].Amount; gold != 49 {
+		t.Errorf("one seven-day advance leaves %d gold, want 49", gold)
+	}
+}

@@ -24,7 +24,7 @@ type Step interface {
 
 // DailySteps is the pipeline, in order (docs/design/construction.md §4.1). A future step is appended
 // only if its rules need one.
-var DailySteps = []Step{BuildingOutput{}, Upkeep{}, Shipments{}, Construction{}}
+var DailySteps = []Step{BuildingOutput{}, Upkeep{}, RoleUpkeep{}, Shipments{}, Construction{}}
 
 // ArrivalRun is the arithmetic run of shipment arrival days First, First+Every, … (Count of them).
 // Its JSON is the `data` of a folded SHIPMENT_ARRIVED entry: {first, every, count}.
@@ -47,6 +47,8 @@ type Log struct {
 	requestedDeltas map[string]int64
 	arrivalRuns     []ArrivalRun
 	finishes        []BuildingFinish
+	// upkeepSilver is the role upkeep every span has run up, which the advance pays once at its end.
+	upkeepSilver int64
 }
 
 // RecordResourceDelta adds an applied change to a resource.
@@ -127,6 +129,53 @@ func (upkeep Upkeep) NextBoundary(State, int64) (int64, bool) {
 	return 0, false
 }
 
+// RoleUpkeep runs up each role's UpkeepSilver per colonist per day. It changes no stock: the advance
+// pays the whole bill once, at its end (payRoleUpkeep), which is where the silver rounds up to gold.
+type RoleUpkeep struct{}
+
+func (roleUpkeep RoleUpkeep) Span(state *State, from int64, to int64, log *Log) {
+	days := to - from
+	if days <= 0 {
+		return
+	}
+	log.upkeepSilver = saturatingAdd(log.upkeepSilver, saturatingProduct(DailyUpkeepSilver(state.Roles), days))
+}
+
+// DailyUpkeepSilver is the role's silver a day: its UpkeepSilver for each of its colonists.
+func (role Role) DailyUpkeepSilver() int64 {
+	return saturatingProduct(role.UpkeepSilver, role.UnnamedCount+role.NamedCount)
+}
+
+// DailyUpkeepSilver is what every role costs the colony in silver a day, before any rounding to gold.
+func DailyUpkeepSilver(roles map[string]Role) int64 {
+	var daily int64
+	for _, role := range roles {
+		daily = saturatingAdd(daily, role.DailyUpkeepSilver())
+	}
+	return daily
+}
+
+// Role upkeep changes nothing until the advance ends.
+func (roleUpkeep RoleUpkeep) NextBoundary(State, int64) (int64, bool) {
+	return 0, false
+}
+
+// payRoleUpkeep takes the advance's role upkeep from gold: its silver rounded up to whole gold, floored
+// at gold's minimum, where nothing else happens (decision 5). Rounding once per advance is the author's
+// rule, so advancing in parts can cost more gold than advancing once. Archived gold is left alone.
+func payRoleUpkeep(state *State, log *Log) {
+	gold, found := state.Resources[GoldResourceKey]
+	if !found || gold.Archived || log.upkeepSilver <= 0 {
+		return
+	}
+	owed := (log.upkeepSilver-1)/SilverPerGold + 1
+	log.RecordRequested(GoldResourceKey, -owed)
+	paid := min(owed, gold.Amount-gold.MinAmount)
+	log.RecordResourceDelta(GoldResourceKey, -paid)
+	gold.Amount -= paid
+	state.Resources[GoldResourceKey] = gold
+}
+
 // Shipments counts the arrivals in (from, to] as an arithmetic run and moves the next arrival to the
 // first day after `to`. Shipments carry nothing automatically (spec §5.3).
 type Shipments struct{}
@@ -171,8 +220,8 @@ type AdvanceResult struct {
 	// Applied holds the applied resource deltas only (zero ones omitted), building output included: the
 	// DAYS_ADVANCED deltas.
 	Applied Effects
-	// Requested is what building output, upkeep and every finish's completion Effects asked of each
-	// resource, before bounds cut it, so the preview marks a resource clamped only when a bound stopped
+	// Requested is what building output, upkeep, role upkeep and every finish's completion Effects asked
+	// of each resource, before bounds cut it, so the preview marks a resource clamped only when a bound stopped
 	// a change.
 	Requested map[string]int64
 	// Arrivals are every arrival in (Before.Day, After.Day], as runs; ArrivalCount is their total.
@@ -227,6 +276,7 @@ func advance(state State, days int64, steps []Step) (AdvanceResult, error) {
 		}
 		after.Day = to
 	}
+	payRoleUpkeep(&after, &log)
 	if after.Schedule != nil && after.Schedule.NextDay > MaxStored {
 		return AdvanceResult{}, invalid("days", MessageTooManyDays)
 	}
